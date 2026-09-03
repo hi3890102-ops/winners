@@ -395,6 +395,7 @@
     askAppMessages: [],
     askAppLoading: false,
     askAppPendingAction: null,
+    taxReminderInfo: null,
     showVendorManage: false,
     editingStoreOld: null,
     editingOwnerId: null,
@@ -667,6 +668,7 @@
             state.myUsername = record.username;
             state.myStores = await computeMyStoresDb(record.username);
             await loadAllForStore(record.store);
+            loadTaxReminderInfo().then(render);
             return;
           }
           if(record.status === "pending"){
@@ -691,6 +693,7 @@
       if(roleR && roleR.value === "hq"){
         state.role = "hq";
         await loadAllForStore(state.store);
+        loadTaxReminderInfo().then(render);
         return;
       }
     }catch(e){}
@@ -703,17 +706,20 @@
     localSet("my-role", "hq");
     state.role = "hq";
     await loadAllForStore(state.store);
+    loadTaxReminderInfo().then(render);
   }
   async function becomeStoreOwner(storeName){
     state.role = "storeOwner";
     state.store = storeName;
     await loadAllForStore(storeName);
+    loadTaxReminderInfo().then(render);
   }
   async function switchOwnerStore(storeName){
     if(storeName === state.store) return;
     state.store = storeName;
     state.showAddStoreForm = false;
     await loadAllForStore(storeName);
+    loadTaxReminderInfo().then(render);
   }
 
   async function startHqFlow(){
@@ -2794,6 +2800,7 @@
     html += '<main>';
     html += renderHealthCertBanner();
     html += renderMissingReportBanner();
+    html += renderTaxReminderBanner();
     if(state.showStoreManage) html += renderStoreManage();
     if(state.showAddStoreForm) html += renderAddStoreForm();
     if(state.section === "dashboard"){
@@ -2876,6 +2883,55 @@
     html += '<div style="font-weight:800;font-size:13px;color:var(--danger);">⚠️ 어제('+formatDateLabel(yKey)+') 매출보고가 아직 안 올라왔어요</div>';
     html += '</div>';
     return html;
+  }
+
+  async function loadTaxReminderInfo(){
+    const day = now.getDate();
+    if(day < 5){ state.taxReminderInfo = null; return; }
+    const curMonthKey = now.getFullYear()+"-"+pad(now.getMonth()+1);
+    const storeId = currentStoreId();
+    if(!storeId){ state.taxReminderInfo = null; return; }
+    try{
+      const { data: ackRows } = await db.from('tax_reminder_ack').select('id').eq('store_id', storeId).eq('month_key', curMonthKey);
+      if(ackRows && ackRows.length>0){ state.taxReminderInfo = null; return; }
+    }catch(e){}
+    let curM = now.getMonth()+1, prevM = curM-1, prevY = now.getFullYear();
+    if(prevM < 1){ prevM = 12; prevY -= 1; }
+    const prevKey = prevY+"-"+pad(prevM);
+    const { start, end } = monthDateRange(prevKey);
+    let attArr = [];
+    try{
+      const { data } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
+      attArr = (data||[]).map(r=>({ crewId:r.crew_id, date:r.date, checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out? r.check_out.slice(0,5): null, confirmed: !!r.confirmed }));
+    }catch(e){}
+    let total = 0;
+    (state.crew||[]).forEach(c=>{
+      const info = calcCrewPayFrom(c, attArr, prevY, prevM);
+      total += info.pay;
+    });
+    state.taxReminderInfo = { monthKey: curMonthKey, prevMonthLabel: prevY+"년 "+prevM+"월", total, isPastDeadline: day > 10 };
+  }
+  function renderTaxReminderBanner(){
+    if(!state.taxReminderInfo) return "";
+    const info = state.taxReminderInfo;
+    const bg = info.isPastDeadline ? "var(--danger-dim)" : "#FFF4E5";
+    const border = info.isPastDeadline ? "#F5B5B8" : "#FFD9A0";
+    const fg = info.isPastDeadline ? "var(--danger)" : "#8A5A00";
+    let html = '<div style="background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:12px 14px;margin:0 0 14px;">';
+    html += '<div style="font-weight:800;font-size:13px;color:'+fg+';margin-bottom:4px;">'+(info.isPastDeadline?'⚠️ 원천세 신고 기한이 지났어요 (매달 10일)':'📋 원천세 신고 기한이 다가와요 (매달 10일까지)')+'</div>';
+    html += '<div style="font-size:12.5px;color:'+fg+';">'+info.prevMonthLabel+' 급여 합계 '+info.total.toLocaleString()+'원 · 참고용 수치예요, 정확한 신고는 세무사와 확인해 주세요</div>';
+    html += '<button class="crew-code-btn" id="tax-reminder-ack-btn" style="margin-top:8px;">신고 완료, 이번 달엔 안 보이게 하기</button>';
+    html += '</div>';
+    return html;
+  }
+  async function ackTaxReminder(){
+    const storeId = currentStoreId();
+    if(!storeId || !state.taxReminderInfo) return;
+    try{
+      await db.from('tax_reminder_ack').insert({ store_id: storeId, month_key: state.taxReminderInfo.monthKey });
+    }catch(e){}
+    state.taxReminderInfo = null;
+    render();
   }
 
   function renderStoreManage(){
@@ -4833,6 +4889,8 @@
     if(askAppConfirmBtn) askAppConfirmBtn.addEventListener("click", confirmPendingAction);
     const askAppCancelBtn = document.getElementById("ask-app-cancel-btn");
     if(askAppCancelBtn) askAppCancelBtn.addEventListener("click", cancelPendingAction);
+    const taxReminderAckBtn = document.getElementById("tax-reminder-ack-btn");
+    if(taxReminderAckBtn) taxReminderAckBtn.addEventListener("click", ackTaxReminder);
     const toggleAnnFormBtnOwner = document.getElementById("toggle-ann-form-btn");
     if(toggleAnnFormBtnOwner) toggleAnnFormBtnOwner.addEventListener("click", ()=>{ state.showAnnounceForm = !state.showAnnounceForm; render(); });
     const submitAnnBtnOwner = document.getElementById("submit-ann-btn");
