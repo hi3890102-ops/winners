@@ -2034,8 +2034,8 @@
       try{
         if(storeId){
           const { start, end } = monthDateRange(mKey);
-          const { data } = await db.from('sales_reports').select('total_sales,delivery_baemin,delivery_coupang,delivery_yogiyo').eq('store_id', storeId).gte('date', start).lte('date', end);
-          salesArr = (data||[]).map(r=>({ totalSales: r.total_sales||0, deliverySum: (r.delivery_baemin||0)+(r.delivery_coupang||0)+(r.delivery_yogiyo||0) }));
+          const { data } = await db.from('sales_reports').select('date,total_sales,delivery_baemin,delivery_coupang,delivery_yogiyo').eq('store_id', storeId).gte('date', start).lte('date', end);
+          salesArr = (data||[]).map(r=>({ date: r.date, totalSales: r.total_sales||0, deliverySum: (r.delivery_baemin||0)+(r.delivery_coupang||0)+(r.delivery_yogiyo||0) }));
         }
       }catch(e){}
       try{
@@ -2078,7 +2078,9 @@
       }
       const checklistPct = total>0 ? Math.round(done/total*100) : null;
 
-      return { store, salesSum, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length };
+      const yKey = yesterdayKey();
+      const hasYesterdayReport = salesArr.some(s=> s.date===yKey);
+      return { store, salesSum, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport };
     }));
     results.sort((a,b)=> b.salesSum - a.salesSum);
     state.dashboardData = results;
@@ -2646,6 +2648,7 @@
     html += '</header>';
     html += '<main>';
     html += renderHealthCertBanner();
+    html += renderMissingReportBanner();
     if(state.showStoreManage) html += renderStoreManage();
     if(state.showAddStoreForm) html += renderAddStoreForm();
     if(state.section === "dashboard") html += renderDashboard();
@@ -2705,6 +2708,24 @@
       const statusText = item.daysUntil < 0 ? (Math.abs(item.daysUntil)+'일 지남 (만료됨)') : (item.daysUntil===0 ? '오늘 만료' : ('D-'+item.daysUntil));
       html += '<div style="font-size:12.5px;color:#6B4500;padding:2px 0;">'+escapeHtml(item.name)+' · '+item.expiry+' · '+statusText+'</div>';
     });
+    html += '</div>';
+    return html;
+  }
+
+  function yesterdayKey(){
+    const d = new Date(now.getTime() - 86400000);
+    return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+  }
+  function renderMissingReportBanner(){
+    const yKey = yesterdayKey();
+    const dObj = new Date(yKey);
+    const dow = dObj.getDay();
+    const yStoreOpenYesterday = true; // 향후 매장별 정기휴무 반영 가능
+    if(!yStoreOpenYesterday) return "";
+    const hasReport = state.salesReports.some(r=> r.date===yKey);
+    if(hasReport) return "";
+    let html = '<div style="background:var(--danger-dim);border:1px solid #F5B5B8;border-radius:12px;padding:12px 14px;margin:0 0 14px;">';
+    html += '<div style="font-weight:800;font-size:13px;color:var(--danger);">⚠️ 어제('+formatDateLabel(yKey)+') 매출보고가 아직 안 올라왔어요</div>';
     html += '</div>';
     return html;
   }
@@ -2911,6 +2932,7 @@
         html += renderAnnouncementsList(person);
       }else if(state.staffView === "sales"){
         html += '<h3 style="margin:0 0 14px;font-size:16px;font-weight:800;">'+state.store+' 매출</h3>';
+        html += renderMissingReportBanner();
         html += renderSalesSection();
       }else{
         html += renderStaffHomeContent(person);
@@ -3297,6 +3319,14 @@
     const overallRatio = totalSales>0 ? (totalPay/totalSales*100) : 0;
     const overallExpenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : 0;
 
+    const missingStores = data.filter(d=> !d.hasYesterdayReport);
+    if(missingStores.length>0){
+      html += '<div style="background:var(--danger-dim);border:1px solid #F5B5B8;border-radius:12px;padding:12px 14px;margin-bottom:14px;">';
+      html += '<div style="font-weight:800;font-size:13px;color:var(--danger);margin-bottom:4px;">⚠️ 어제 매출보고 미제출 매장</div>';
+      html += '<div style="font-size:12.5px;color:var(--danger);">'+missingStores.map(d=>escapeHtml(d.store)).join(', ')+'</div>';
+      html += '</div>';
+    }
+
     html += '<div class="pay-summary">';
     html += '<p class="label">'+(state.role==="hq"?"전체 매장 합산 매출":"내 매장 합산 매출")+' (이번 달 누적)</p>';
     html += '<p class="amount">'+totalSales.toLocaleString()+'원</p>';
@@ -3592,6 +3622,30 @@
     return html;
   }
 
+  function detectSalesAnomaly(dateStr, report){
+    if(!report) return null;
+    const others = state.salesReports.filter(r=> r.date!==dateStr && Number(r.totalSales)>0);
+    if(others.length < 3) return null;
+    let sum = 0;
+    others.forEach(r=> sum += Number(r.totalSales)||0);
+    const avg = sum / others.length;
+    if(avg <= 0) return null;
+    const today = Number(report.totalSales)||0;
+    const diffPct = ((today - avg) / avg) * 100;
+    if(diffPct <= -30){
+      return { type:"low", text:"오늘 매출이 이번 달 평균("+Math.round(avg).toLocaleString()+"원)보다 "+Math.abs(Math.round(diffPct))+"% 낮아요. 확인해보시는 게 좋을 것 같아요." };
+    }
+    if(diffPct >= 50){
+      return { type:"high", text:"오늘 매출이 이번 달 평균("+Math.round(avg).toLocaleString()+"원)보다 "+Math.round(diffPct)+"% 높아요. 특별한 날이었는지 확인해보세요." };
+    }
+    const cashPlusCard = (Number(report.cashSales)||0) + (Number(report.cardSales)||0) + (Number(report.deliveryBaemin)||0) + (Number(report.deliveryCoupang)||0) + (Number(report.deliveryYogiyo)||0);
+    const netForCheck = Number(report.netSales)||0;
+    if(netForCheck>0 && Math.abs(cashPlusCard - netForCheck) > netForCheck*0.1 && cashPlusCard>0){
+      return { type:"mismatch", text:"현금+카드+배달매출 합계가 순매출과 좀 차이나요. 입력값을 한 번 확인해보세요." };
+    }
+    return null;
+  }
+
   function renderSalesReportsOwnerTab(){
     if(state.showOwnerSalesForm){
       return renderSalesReportForm();
@@ -3650,6 +3704,12 @@
         html += '<div class="empty-note" style="padding:8px 0;">이 날은 제출된 매출보고가 없어요.</div>';
       }else{
         html += '<p class="crew-code-hint" style="margin-bottom:8px;">'+escapeHtml(report.managerName)+' 제출</p>';
+        const anomaly = detectSalesAnomaly(dateStr, report);
+        if(anomaly){
+          const bg = anomaly.type==="low" ? "var(--danger-dim)" : anomaly.type==="high" ? "var(--olive-dim)" : "#FFF4E5";
+          const fg = anomaly.type==="low" ? "var(--danger)" : anomaly.type==="high" ? "var(--olive)" : "#8A5A00";
+          html += '<div style="background:'+bg+';border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12.5px;color:'+fg+';font-weight:600;">⚠️ '+anomaly.text+'</div>';
+        }
         const rowsMeta = [["totalSales","총매출"],["discount","할인"],["refund","반품"]];
         rowsMeta.forEach(([key,label])=>{
           html += '<div class="pay-list-item"><span class="d">'+label+'</span><span>'+(Number(report[key])||0).toLocaleString()+'원</span></div>';
