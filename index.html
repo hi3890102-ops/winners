@@ -392,6 +392,8 @@
     vendors: [],
     fixedExpenses: [],
     showFixedExpenseManage: false,
+    askAppAnswer: null,
+    askAppLoading: false,
     showVendorManage: false,
     editingStoreOld: null,
     editingOwnerId: null,
@@ -1561,6 +1563,51 @@
   }
   function removeDraftPhoto(arrName, idx){
     state.salesDraft[arrName].splice(idx,1);
+    render();
+  }
+  function buildAppContext(){
+    const y = state.monthYear, m = state.monthNum;
+    const ctx = { store: state.store, month: y+"-"+pad(m), role: state.role };
+    ctx.crew = (state.crew||[]).map(c=>{
+      const info = calcCrewPay(c, y, m);
+      return { name: c.name, position: c.position, wageType: c.wageType, wage: c.wage, hoursThisMonth: Number(info.hours.toFixed(1)), daysThisMonth: info.days, estimatedPay: info.pay };
+    });
+    ctx.salesReportsThisMonth = (state.salesReports||[]).map(r=>({
+      date: r.date, totalSales: r.totalSales, cashSales: r.cashSales, cardSales: r.cardSales,
+      deliveryBaemin: r.deliveryBaemin, deliveryCoupang: r.deliveryCoupang, deliveryYogiyo: r.deliveryYogiyo
+    }));
+    if(state.dashboardData){
+      ctx.allStoresThisMonth = state.dashboardData.map(d=>({
+        store: d.store, salesSum: d.salesSum, deliverySum: d.deliverySum, laborPay: d.laborPay,
+        laborRatio: d.laborRatio, expenseSum: d.expenseSum, expenseRatio: d.expenseRatio, crewCount: d.crewCount
+      }));
+    }
+    return ctx;
+  }
+  async function askApp(){
+    const input = document.getElementById("ask-app-input");
+    const question = (input.value||"").trim();
+    if(!question){ showToast("질문을 입력해 주세요."); return; }
+    state.askAppAnswer = null;
+    state.askAppLoading = true;
+    render();
+    try{
+      const context = buildAppContext();
+      const response = await fetch("/.netlify/functions/ask-app", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question, context })
+      });
+      const data = await response.json();
+      if(!response.ok || !data.answer){
+        state.askAppAnswer = "답변을 가져오지 못했어요, 다시 시도해 주세요.";
+      }else{
+        state.askAppAnswer = data.answer;
+      }
+    }catch(e){
+      state.askAppAnswer = "답변을 가져오지 못했어요, 다시 시도해 주세요.";
+    }
+    state.askAppLoading = false;
     render();
   }
   function openSalesReportForDate(dateStr){
@@ -3330,6 +3377,17 @@
       html += '</div>';
     }
 
+    html += '<div class="day-panel" style="margin-bottom:14px;">';
+    html += '<h3 style="margin:0 0 8px;">✨ AI한테 물어보기</h3>';
+    html += '<p class="crew-code-hint" style="margin-bottom:10px;">이번 달 데이터를 근거로 답해드려요. (예: "이번 달 인건비율 얼마야?", "OO 이번 달 몇 시간 근무했어?")</p>';
+    html += '<div class="add-row" style="padding:0;background:transparent;"><input id="ask-app-input" type="text" placeholder="질문을 입력해 주세요" style="flex:1;min-width:0;" onkeydown="if(event.key===\'Enter\'){event.preventDefault();document.getElementById(\'ask-app-btn\').click();}"><button id="ask-app-btn">'+(state.askAppLoading?'답변 중…':'물어보기')+'</button></div>';
+    if(state.askAppLoading){
+      html += '<p class="crew-code-hint" style="margin-top:10px;">데이터를 살펴보고 있어요…</p>';
+    }else if(state.askAppAnswer){
+      html += '<div style="margin-top:10px;padding:12px;background:var(--cream);border-radius:10px;font-size:13.5px;color:var(--ink);white-space:pre-wrap;line-height:1.5;">'+escapeHtml(state.askAppAnswer)+'</div>';
+    }
+    html += '</div>';
+
     html += '<div class="pay-summary">';
     html += '<p class="label">'+(state.role==="hq"?"전체 매장 합산 매출":"내 매장 합산 매출")+' (이번 달 누적)</p>';
     html += '<p class="amount">'+totalSales.toLocaleString()+'원</p>';
@@ -4635,6 +4693,8 @@
     });
     const refreshDashboardBtn = document.getElementById("refresh-dashboard-btn");
     if(refreshDashboardBtn) refreshDashboardBtn.addEventListener("click", loadDashboardData);
+    const askAppBtn = document.getElementById("ask-app-btn");
+    if(askAppBtn) askAppBtn.addEventListener("click", askApp);
     const toggleAnnFormBtnOwner = document.getElementById("toggle-ann-form-btn");
     if(toggleAnnFormBtnOwner) toggleAnnFormBtnOwner.addEventListener("click", ()=>{ state.showAnnounceForm = !state.showAnnounceForm; render(); });
     const submitAnnBtnOwner = document.getElementById("submit-ann-btn");
