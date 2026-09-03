@@ -359,6 +359,9 @@
     store: DEFAULT_STORES[0],
     storeList: [],
     storeIdMap: {},
+    storeLocationMap: {},
+    storeOnboardingMap: {},
+    onboardingStep: null,
     showStoreManage: false,
     landingMode: "default", // default | code | pin-setup | pin-entry | store-entry | store-login | request-form | request-pending | request-rejected
     pendingStoreForOwner: null,
@@ -416,7 +419,8 @@
     myCrewId: null,
     staffView: "home",
     loading: true,
-    pendingConfirm: null // { message, onConfirm }
+    pendingConfirm: null, // { message, onConfirm }
+    attConfirmPrompt: null
   };
 
   const app = document.getElementById("app");
@@ -484,20 +488,22 @@
   async function loadStoreList(){
     let rows = [];
     try{
-      const { data, error } = await db.from('stores').select('id,name').order('created_at');
+      const { data, error } = await db.from('stores').select('id,name,lat,lng,onboarding_done').order('created_at');
       if(error) throw error;
       rows = data || [];
     }catch(e){ rows = []; }
     if(rows.length === 0){
       try{
-        const { data, error } = await db.from('stores').insert(DEFAULT_STORES.map(name=>({name}))).select('id,name');
+        const { data, error } = await db.from('stores').insert(DEFAULT_STORES.map(name=>({name}))).select('id,name,lat,lng,onboarding_done');
         if(error) throw error;
         rows = data || [];
       }catch(e){ rows = DEFAULT_STORES.map(name=>({ id:null, name })); }
     }
     state.storeList = rows.map(r=>r.name);
     state.storeIdMap = {};
-    rows.forEach(r=>{ state.storeIdMap[r.name] = r.id; });
+    state.storeLocationMap = {};
+    state.storeOnboardingMap = {};
+    rows.forEach(r=>{ state.storeIdMap[r.name] = r.id; state.storeLocationMap[r.name] = (r.lat!=null && r.lng!=null) ? { lat:r.lat, lng:r.lng } : null; state.storeOnboardingMap[r.name] = !!r.onboarding_done; });
     state.store = state.storeList[0];
   }
   function currentStoreId(){ return state.storeIdMap[state.store]; }
@@ -539,6 +545,30 @@
   function cancelRenameStore(){
     state.editingStoreOld = null;
     render();
+  }
+  function haversineMeters(lat1, lng1, lat2, lng2){
+    const R = 6371000;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2-lat1), dLng = toRad(lng2-lng1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+  function setStoreLocation(storeName){
+    if(!navigator.geolocation){ showToast("이 기기에서는 위치 기능을 지원하지 않아요."); return; }
+    showToast("현재 위치를 확인하는 중이에요…");
+    navigator.geolocation.getCurrentPosition(async (pos)=>{
+      const lat = pos.coords.latitude, lng = pos.coords.longitude;
+      const storeId = state.storeIdMap[storeName];
+      if(!storeId){ showToast("매장 정보를 찾지 못했어요."); return; }
+      try{
+        await db.from('stores').update({ lat, lng }).eq('id', storeId);
+        state.storeLocationMap[storeName] = { lat, lng };
+        render();
+        showToast(storeName+"의 위치를 저장했어요.");
+      }catch(e){ showToast("위치 저장에 실패했어요."); }
+    }, (err)=>{
+      showToast("위치를 가져오지 못했어요. 위치 권한을 허용해 주세요.");
+    }, { enableHighAccuracy: true, timeout: 10000 });
   }
   async function submitRenameStore(oldName){
     const input = document.getElementById("rename-store-input");
@@ -673,6 +703,7 @@
             state.myUsername = record.username;
             state.myStores = await computeMyStoresDb(record.username);
             await loadAllForStore(record.store);
+            state.onboardingStep = (state.storeOnboardingMap && !state.storeOnboardingMap[record.store]) ? "location" : null;
             loadTaxReminderInfo().then(render);
             return;
           }
@@ -717,6 +748,7 @@
     state.role = "storeOwner";
     state.store = storeName;
     await loadAllForStore(storeName);
+    state.onboardingStep = (state.storeOnboardingMap && !state.storeOnboardingMap[storeName]) ? "location" : null;
     loadTaxReminderInfo().then(render);
   }
   async function switchOwnerStore(storeName){
@@ -1208,7 +1240,7 @@
       state.attendance = (data||[]).map(r=>({
         id:r.id, date:r.date, crewId:r.crew_id,
         checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out ? r.check_out.slice(0,5) : null,
-        confirmed: !!r.confirmed
+        confirmed: !!r.confirmed, staffConfirmed: !!r.staff_confirmed, timeEdited: !!r.time_edited, staffAckEdit: !!r.staff_ack_edit
       }));
     }catch(e){ state.attendance = []; }
   }
@@ -2131,21 +2163,7 @@
   }
 
   function calcCrewPay(c, y, m){
-    const confirmedAtt = state.attendance.filter(a=>a.crewId===c.id && a.checkOut && a.confirmed);
-    let hours = 0;
-    const daysSet = new Set();
-    confirmedAtt.forEach(a=>{ hours += hoursBetween(a.checkIn, a.checkOut); daysSet.add(a.date); });
-    const days = daysSet.size;
-    let pay;
-    if(c.wageType === "monthly"){
-      const totalDaysInMonth = daysInMonth(y, m);
-      const dailyRate = (c.wage||0) / totalDaysInMonth;
-      pay = Math.round(dailyRate * days);
-    }else{
-      pay = Math.round(hours * (c.wage||0));
-    }
-    if(c.probation) pay = Math.round(pay * 0.9);
-    return { hours, days, pay };
+    return calcCrewPayFrom(c, state.attendance, y, m);
   }
 
   function calcCrewPayFrom(c, attArr, y, m){
@@ -2153,12 +2171,23 @@
     let hours = 0;
     const daysSet = new Set();
     confirmedAtt.forEach(a=>{ hours += hoursBetween(a.checkIn, a.checkOut); daysSet.add(a.date); });
-    const days = daysSet.size;
+    let days = daysSet.size;
     let pay;
     if(c.wageType === "monthly"){
       const totalDaysInMonth = daysInMonth(y, m);
+      const monthStart = new Date(y, m-1, 1);
+      const monthEnd = new Date(y, m-1, totalDaysInMonth);
+      let empStart = c.hireDate ? new Date(c.hireDate) : monthStart;
+      let empEnd = c.resignDate ? new Date(c.resignDate) : monthEnd;
+      if(empStart < monthStart) empStart = monthStart;
+      if(empEnd > monthEnd) empEnd = monthEnd;
+      let employedDays = 0;
+      if(empEnd >= empStart){
+        employedDays = Math.round((empEnd - empStart) / 86400000) + 1;
+      }
+      days = employedDays;
       const dailyRate = (c.wage||0) / totalDaysInMonth;
-      pay = Math.round(dailyRate * days);
+      pay = Math.round(dailyRate * employedDays);
     }else{
       pay = Math.round(hours * (c.wage||0));
     }
@@ -2705,7 +2734,89 @@
     (async ()=>{ try{ await db.from('shifts').delete().eq('id', id); }catch(e){} })();
   }
 
+  function renderOnboardingWizard(){
+    const step = state.onboardingStep;
+    let html = '<div style="min-height:100vh;background:var(--cream);padding:28px 20px;">';
+    html += '<div style="text-align:center;margin-bottom:22px;"><span class="mark">'+mascotSymbolSvg()+'</span><h1 style="margin:10px 0 0;font-size:18px;"><span style="color:var(--ink);">Store</span><span style="color:var(--brick);">Manager</span></h1></div>';
+    html += '<h2 style="font-size:17px;margin:0 0 6px;">'+escapeHtml(state.store)+' 매장 설정을 시작해요</h2>';
+    html += '<div style="display:flex;gap:6px;margin:14px 0 20px;">';
+    html += '<div style="flex:1;height:4px;border-radius:4px;background:var(--brick);"></div>';
+    html += '<div style="flex:1;height:4px;border-radius:4px;background:'+(step==="staff"?"var(--brick)":"var(--line)")+';"></div>';
+    html += '</div>';
+
+    if(step === "location"){
+      const hasLoc = state.storeLocationMap && state.storeLocationMap[state.store];
+      html += '<div class="day-panel">';
+      html += '<h3>1. 매장 위치 등록</h3>';
+      html += '<p class="crew-code-hint" style="margin-bottom:14px;">지금 매장 안에서 이 버튼을 눌러주세요. 스텝들 출퇴근이 이 위치 100m 이내에서만 찍히게 돼요.</p>';
+      if(hasLoc){
+        html += '<p style="color:var(--olive);font-weight:700;font-size:13.5px;margin-bottom:14px;">📍 위치가 등록됐어요.</p>';
+      }
+      html += '<button class="landing-btn primary" id="onboard-set-location-btn" style="margin:0 0 10px;">'+(hasLoc?'위치 다시 등록하기':'지금 위치를 매장 위치로 등록')+'</button>';
+      html += '<button class="landing-btn secondary" id="onboard-skip-location-btn" style="margin:0;">'+(hasLoc?'다음':'나중에 하고 다음으로')+'</button>';
+      html += '</div>';
+    }else if(step === "staff"){
+      html += '<div class="day-panel">';
+      html += '<h3>2. 스텝 등록하기</h3>';
+      html += '<p class="crew-code-hint" style="margin-bottom:14px;">지금 등록해도 되고, 나중에 스케줄 탭에서 언제든 추가할 수 있어요.</p>';
+      if(state.crew.length>0){
+        html += '<div style="margin-bottom:14px;">';
+        state.crew.forEach(c=>{
+          html += '<div class="pay-list-item"><span class="d">'+escapeHtml(c.name)+'</span><span>'+(c.position||"홀")+'</span></div>';
+        });
+        html += '</div>';
+      }
+      html += '<div class="crew-form" style="margin-bottom:14px;">';
+      html += '<div class="row2"><div><label class="field-label">이름</label><input id="crew-name-input" type="text" placeholder="이름"></div><div class="narrow"><label class="field-label">급여방식</label><select id="crew-wagetype-select"><option value="hourly">시급</option><option value="monthly">월급</option></select></div></div>';
+      html += '<div class="row2"><div><label class="field-label">금액 (원)</label><input id="crew-wage-input" type="number" placeholder="금액" min="0" step="100"></div><div><label class="field-label">전화번호 (선택)</label><input id="crew-phone-input" type="text" placeholder="전화번호"></div></div>';
+      html += '<div><label class="field-label">근무 파트</label><select id="crew-position-select"><option value="홀">홀</option><option value="주방">주방</option><option value="그 외">그 외</option></select></div>';
+      html += '<button id="add-crew-btn">스텝 추가</button>';
+      html += '</div>';
+      html += '<button class="landing-btn primary" id="onboard-finish-btn" style="margin:0;">설정 완료, 앱 이용하기</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+  function bindOnboardingWizardEvents(){
+    const setLocBtn = document.getElementById("onboard-set-location-btn");
+    if(setLocBtn) setLocBtn.addEventListener("click", ()=> setStoreLocation(state.store));
+    const skipLocBtn = document.getElementById("onboard-skip-location-btn");
+    if(skipLocBtn) skipLocBtn.addEventListener("click", ()=>{ state.onboardingStep = "staff"; render(); });
+    const addCrewBtn = document.getElementById("add-crew-btn");
+    if(addCrewBtn) addCrewBtn.addEventListener("click", addCrewMember);
+    const finishBtn = document.getElementById("onboard-finish-btn");
+    if(finishBtn) finishBtn.addEventListener("click", finishOnboarding);
+  }
+  async function finishOnboarding(){
+    const storeId = currentStoreId();
+    if(storeId){
+      try{ await db.from('stores').update({ onboarding_done: true }).eq('id', storeId); }catch(e){}
+    }
+    if(!state.storeOnboardingMap) state.storeOnboardingMap = {};
+    state.storeOnboardingMap[state.store] = true;
+    state.onboardingStep = null;
+    render();
+  }
+
+  function verifyNearStore(){
+    return new Promise((resolve)=>{
+      const loc = state.storeLocationMap && state.storeLocationMap[state.store];
+      if(!loc){ resolve({ ok:true }); return; }
+      if(!navigator.geolocation){ resolve({ ok:false, reason:"이 기기에서는 위치 확인이 안 돼서 출퇴근을 찍을 수 없어요." }); return; }
+      navigator.geolocation.getCurrentPosition((pos)=>{
+        const dist = haversineMeters(pos.coords.latitude, pos.coords.longitude, loc.lat, loc.lng);
+        if(dist <= 100){ resolve({ ok:true }); }
+        else{ resolve({ ok:false, reason:"매장에서 너무 멀어요 (약 "+Math.round(dist)+"m 떨어짐). 매장 근처에서 다시 시도해 주세요." }); }
+      }, (err)=>{
+        resolve({ ok:false, reason:"위치 권한이 필요해요. 위치 접근을 허용한 후 다시 시도해 주세요." });
+      }, { enableHighAccuracy: true, timeout: 10000 });
+    });
+  }
   async function clockIn(){
+    showToast("위치를 확인하는 중이에요…");
+    const check = await verifyNearStore();
+    if(!check.ok){ showToast(check.reason); return; }
     const storeId = currentStoreId();
     try{
       const { data, error } = await db.from('attendance').insert({ store_id: storeId, crew_id: state.myCrewId, date: todayKey(), check_in: nowTimeStr(), confirmed:false }).select().single();
@@ -2716,15 +2827,82 @@
     }catch(e){ showToast("저장에 실패했어요."); }
   }
   async function clockOut(){
+    showToast("위치를 확인하는 중이에요…");
+    const check = await verifyNearStore();
+    if(!check.ok){ showToast(check.reason); return; }
     const rec = state.attendance.find(a=> a.date===todayKey() && a.crewId===state.myCrewId && !a.checkOut);
     if(!rec) return;
     const checkOut = nowTimeStr();
+    const checkInForPrompt = rec.checkIn;
     rec.checkOut = checkOut;
     rec.confirmed = false;
+    rec.staffConfirmed = false;
     render();
-    try{ await db.from('attendance').update({ check_out: checkOut, confirmed:false }).eq('id', rec.id); }
-    catch(e){ showToast("저장에 실패했어요."); }
-    showToast("퇴근 처리됐어요. 매니저 근무확인 후 급여에 반영돼요");
+    try{ await db.from('attendance').update({ check_out: checkOut, confirmed:false, staff_confirmed:false }).eq('id', rec.id); }
+    catch(e){ showToast("저장에 실패했어요."); return; }
+    showToast("퇴근 처리됐어요");
+    state.attConfirmPrompt = { attId: rec.id, checkIn: checkInForPrompt, checkOut: checkOut, editing:false };
+    render();
+  }
+  function confirmMyAttendance(attId){
+    const rec = state.attendance.find(a=>a.id===attId);
+    if(!rec) return;
+    rec.staffConfirmed = true;
+    render();
+    (async ()=>{ try{ await db.from('attendance').update({ staff_confirmed: true }).eq('id', attId); }catch(e){} })();
+    showToast("확인해 주셔서 감사해요, 매니저한테 전달됐어요");
+  }
+  function ackEditedAttendance(attId){
+    const rec = state.attendance.find(a=>a.id===attId);
+    if(!rec) return;
+    rec.staffAckEdit = true;
+    render();
+    (async ()=>{ try{ await db.from('attendance').update({ staff_ack_edit: true }).eq('id', attId); }catch(e){} })();
+  }
+  function renderAttConfirmPrompt(){
+    const p = state.attConfirmPrompt;
+    if(!p) return "";
+    let html = '<div class="confirm-overlay" id="att-confirm-overlay">';
+    html += '<div class="confirm-box">';
+    if(!p.editing){
+      html += '<p>오늘 '+escapeHtml(p.checkIn)+'~'+escapeHtml(p.checkOut)+' 근무하신 게 맞나요?</p>';
+      html += '<div class="confirm-row"><button class="cancel" id="att-confirm-wrong">아니에요, 수정할게요</button><button class="ok" id="att-confirm-right">맞아요</button></div>';
+    }else{
+      html += '<p style="margin-bottom:10px;">정확한 시간으로 고쳐주세요</p>';
+      html += '<div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:14px;">';
+      html += '<input type="text" id="att-confirm-checkin" value="'+escapeHtml(p.checkIn)+'" placeholder="HH:MM" style="width:70px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:14px;font-family:inherit;">';
+      html += '<span>–</span>';
+      html += '<input type="text" id="att-confirm-checkout" value="'+escapeHtml(p.checkOut)+'" placeholder="HH:MM" style="width:70px;text-align:center;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:14px;font-family:inherit;">';
+      html += '</div>';
+      html += '<div class="confirm-row"><button class="cancel" id="att-confirm-cancel-edit">취소</button><button class="ok" id="att-confirm-save-edit">저장</button></div>';
+    }
+    html += '</div></div>';
+    return html;
+  }
+  function bindAttConfirmPrompt(){
+    const overlay = document.getElementById("att-confirm-overlay");
+    if(!overlay) return;
+    const wrongBtn = document.getElementById("att-confirm-wrong");
+    if(wrongBtn) wrongBtn.addEventListener("click", ()=>{ state.attConfirmPrompt.editing = true; render(); });
+    const rightBtn = document.getElementById("att-confirm-right");
+    if(rightBtn) rightBtn.addEventListener("click", ()=>{ confirmMyAttendance(state.attConfirmPrompt.attId); state.attConfirmPrompt = null; render(); });
+    const cancelEditBtn = document.getElementById("att-confirm-cancel-edit");
+    if(cancelEditBtn) cancelEditBtn.addEventListener("click", ()=>{ state.attConfirmPrompt.editing = false; render(); });
+    const saveEditBtn = document.getElementById("att-confirm-save-edit");
+    if(saveEditBtn) saveEditBtn.addEventListener("click", async ()=>{
+      const ciInput = document.getElementById("att-confirm-checkin");
+      const coInput = document.getElementById("att-confirm-checkout");
+      const ci = (ciInput.value||"").trim(), co = (coInput.value||"").trim();
+      if(!isValidTimeStr(ci) || !isValidTimeStr(co)){ showToast("시간은 HH:MM 형식으로 입력해 주세요 (예: 09:30)."); return; }
+      const attId = state.attConfirmPrompt.attId;
+      const rec = state.attendance.find(a=>a.id===attId);
+      if(rec){ rec.checkIn = ci; rec.checkOut = co; rec.staffConfirmed = true; }
+      state.attConfirmPrompt = null;
+      render();
+      try{ await db.from('attendance').update({ check_in: ci, check_out: co, staff_confirmed: true }).eq('id', attId); }
+      catch(e){ showToast("저장에 실패했어요."); return; }
+      showToast("수정한 시간이 매니저한테 전달됐어요");
+    });
   }
   function toggleAttendanceConfirm(attId){
     const rec = state.attendance.find(a=>a.id===attId);
@@ -2756,10 +2934,21 @@
     const rec = state.attendance.find(a=>a.id===attId);
     if(!rec) return;
     if(!isValidTimeStr(value)){ showToast("시간은 HH:MM 형식으로 입력해 주세요 (예: 09:30)."); render(); return; }
+    const changed = rec[field] !== value;
     rec[field] = value;
-    render();
+    let updatePayload = {};
     const col = field === "checkIn" ? "check_in" : "check_out";
-    (async ()=>{ try{ await db.from('attendance').update({ [col]: value }).eq('id', attId); }catch(e){ showToast("저장에 실패했어요."); } })();
+    updatePayload[col] = value;
+    if(changed){
+      rec.timeEdited = true;
+      rec.staffAckEdit = false;
+      rec.staffConfirmed = false;
+      updatePayload.time_edited = true;
+      updatePayload.staff_ack_edit = false;
+      updatePayload.staff_confirmed = false;
+    }
+    render();
+    (async ()=>{ try{ await db.from('attendance').update(updatePayload).eq('id', attId); }catch(e){ showToast("저장에 실패했어요."); } })();
   }
   function deleteAttendanceRecord(attId){
     askConfirm("이 출퇴근 기록을 삭제할까요?", async ()=>{
@@ -2775,8 +2964,16 @@
     if(state.role === "landing"){ app.classList.remove("has-bottom-nav"); app.innerHTML = renderLanding() + renderConfirmOverlay(); bindLandingEvents(); bindConfirmOverlay(); return; }
     if(state.role === "staff"){
       app.classList.add("has-bottom-nav");
-      app.innerHTML = renderStaffApp() + renderConfirmOverlay() + renderLightbox() + renderInfoModal();
-      bindStaffEvents(); bindConfirmOverlay(); bindLightbox(); bindInfoModal();
+      app.innerHTML = renderStaffApp() + renderConfirmOverlay() + renderAttConfirmPrompt() + renderLightbox() + renderInfoModal();
+      bindStaffEvents(); bindConfirmOverlay(); bindAttConfirmPrompt(); bindLightbox(); bindInfoModal();
+      return;
+    }
+
+    // 신규 승인된 매장이면 온보딩 마법사부터 보여줘요.
+    if(state.role === "storeOwner" && state.onboardingStep){
+      app.classList.remove("has-bottom-nav");
+      app.innerHTML = renderOnboardingWizard() + renderConfirmOverlay() + renderLightbox() + renderInfoModal();
+      bindOnboardingWizardEvents(); bindConfirmOverlay(); bindLightbox(); bindInfoModal();
       return;
     }
 
@@ -2972,11 +3169,13 @@
 
     html += '<div class="day-panel">';
     html += '<h3>매장 관리</h3>';
+    html += '<p class="crew-code-hint" style="margin-bottom:10px;">"위치 설정"은 그 매장에 직접 가서 눌러야 정확해요 — 스텝 출퇴근을 매장 100m 이내에서만 찍히게 하는 데 쓰여요.</p>';
     state.storeList.forEach(s=>{
       if(state.editingStoreOld === s){
         html += '<div class="fixed-pattern-row"><input id="rename-store-input" class="field-input" type="text" value="'+escapeHtml(s)+'" style="flex:1;margin-right:8px;"><button class="crew-code-btn" data-renamesave="'+escapeHtml(s)+'" style="margin-right:6px;">저장</button><button class="switch-link" data-renamecancel="1">취소</button></div>';
       }else{
-        html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(s)+'</div></div><button class="crew-code-btn" data-renamestore="'+escapeHtml(s)+'" style="margin-right:6px;">이름수정</button><button class="crew-del" data-delstore="'+escapeHtml(s)+'">삭제</button></div>';
+        const hasLoc = state.storeLocationMap && state.storeLocationMap[s];
+        html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(s)+'</div><div class="fp-detail">'+(hasLoc?'📍 위치 설정됨':'위치 미설정')+'</div></div><button class="crew-code-btn" data-setloc="'+escapeHtml(s)+'" style="margin-right:6px;">위치 설정</button><button class="crew-code-btn" data-renamestore="'+escapeHtml(s)+'" style="margin-right:6px;">이름수정</button><button class="crew-del" data-delstore="'+escapeHtml(s)+'">삭제</button></div>';
       }
     });
     html += '<div class="add-row" style="padding:12px 0 0; background:transparent;"><input id="new-store-input" type="text" placeholder="새 매장 이름"><button id="add-store-btn">추가</button></div>';
@@ -3186,6 +3385,19 @@
   function renderStaffHomeContent(person){
     let html = '<div class="staff-hero" style="display:flex;align-items:center;gap:12px;">'+renderAvatarBadge(person, 48)+'<div><p class="greet" style="margin:0;">'+person.name+'님, 오늘도 왔네요</p><p class="sub" style="margin:2px 0 0;">'+state.store+'</p></div></div>';
 
+    const editedRecs = state.attendance.filter(a=> a.crewId===state.myCrewId && a.timeEdited && !a.staffAckEdit);
+    if(editedRecs.length>0){
+      html += '<div style="background:#FFF4E5;border:1px solid #FFD9A0;border-radius:12px;padding:12px 14px;margin-bottom:14px;">';
+      html += '<div style="font-weight:800;font-size:13px;color:#8A5A00;margin-bottom:6px;">📝 매니저가 근무시간을 수정했어요</div>';
+      editedRecs.forEach(a=>{
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">';
+        html += '<span style="font-size:12.5px;color:#6B4500;">'+formatDateLabel(a.date)+' · '+(a.checkIn||"?")+'–'+(a.checkOut||"?")+'</span>';
+        html += '<button class="crew-code-btn" data-ackedit="'+a.id+'">확인</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
     const todayShift = state.shifts.find(s=>s.date===todayKey() && s.crewId===state.myCrewId);
     html += '<div class="s-card">'+labelWithIcon('clock','오늘 예정 근무');
     html += todayShift ? '<p class="s-main">'+todayShift.start+' – '+todayShift.end+'</p>' : '<p class="s-main">예정된 근무가 없어요</p>';
@@ -3289,11 +3501,20 @@
         const c = state.crew.find(c=>c.id===a.crewId);
         const nm = c ? c.name : "(삭제된 스텝)";
         const h = hoursBetween(a.checkIn, a.checkOut);
-        html += '<div class="shift-row"><span class="shift-name">'+escapeHtml(nm)+'</span><span class="shift-time">'+a.checkIn+'–'+a.checkOut+' · '+h.toFixed(1)+'시간</span>';
+        const staffTag = a.staffConfirmed ? '<span style="color:var(--olive);font-size:11px;font-weight:700;">본인확인✓</span>' : '<span style="color:var(--ink-soft);font-size:11px;">본인 미확인</span>';
+        html += '<div class="shift-row" style="flex-wrap:wrap;">';
+        html += '<span class="shift-name">'+escapeHtml(nm)+'</span>';
+        html += '<span style="display:flex;align-items:center;gap:4px;">';
+        html += '<input type="text" class="att-time-edit" data-attid="'+a.id+'" data-field="checkIn" value="'+(a.checkIn||"")+'" placeholder="HH:MM" style="width:52px;text-align:center;border:1px solid var(--line);border-radius:6px;padding:4px;font-size:12px;font-family:inherit;">';
+        html += '<span style="font-size:12px;color:var(--ink-soft);">–</span>';
+        html += '<input type="text" class="att-time-edit" data-attid="'+a.id+'" data-field="checkOut" value="'+(a.checkOut||"")+'" placeholder="HH:MM" style="width:52px;text-align:center;border:1px solid var(--line);border-radius:6px;padding:4px;font-size:12px;font-family:inherit;">';
+        html += '<span style="font-size:11.5px;color:var(--ink-soft);">'+h.toFixed(1)+'시간</span>';
+        html += '</span>';
         html += '<button class="crew-code-btn" data-confirmatt="'+a.id+'" style="'+(a.confirmed?'background:var(--olive);color:#fff;border-color:var(--olive);':'')+'">'+(a.confirmed?'확인됨':'확인')+'</button>';
+        html += '<div style="width:100%;">'+staffTag+'</div>';
         html += '</div>';
       });
-      html += '<p class="crew-code-hint" style="margin-top:8px;">근무확인을 눌러야 사장님 급여 계산에 반영돼요.</p>';
+      html += '<p class="crew-code-hint" style="margin-top:8px;">시간이 잘못됐으면 직접 고칠 수 있어요 (고치면 스텝한테 알려드려요). 근무확인을 눌러야 사장님 급여 계산에 반영돼요.</p>';
     }
     html += '</div>';
 
@@ -4273,7 +4494,14 @@
   function closeInfoModal(){ state.infoModalType = null; render(); }
 
   function renderCrewManage(){
-    let html = '<button class="crew-code-btn" id="export-crew-excel-btn" style="margin-bottom:12px;">스텝 전체 엑셀로 내보내기</button>';
+    const hasLoc = state.storeLocationMap && state.storeLocationMap[state.store];
+    let html = '<div class="day-panel" style="margin-bottom:12px;">';
+    html += '<h3 style="margin:0 0 6px;">매장 위치 설정</h3>';
+    html += '<p class="crew-code-hint" style="margin-bottom:8px;">'+(hasLoc?'📍 위치가 설정돼있어요. 스텝 출퇴근이 매장 100m 이내에서만 찍혀요.':'아직 위치가 설정 안 됐어요. 설정 전까지는 출퇴근 위치 제한이 없어요.')+'</p>';
+    html += '<button class="crew-code-btn" id="set-store-location-btn">지금 이 위치를 매장 위치로 설정</button>';
+    html += '<p class="crew-code-hint" style="margin-top:6px;">매장 안에서 눌러야 정확해요.</p>';
+    html += '</div>';
+    html += '<button class="crew-code-btn" id="export-crew-excel-btn" style="margin-bottom:12px;">스텝 전체 엑셀로 내보내기</button>';
     if(state.crew.length===0){
       html += '<div class="empty-note">등록된 스텝이 없어요. 아래에서 추가해 주세요.</div>';
     }else{
@@ -4449,6 +4677,9 @@
   function bindStaffEvents(){
     bindSalesSectionEvents();
     if(state.showOwnerSalesForm) bindSalesReportEvents();
+    app.querySelectorAll("[data-ackedit]").forEach(btn=>{
+      btn.addEventListener("click", ()=> ackEditedAttendance(btn.getAttribute("data-ackedit")));
+    });
     const switchBtn = document.getElementById("switch-user-btn");
     if(switchBtn) switchBtn.addEventListener("click", switchUser);
     const clockInBtn = document.getElementById("clock-in-btn");
@@ -4509,6 +4740,11 @@
     app.querySelectorAll("[data-confirmatt]").forEach(btn=>{
       btn.addEventListener("click", ()=> toggleAttendanceConfirm(btn.getAttribute("data-confirmatt")));
     });
+    app.querySelectorAll(".att-time-edit").forEach(inp=>{
+      inp.addEventListener("change", ()=>{
+        updateAttendanceField(inp.getAttribute("data-attid"), inp.getAttribute("data-field"), inp.value.trim());
+      });
+    });
     app.querySelectorAll(".sr-input").forEach(inp=>{
       inp.addEventListener("input", ()=>{
         const field = inp.getAttribute("data-field");
@@ -4563,6 +4799,8 @@
   }
 
   function bindCrewManageEvents(){
+    const setStoreLocBtn = document.getElementById("set-store-location-btn");
+    if(setStoreLocBtn) setStoreLocBtn.addEventListener("click", ()=> setStoreLocation(state.store));
     const addCrewBtn = document.getElementById("add-crew-btn");
     if(addCrewBtn) addCrewBtn.addEventListener("click", addCrewMember);
     app.querySelectorAll("[data-delcrew]").forEach(btn=>{
@@ -4874,6 +5112,9 @@
     });
     app.querySelectorAll("[data-renamestore]").forEach(btn=>{
       btn.addEventListener("click", ()=> startRenameStore(btn.getAttribute("data-renamestore")));
+    });
+    app.querySelectorAll("[data-setloc]").forEach(btn=>{
+      btn.addEventListener("click", ()=> setStoreLocation(btn.getAttribute("data-setloc")));
     });
     app.querySelectorAll("[data-renamesave]").forEach(btn=>{
       btn.addEventListener("click", ()=> submitRenameStore(btn.getAttribute("data-renamesave")));
