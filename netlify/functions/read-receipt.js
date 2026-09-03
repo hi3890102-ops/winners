@@ -36,7 +36,7 @@ exports.handler = async function(event) {
         "anthropic-version": "2023-06-01"
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: "claude-sonnet-5",
         max_tokens: 500,
         system: "너는 한국 식당·주점 POS기의 '영업 마감 내역' 정산표 사진에서 숫자를 정확히 읽어내는 도구야. 이 정산표는 보통 이런 항목들을 포함해: 총매출액(총 결제 건수와 금액), 할인금액, 순매출액, 신용카드(건수+금액), 현금(건수+금액), 시재. 반드시 JSON 객체만 응답해, 다른 설명이나 마크다운 코드블럭 없이. 각 필드는 다음 중 사진에서 명확히 확인되는 값만 숫자(콤마·원 표시 없이 순수 정수)로 채우고, 사진에 없거나 흐릿해서 확신이 안 서면 null로 남겨: totalSales(총매출액), discount(할인금액), refund(반품금액), cashSales(현금 항목의 금액, '현금비매출'이 아니라 '영업매출내역'의 현금), cardSales(신용카드 금액), till(시재). 추측하지 말고 안 보이면 null.",
         messages: [{

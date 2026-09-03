@@ -1539,7 +1539,8 @@
       });
       const data = await response.json();
       if(!response.ok || !data.result){
-        showToast("숫자를 읽지 못했어요, 직접 입력해 주세요.");
+        const errMsg = data.error ? (data.error+(data.detail&&data.detail.error&&data.detail.error.message?(": "+data.detail.error.message):"")) : "숫자를 읽지 못했어요";
+        showToast(errMsg+", 직접 입력해 주세요.");
         return;
       }
       const parsed = data.result;
