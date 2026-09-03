@@ -33,6 +33,9 @@ exports.handler = async function(event) {
 
 오늘 날짜: ${todayStr}
 
+매장 데이터:
+${JSON.stringify(context)}
+
 반드시 아래 두 형식 중 하나로만, 다른 설명 없이 순수 JSON 객체로만 응답해:
 
 1) 질문에 답하는 경우:
@@ -50,8 +53,6 @@ exports.handler = async function(event) {
 - 데이터에 없는 스텝 이름을 말하면 action을 만들지 말고 answer로 그런 스텝이 없다고 알려줘.`;
 
   const apiMessages = messages.map(m => ({ role: m.role, content: m.content }));
-  apiMessages.unshift({ role: "user", content: "매장 데이터:\n" + JSON.stringify(context) });
-  apiMessages.push({ role: "assistant", content: "알겠습니다, 이후 질문에 위 JSON 형식으로만 답할게요." });
 
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
