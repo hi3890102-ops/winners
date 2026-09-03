@@ -2790,9 +2790,9 @@
       if(state.section !== "dashboard"){
         state.storeList.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-store="'+s+'">'+s+'</button>'; });
       }else{
-        html += '<span class="store-tab active" style="cursor:default;">전체 매장 보는 중</span>';
+        html += '<button class="store-tab'+(!state.showStoreManage?' active':'')+'" id="dashboard-view-all-btn">전체 매장 보는 중</button>';
       }
-      html += '<button class="store-tab" id="manage-store-btn">매장 관리</button>';
+      html += '<button class="store-tab'+(state.showStoreManage?' active':'')+'" id="manage-store-btn">매장 관리</button>';
       html += '</div>';
     }else{
       html += '<div class="store-tabs">';
@@ -4836,6 +4836,8 @@
     });
     const closeStoreManageBtn = document.getElementById("close-store-manage-btn");
     if(closeStoreManageBtn) closeStoreManageBtn.addEventListener("click", ()=>{ state.showStoreManage = false; render(); });
+    const dashboardViewAllBtn = document.getElementById("dashboard-view-all-btn");
+    if(dashboardViewAllBtn) dashboardViewAllBtn.addEventListener("click", ()=>{ state.showStoreManage = false; render(); });
     const changePinBtn = document.getElementById("change-pin-btn");
     if(changePinBtn) changePinBtn.addEventListener("click", changeOwnerPin);
     app.querySelectorAll("[data-approvereq]").forEach(btn=>{
