@@ -3033,6 +3033,14 @@
     let html = '<button class="staff-back" id="sr-back-btn">‹ 캘린더로</button>';
     html += '<h3 style="margin:0 0 14px;font-size:16px;font-weight:800;">'+(state.salesEditingId?"매출보고 수정 · ":"매출보고 작성 · ")+formatDateLabel(dateStr)+'</h3>';
 
+    html += '<div class="s-card"><p class="s-label">정산표 사진 (먼저 찍으면 아래 숫자가 자동으로 채워져요)</p>';
+    html += renderPhotoGrid(d.settlementPhotos, "settlementPhotos", true);
+    html += '<input type="file" accept="image/*" multiple id="settlement-photo-input" style="margin-top:10px;font-size:12.5px;">';
+    if((d.settlementPhotos||[]).length>0){
+      html += '<button type="button" class="crew-code-btn" id="autofill-photo-btn" style="margin-top:10px;width:100%;">✨ 사진으로 자동입력</button>';
+    }
+    html += '</div>';
+
     html += '<div class="s-card"><p class="s-label">오늘 근무 확인</p>';
     const dayAtt = state.attendance.filter(a=>a.date===dateStr && a.checkOut).sort((a,b)=> a.checkIn.localeCompare(b.checkIn));
     if(dayAtt.length===0){
@@ -3153,14 +3161,6 @@
       html += '<input id="expense-amount-input" type="number" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
       html += '<button id="add-expense-btn">추가</button>';
       html += '</div>';
-    }
-    html += '</div>';
-
-    html += '<div class="s-card"><p class="s-label">정산표 사진</p>';
-    html += renderPhotoGrid(d.settlementPhotos, "settlementPhotos", true);
-    html += '<input type="file" accept="image/*" multiple id="settlement-photo-input" style="margin-top:10px;font-size:12.5px;">';
-    if((d.settlementPhotos||[]).length>0){
-      html += '<button type="button" class="crew-code-btn" id="autofill-photo-btn" style="margin-top:10px;width:100%;">✨ 사진으로 자동입력</button>';
     }
     html += '</div>';
 
