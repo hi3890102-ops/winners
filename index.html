@@ -4146,8 +4146,7 @@
     let totalSalesMonth = 0;
     state.salesReports.forEach(r=> totalSalesMonth += Number(r.totalSales)||0);
     const expenseRatio = totalSalesMonth>0 ? (totalExpenseMonth/totalSalesMonth*100) : null;
-    let html = '<button class="crew-code-btn" id="toggle-vendor-manage-btn" style="margin-bottom:12px;">'+(state.showVendorManage?'거래처 관리 닫기':'거래처 관리')+'</button>';
-    if(state.showVendorManage) html += renderVendorManage();
+    let html = "";
 
     html += '<div class="pay-summary c-purple" style="margin-bottom:14px;">';
     html += '<p class="label">'+y+'년 '+m+'월 지출보고 합계</p>';
@@ -4157,7 +4156,12 @@
 
     const vendorBreakdown = computeVendorBreakdown();
     html += '<div class="day-panel" style="margin-bottom:14px;">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h3 style="margin:0;">거래처별 지출 (이번 달 누적)</h3><button class="crew-code-btn" id="export-expense-excel-btn">엑셀로 내보내기</button></div>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h3 style="margin:0;">거래처별 지출 (이번 달 누적)</h3></div>';
+    html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+    html += '<button class="crew-code-btn" id="toggle-vendor-manage-btn" style="flex:1;background:var(--brick);color:#fff;border-color:var(--brick);">'+(state.showVendorManage?'거래처 관리 닫기':'📋 거래처 관리')+'</button>';
+    html += '<button class="crew-code-btn" id="export-expense-excel-btn" style="flex:1;">엑셀로 내보내기</button>';
+    html += '</div>';
+    if(state.showVendorManage) html += renderVendorManage();
     if(vendorBreakdown.length===0){
       html += '<div class="empty-note" style="padding:8px 0;">이번 달 등록된 지출이 없어요.</div>';
     }else{
