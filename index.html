@@ -392,8 +392,9 @@
     vendors: [],
     fixedExpenses: [],
     showFixedExpenseManage: false,
-    askAppAnswer: null,
+    askAppMessages: [],
     askAppLoading: false,
+    askAppPendingAction: null,
     showVendorManage: false,
     editingStoreOld: null,
     editingOwnerId: null,
@@ -1565,9 +1566,9 @@
     state.salesDraft[arrName].splice(idx,1);
     render();
   }
-  function buildAppContext(){
+  async function buildAppContext(){
     const y = state.monthYear, m = state.monthNum;
-    const ctx = { store: state.store, month: y+"-"+pad(m), role: state.role };
+    const ctx = { store: state.store, month: y+"-"+pad(m), role: state.role, today: todayKey() };
     ctx.crew = (state.crew||[]).map(c=>{
       const info = calcCrewPay(c, y, m);
       return { name: c.name, position: c.position, wageType: c.wageType, wage: c.wage, hoursThisMonth: Number(info.hours.toFixed(1)), daysThisMonth: info.days, estimatedPay: info.pay };
@@ -1582,32 +1583,114 @@
         laborRatio: d.laborRatio, expenseSum: d.expenseSum, expenseRatio: d.expenseRatio, crewCount: d.crewCount
       }));
     }
+    // 지난 3개월 요약 (월별 총매출/인건비만 가볍게)
+    ctx.pastMonthsSummary = [];
+    const storesForHistory = state.role==="hq" ? state.storeList : (state.myStores && state.myStores.length ? state.myStores : [state.store]);
+    for(let back=1; back<=3; back++){
+      let py = y, pm = m - back;
+      while(pm < 1){ pm += 12; py -= 1; }
+      const pKey = py+"-"+pad(pm);
+      const { start, end } = monthDateRange(pKey);
+      for(const store of storesForHistory){
+        const storeId = state.storeIdMap[store];
+        if(!storeId) continue;
+        try{
+          const { data } = await db.from('sales_reports').select('total_sales').eq('store_id', storeId).gte('date', start).lte('date', end);
+          let sum = 0; (data||[]).forEach(r=> sum += Number(r.total_sales)||0);
+          ctx.pastMonthsSummary.push({ store, month: pKey, totalSales: sum });
+        }catch(e){}
+      }
+    }
     return ctx;
+  }
+  function startVoiceInput(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR){ showToast("이 브라우저에서는 음성 입력을 지원하지 않아요."); return; }
+    const recognizer = new SR();
+    recognizer.lang = "ko-KR";
+    recognizer.interimResults = false;
+    recognizer.maxAlternatives = 1;
+    const micBtn = document.getElementById("ask-app-mic-btn");
+    if(micBtn) micBtn.textContent = "🔴";
+    recognizer.onresult = (e)=>{
+      const text = e.results[0][0].transcript;
+      const input = document.getElementById("ask-app-input");
+      if(input) input.value = text;
+    };
+    recognizer.onerror = ()=>{ showToast("음성을 인식하지 못했어요, 다시 시도해 주세요."); };
+    recognizer.onend = ()=>{ if(micBtn) micBtn.textContent = "🎤"; };
+    recognizer.start();
   }
   async function askApp(){
     const input = document.getElementById("ask-app-input");
     const question = (input.value||"").trim();
     if(!question){ showToast("질문을 입력해 주세요."); return; }
-    state.askAppAnswer = null;
+    if(!state.askAppMessages) state.askAppMessages = [];
+    state.askAppMessages.push({ role:"user", content: question });
     state.askAppLoading = true;
+    state.askAppPendingAction = null;
+    input.value = "";
     render();
     try{
-      const context = buildAppContext();
+      const context = await buildAppContext();
       const response = await fetch("/.netlify/functions/ask-app", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, context })
+        body: JSON.stringify({ messages: state.askAppMessages, context })
       });
       const data = await response.json();
-      if(!response.ok || !data.answer){
-        state.askAppAnswer = "답변을 가져오지 못했어요, 다시 시도해 주세요.";
+      if(!response.ok || !data.result){
+        state.askAppMessages.push({ role:"assistant", content: '{"type":"answer","text":"답변을 가져오지 못했어요, 다시 시도해 주세요."}' });
       }else{
-        state.askAppAnswer = data.answer;
+        state.askAppMessages.push({ role:"assistant", content: JSON.stringify(data.result) });
+        if(data.result.type === "action"){
+          state.askAppPendingAction = data.result;
+        }
       }
     }catch(e){
-      state.askAppAnswer = "답변을 가져오지 못했어요, 다시 시도해 주세요.";
+      state.askAppMessages.push({ role:"assistant", content: '{"type":"answer","text":"답변을 가져오지 못했어요, 다시 시도해 주세요."}' });
     }
     state.askAppLoading = false;
+    render();
+  }
+  function clearAskAppChat(){
+    state.askAppMessages = [];
+    state.askAppPendingAction = null;
+    render();
+  }
+  async function confirmPendingAction(){
+    const action = state.askAppPendingAction;
+    if(!action) return;
+    const storeId = currentStoreId();
+    try{
+      if(action.actionType === "add_shift"){
+        const crew = state.crew.find(c=> c.name === action.params.crewName);
+        if(!crew){ showToast("해당 스텝을 찾지 못했어요."); state.askAppPendingAction = null; render(); return; }
+        const { data, error } = await db.from('shifts').insert({ store_id: storeId, crew_id: crew.id, date: action.params.date, start_time: action.params.startTime, end_time: action.params.endTime }).select().single();
+        if(error) throw error;
+        state.shifts.push({ id:data.id, crewId: crew.id, date: action.params.date, start: action.params.startTime, end: action.params.endTime });
+        showToast("스케줄을 등록했어요.");
+      }else if(action.actionType === "add_announcement"){
+        const authorName = state.role==="hq" ? "본사 관리자" : (state.store+" 사장님");
+        const { data, error } = await db.from('announcements').insert({ store_id: storeId, title: action.params.title, body: action.params.body||"", author_name: authorName }).select().single();
+        if(error) throw error;
+        state.announcements.unshift({ id:data.id, title: action.params.title, body: action.params.body||"", authorName, createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(), reads:{} });
+        showToast("공지사항을 등록했어요.");
+      }else if(action.actionType === "add_vendor"){
+        if(state.vendors.some(v=>v.name===action.params.name)){ showToast("이미 있는 거래처예요."); state.askAppPendingAction = null; render(); return; }
+        const { data, error } = await db.from('vendors').insert({ store_id: storeId, name: action.params.name }).select().single();
+        if(error) throw error;
+        state.vendors.push({ id:data.id, name: action.params.name });
+        showToast("거래처를 추가했어요.");
+      }
+    }catch(e){
+      showToast("실행에 실패했어요.");
+    }
+    state.askAppPendingAction = null;
+    render();
+  }
+  function cancelPendingAction(){
+    state.askAppPendingAction = null;
     render();
   }
   function openSalesReportForDate(dateStr){
@@ -3378,13 +3461,45 @@
     }
 
     html += '<div class="day-panel" style="margin-bottom:14px;">';
-    html += '<h3 style="margin:0 0 8px;">✨ AI한테 물어보기</h3>';
-    html += '<p class="crew-code-hint" style="margin-bottom:10px;">이번 달 데이터를 근거로 답해드려요. (예: "이번 달 인건비율 얼마야?", "OO 이번 달 몇 시간 근무했어?")</p>';
-    html += '<div class="add-row" style="padding:0;background:transparent;"><input id="ask-app-input" type="text" placeholder="질문을 입력해 주세요" style="flex:1;min-width:0;" onkeydown="if(event.key===\'Enter\'){event.preventDefault();document.getElementById(\'ask-app-btn\').click();}"><button id="ask-app-btn">'+(state.askAppLoading?'답변 중…':'물어보기')+'</button></div>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><h3 style="margin:0;">✨ AI한테 물어보기</h3>';
+    if((state.askAppMessages||[]).length>0){
+      html += '<button class="crew-code-btn" id="ask-app-clear-btn">대화 지우기</button>';
+    }
+    html += '</div>';
+    html += '<p class="crew-code-hint" style="margin-bottom:10px;">이번 달·최근 3개월 데이터를 근거로 답해드려요. 스케줄 등록·공지 작성·거래처 추가는 실행도 도와드려요. (예: "지난달이랑 매출 비교해줘", "다음 주 화요일 김지현 10시~6시 스케줄 잡아줘")</p>';
+
+    const msgs = state.askAppMessages || [];
+    if(msgs.length>0){
+      html += '<div style="margin-bottom:10px;display:flex;flex-direction:column;gap:8px;">';
+      msgs.forEach(msg=>{
+        if(msg.role==="user"){
+          html += '<div style="align-self:flex-end;max-width:85%;background:var(--brick);color:#fff;border-radius:12px 12px 2px 12px;padding:9px 12px;font-size:13px;">'+escapeHtml(msg.content)+'</div>';
+        }else{
+          let displayText = "";
+          try{
+            const parsed = JSON.parse(msg.content);
+            displayText = parsed.type==="action" ? (parsed.confirmText||"실행을 확인해 주세요.") : (parsed.text||"");
+          }catch(e){ displayText = msg.content; }
+          html += '<div style="align-self:flex-start;max-width:85%;background:var(--cream);color:var(--ink);border-radius:12px 12px 12px 2px;padding:9px 12px;font-size:13px;white-space:pre-wrap;line-height:1.5;">'+escapeHtml(displayText)+'</div>';
+        }
+      });
+      html += '</div>';
+    }
+
+    if(state.askAppPendingAction){
+      html += '<div style="background:#FFF4E5;border:1px solid #FFD9A0;border-radius:10px;padding:10px 12px;margin-bottom:10px;">';
+      html += '<p style="font-size:12.5px;color:#8A5A00;margin:0 0 8px;">'+escapeHtml(state.askAppPendingAction.confirmText||"실행할까요?")+'</p>';
+      html += '<div style="display:flex;gap:8px;"><button class="crew-code-btn" id="ask-app-confirm-btn" style="flex:1;background:var(--olive);color:#fff;border-color:var(--olive);">확인</button><button class="crew-code-btn" id="ask-app-cancel-btn" style="flex:1;">취소</button></div>';
+      html += '</div>';
+    }
+
+    html += '<div class="add-row" style="padding:0;background:transparent;">';
+    html += '<input id="ask-app-input" type="text" placeholder="질문을 입력해 주세요" style="flex:1;min-width:0;" onkeydown="if(event.key===\'Enter\'){event.preventDefault();document.getElementById(\'ask-app-btn\').click();}">';
+    html += '<button type="button" id="ask-app-mic-btn" style="flex:0 0 44px;padding:0;">🎤</button>';
+    html += '<button id="ask-app-btn">'+(state.askAppLoading?'답변 중…':'물어보기')+'</button>';
+    html += '</div>';
     if(state.askAppLoading){
       html += '<p class="crew-code-hint" style="margin-top:10px;">데이터를 살펴보고 있어요…</p>';
-    }else if(state.askAppAnswer){
-      html += '<div style="margin-top:10px;padding:12px;background:var(--cream);border-radius:10px;font-size:13.5px;color:var(--ink);white-space:pre-wrap;line-height:1.5;">'+escapeHtml(state.askAppAnswer)+'</div>';
     }
     html += '</div>';
 
@@ -4695,6 +4810,14 @@
     if(refreshDashboardBtn) refreshDashboardBtn.addEventListener("click", loadDashboardData);
     const askAppBtn = document.getElementById("ask-app-btn");
     if(askAppBtn) askAppBtn.addEventListener("click", askApp);
+    const askAppMicBtn = document.getElementById("ask-app-mic-btn");
+    if(askAppMicBtn) askAppMicBtn.addEventListener("click", startVoiceInput);
+    const askAppClearBtn = document.getElementById("ask-app-clear-btn");
+    if(askAppClearBtn) askAppClearBtn.addEventListener("click", clearAskAppChat);
+    const askAppConfirmBtn = document.getElementById("ask-app-confirm-btn");
+    if(askAppConfirmBtn) askAppConfirmBtn.addEventListener("click", confirmPendingAction);
+    const askAppCancelBtn = document.getElementById("ask-app-cancel-btn");
+    if(askAppCancelBtn) askAppCancelBtn.addEventListener("click", cancelPendingAction);
     const toggleAnnFormBtnOwner = document.getElementById("toggle-ann-form-btn");
     if(toggleAnnFormBtnOwner) toggleAnnFormBtnOwner.addEventListener("click", ()=>{ state.showAnnounceForm = !state.showAnnounceForm; render(); });
     const submitAnnBtnOwner = document.getElementById("submit-ann-btn");
