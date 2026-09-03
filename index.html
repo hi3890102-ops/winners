@@ -2176,7 +2176,13 @@
     if(c.wageType === "monthly"){
       const totalDaysInMonth = daysInMonth(y, m);
       const monthStart = new Date(y, m-1, 1);
-      const monthEnd = new Date(y, m-1, totalDaysInMonth);
+      let monthEnd = new Date(y, m-1, totalDaysInMonth);
+      // 지금 보고 있는 달이 "진행 중인 이번 달"이면, 아직 안 지난 날짜는 급여도 아직 안 쌓인 걸로 보고 오늘까지만 누적 계산해요.
+      const isCurrentMonth = (y === now.getFullYear() && m === now.getMonth()+1);
+      if(isCurrentMonth){
+        const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if(todayDate < monthEnd) monthEnd = todayDate;
+      }
       let empStart = c.hireDate ? new Date(c.hireDate) : monthStart;
       let empEnd = c.resignDate ? new Date(c.resignDate) : monthEnd;
       if(empStart < monthStart) empStart = monthStart;
