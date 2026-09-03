@@ -23,7 +23,7 @@
     --olive-dim:#DDF5E6;
     --danger:#E5484D;
     --danger-dim:#FDE2E1;
-    --gold:#FF9F0A;
+    --gold:#D99A4E;
     --line:#E7E9EE;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
@@ -251,6 +251,7 @@
   .pay-summary.c-green{ background:var(--olive); }
   .pay-summary.c-gold{ background:var(--gold); }
   .pay-summary.c-purple{ background:#6D4FD1; }
+  .pay-summary.c-teal{ background:#2F9E9C; }
   .pay-summary .label{ font-size:12.5px; opacity:.7; margin:0 0 6px; }
   .pay-summary .amount{ font-size:26px; font-weight:800; margin:0 0 10px; letter-spacing:-0.01em; }
   .pay-summary .meta{ font-size:12.5px; opacity:.8; }
@@ -4330,7 +4331,7 @@
     state.salesReports.forEach(r=> salesSum += Number(r.totalSales)||0);
     const laborRatio = salesSum>0 ? (grandPay/salesSum*100) : 0;
 
-    html += '<div class="pay-summary">';
+    html += '<div class="pay-summary c-blue">';
     html += '<p class="label">'+state.monthYear+'년 '+state.monthNum+'월 예상 총 급여 (근무확인 기준)</p>';
     html += '<p class="amount">'+grandPay.toLocaleString()+'원</p>';
     html += '<p class="meta">스텝 '+state.crew.length+'명 · 총 '+grandHours.toFixed(1)+'시간</p>';
@@ -4353,7 +4354,7 @@
     const myAttConfirmed = state.attendance.filter(a=>a.crewId===state.payCrewId && a.checkOut && a.confirmed).sort((a,b)=>a.date.localeCompare(b.date));
     const myAttPending = state.attendance.filter(a=>a.crewId===state.payCrewId && a.checkOut && !a.confirmed).sort((a,b)=>a.date.localeCompare(b.date));
 
-    html += '<div class="pay-summary c-blue">';
+    html += '<div class="pay-summary c-teal">';
     html += '<p class="label">'+person.name+' 예상 급여 · '+(person.wageType==="monthly"?"월급":"시급")+' 방식'+(person.probation?' · 수습 적용':'')+'</p>';
     html += '<p class="amount">'+personInfo.pay.toLocaleString()+'원</p>';
     if(person.wageType==="monthly"){
