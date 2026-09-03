@@ -247,6 +247,10 @@
 
   .pay-select{ width:100%; border:1px solid var(--line); background:var(--card); border-radius:10px; padding:11px 12px; font-size:14px; font-family:inherit; color:var(--ink); margin-bottom:14px; }
   .pay-summary{ background:var(--ink); color:var(--cream); border-radius:16px; padding:20px; margin-bottom:14px; }
+  .pay-summary.c-blue{ background:var(--brick); }
+  .pay-summary.c-green{ background:var(--olive); }
+  .pay-summary.c-gold{ background:var(--gold); }
+  .pay-summary.c-purple{ background:#6D4FD1; }
   .pay-summary .label{ font-size:12.5px; opacity:.7; margin:0 0 6px; }
   .pay-summary .amount{ font-size:26px; font-weight:800; margin:0 0 10px; letter-spacing:-0.01em; }
   .pay-summary .meta{ font-size:12.5px; opacity:.8; }
@@ -2783,15 +2787,23 @@
     html += '<div class="brand"><span class="mark">'+mascotSymbolSvg()+'</span><h1><span style="color:var(--ink);">Store</span><span style="color:var(--brick);">Manager</span></h1><span class="date">'+todayLabel()+'</span></div>';
     if(isHq){
       html += '<div class="store-tabs">';
-      state.storeList.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-store="'+s+'">'+s+'</button>'; });
+      if(state.section !== "dashboard"){
+        state.storeList.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-store="'+s+'">'+s+'</button>'; });
+      }else{
+        html += '<span class="store-tab active" style="cursor:default;">전체 매장 보는 중</span>';
+      }
       html += '<button class="store-tab" id="manage-store-btn">매장 관리</button>';
       html += '</div>';
     }else{
       html += '<div class="store-tabs">';
-      if(state.myStores.length > 1){
-        state.myStores.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-ownerstore="'+escapeHtml(s)+'">'+escapeHtml(s)+'</button>'; });
+      if(state.section !== "dashboard"){
+        if(state.myStores.length > 1){
+          state.myStores.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-ownerstore="'+escapeHtml(s)+'">'+escapeHtml(s)+'</button>'; });
+        }else{
+          html += '<span class="store-tab active" style="cursor:default;">'+escapeHtml(state.store)+' 사장님</span>';
+        }
       }else{
-        html += '<span class="store-tab active" style="cursor:default;">'+escapeHtml(state.store)+' 사장님</span>';
+        html += '<span class="store-tab active" style="cursor:default;">내 매장 전체 보는 중</span>';
       }
       html += '<button class="store-tab" id="add-store-request-btn">+ 매장 추가</button>';
       html += '</div>';
@@ -3574,7 +3586,7 @@
     }
     html += '</div>';
 
-    html += '<div class="pay-summary">';
+    html += '<div class="pay-summary c-blue">';
     html += '<p class="label">'+(state.role==="hq"?"전체 매장 합산 매출":"내 매장 합산 매출")+' (이번 달 누적)</p>';
     html += '<p class="amount">'+totalSales.toLocaleString()+'원</p>';
     html += '<p class="meta">전체 배달매출 '+totalDelivery.toLocaleString()+'원 (별도 집계)</p>';
@@ -3756,7 +3768,7 @@
     const reportedDays = state.salesReports.length;
     const lastDay = daysInMonth(y, m);
 
-    html += '<div class="pay-summary" style="margin-bottom:14px;">';
+    html += '<div class="pay-summary c-blue" style="margin-bottom:14px;">';
     html += '<p class="label">'+y+'년 '+m+'월 매출 합산 ('+reportedDays+'/'+lastDay+'일 보고됨)</p>';
     html += '<p class="amount">'+totalSales.toLocaleString()+'원</p>';
     html += '<p class="meta">배달매출 '+totalDelivery.toLocaleString()+'원 (배민 '+totalBaemin.toLocaleString()+'원 · 쿠팡 '+totalCoupang.toLocaleString()+'원 · 요기요 '+totalYogiyo.toLocaleString()+'원)</p>';
@@ -3812,7 +3824,7 @@
     if(state.showFixedExpenseManage) html += renderFixedExpenseManage();
 
     const netProfit = totalSales - totalExpense - totalLabor - totalFixed;
-    html += '<div class="pay-summary" style="margin-bottom:14px;">';
+    html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
     html += '<p class="label">이번 달 순수익 (예상)</p>';
     html += '<p class="amount">'+netProfit.toLocaleString()+'원</p>';
     html += '<p class="meta">매출 '+totalSales.toLocaleString()+'원 − 지출 '+totalExpense.toLocaleString()+'원 − 인건비 '+totalLabor.toLocaleString()+'원 − 고정지출 '+totalFixed.toLocaleString()+'원</p>';
@@ -3822,7 +3834,7 @@
     const expenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : null;
     const laborDanger = laborRatio!==null && laborRatio>25;
     const foodDanger = expenseRatio!==null && expenseRatio>40;
-    html += '<div class="pay-summary" style="margin-bottom:14px;">';
+    html += '<div class="pay-summary c-gold" style="margin-bottom:14px;">';
     html += '<p class="label">종합 비율</p>';
     html += '<p class="meta">인건비율 '+(laborRatio!==null?laborRatio.toFixed(1):"0.0")+'% · 식자재비율 '+(expenseRatio!==null?expenseRatio.toFixed(1):"0.0")+'%</p>';
     if(laborRatio!==null){
@@ -3909,7 +3921,7 @@
     let html = '<button class="crew-code-btn" id="toggle-vendor-manage-btn" style="margin-bottom:12px;">'+(state.showVendorManage?'거래처 관리 닫기':'거래처 관리')+'</button>';
     if(state.showVendorManage) html += renderVendorManage();
 
-    html += '<div class="pay-summary" style="margin-bottom:14px;">';
+    html += '<div class="pay-summary c-purple" style="margin-bottom:14px;">';
     html += '<p class="label">'+y+'년 '+m+'월 지출보고 합계</p>';
     html += '<p class="amount">'+totalExpenseMonth.toLocaleString()+'원</p>';
     html += '<p class="meta">매출 대비 '+(expenseRatio!==null ? expenseRatio.toFixed(1) : "0.0")+'%</p>';
@@ -4341,7 +4353,7 @@
     const myAttConfirmed = state.attendance.filter(a=>a.crewId===state.payCrewId && a.checkOut && a.confirmed).sort((a,b)=>a.date.localeCompare(b.date));
     const myAttPending = state.attendance.filter(a=>a.crewId===state.payCrewId && a.checkOut && !a.confirmed).sort((a,b)=>a.date.localeCompare(b.date));
 
-    html += '<div class="pay-summary">';
+    html += '<div class="pay-summary c-blue">';
     html += '<p class="label">'+person.name+' 예상 급여 · '+(person.wageType==="monthly"?"월급":"시급")+' 방식'+(person.probation?' · 수습 적용':'')+'</p>';
     html += '<p class="amount">'+personInfo.pay.toLocaleString()+'원</p>';
     if(person.wageType==="monthly"){
