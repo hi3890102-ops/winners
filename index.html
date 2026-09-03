@@ -1601,6 +1601,21 @@
         }catch(e){}
       }
     }
+    // 본사(관리자)나 여러 매장 사장님이면, 지금 보고 있는 매장뿐 아니라 전체 매장 직원 정보도 같이 넘겨줘요.
+    if(storesForHistory.length > 1){
+      ctx.allStoresCrew = [];
+      for(const store of storesForHistory){
+        const storeId = state.storeIdMap[store];
+        if(!storeId) continue;
+        try{
+          const { data } = await db.from('crew').select('*').eq('store_id', storeId);
+          (data||[]).map(rowToCrew).forEach(c=>{
+            const info = calcCrewPay(c, y, m);
+            ctx.allStoresCrew.push({ store, name: c.name, position: c.position, wageType: c.wageType, wage: c.wage, hoursThisMonth: Number(info.hours.toFixed(1)), daysThisMonth: info.days, estimatedPay: info.pay });
+          });
+        }catch(e){}
+      }
+    }
     return ctx;
   }
   function startVoiceInput(){
