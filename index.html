@@ -364,7 +364,7 @@
     myStores: [],
     showAddStoreForm: false,
     myRequestId: null,
-    section: "checklist",
+    section: "dashboard",
     tab: "morning",
     checklistViewDate: null,
     homeChecklistItems: null,
@@ -2651,7 +2651,10 @@
     html += renderMissingReportBanner();
     if(state.showStoreManage) html += renderStoreManage();
     if(state.showAddStoreForm) html += renderAddStoreForm();
-    if(state.section === "dashboard") html += renderDashboard();
+    if(state.section === "dashboard"){
+      if(!state.dashboardData && !state.dashboardLoading) setTimeout(loadDashboardData, 0);
+      html += renderDashboard();
+    }
     else if(state.section === "checklist") html += renderChecklist();
     else if(state.section === "announce") html += renderAnnouncementsOwnerTab();
     else if(state.section === "sales") html += renderSalesSection();
