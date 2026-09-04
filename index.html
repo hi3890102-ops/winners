@@ -216,6 +216,8 @@
   .pos-badge.pos-kitchen{ background:var(--brick); }
   .pos-badge.pos-etc{ background:var(--ink-soft); }
   .pos-badge.mgr-badge{ background:var(--ink); }
+  .pos-badge.owner-badge{ background:var(--brick); }
+  .pos-badge.staff-badge{ background:var(--olive); }
   .crew-info .wage{ font-size:12.5px; color:var(--ink-soft); }
   .crew-group-label{ font-size:12.5px; font-weight:800; color:var(--ink-soft); margin:14px 0 8px; }
   .crew-group-label:first-child{ margin-top:0; }
@@ -507,6 +509,31 @@
     state.store = state.storeList[0];
   }
   function currentStoreId(){ return state.storeIdMap[state.store]; }
+
+  // ---------- manager home dashboard toggle (per-store, saved to this device) ----------
+  function managerDashboardEnabled(store){
+    try{ return localStorage.getItem("sm_mgrdash_"+store) === "1"; }catch(e){ return false; }
+  }
+  function setManagerDashboardEnabled(store, val){
+    try{ localStorage.setItem("sm_mgrdash_"+store, val ? "1" : "0"); }catch(e){}
+  }
+  function computeMyStoreSummary(){
+    const y = state.monthYear, m = state.monthNum;
+    let salesSum = 0, deliverySum = 0;
+    (state.salesReports||[]).forEach(r=>{
+      salesSum += Number(r.totalSales)||0;
+      deliverySum += (Number(r.deliveryBaemin)||0)+(Number(r.deliveryCoupang)||0)+(Number(r.deliveryYogiyo)||0);
+    });
+    let laborPay = 0;
+    (state.crew||[]).forEach(c=>{ laborPay += calcCrewPayFrom(c, state.attendance||[], y, m).pay; });
+    const laborRatio = salesSum>0 ? (laborPay/salesSum*100) : null;
+    let expenseSum = 0;
+    (state.expenseEntries||[]).forEach(e=> expenseSum += Number(e.amount)||0);
+    const expenseRatio = salesSum>0 ? (expenseSum/salesSum*100) : null;
+    const all = countAllFrom(state.homeChecklistItems, state.homeChecklistChecks);
+    const checklistPct = all.total>0 ? Math.round(all.done/all.total*100) : null;
+    return { salesSum, deliverySum, laborRatio, expenseRatio, checklistPct };
+  }
 
   function addStore(){
     const input = document.getElementById("new-store-input");
@@ -1256,7 +1283,7 @@
   }
 
   function freshSalesDraft(){
-    return { totalSales:"", discount:"", refund:"", refundReason:"", netSales:"0", cashSales:"", cashExpenseItems:[], actualCash:"0", cardSales:"", cardExpenseItems:[], bankTransferItems:[], till:"", deliveryBaemin:"", deliveryCoupang:"", deliveryYogiyo:"", note:"", settlementPhotos:[], receiptPhotos:[], notePhotos:[] };
+    return { totalSales:"", discount:"", refund:"", refundReason:"", netSales:"0", cashSales:"", cashExpenseItems:[], actualCash:"0", cardSales:"", emoneySales:"", cardExpenseItems:[], bankTransferItems:[], till:"", deliveryBaemin:"", deliveryCoupang:"", deliveryYogiyo:"", note:"", settlementPhotos:[], receiptPhotos:[], notePhotos:[] };
   }
   function escapeHtml(s){
     return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -1332,7 +1359,7 @@
     return {
       id: r.id, date: r.date, managerName: r.manager_name||"", crewId: r.crew_id,
       totalSales: r.total_sales||0, discount: r.discount||0, refund: r.refund||0, refundReason: r.refund_reason||"",
-      netSales: r.net_sales||0, cashSales: r.cash_sales||0, actualCash: r.actual_cash||0, cardSales: r.card_sales||0,
+      netSales: r.net_sales||0, cashSales: r.cash_sales||0, actualCash: r.actual_cash||0, cardSales: r.card_sales||0, emoneySales: r.emoney_sales||0,
       cashExpenseItems: cashExpenseItems, expense: sumCashExpenseItems(cashExpenseItems), cardExpenseItems: cardExpenseItems, cardExpense: sumCashExpenseItems(cardExpenseItems),
       bankTransferItems: bankTransferItems, bankTransfer: sumCashExpenseItems(bankTransferItems), till: r.till||0, deliveryBaemin: r.delivery_baemin||0, deliveryCoupang: r.delivery_coupang||0, deliveryYogiyo: r.delivery_yogiyo||0, note: r.note||"",
       settlementPhotos: r.settlement_photos||[], receiptPhotos: r.receipt_photos||[], notePhotos: r.note_photos||[],
@@ -1801,10 +1828,10 @@
     const cashExpenseTotal = sumCashExpenseItems(d.cashExpenseItems);
 
     const leftSide = num(d.totalSales);
-    const rightSide = num(d.cardSales) + num(d.cashSales) + num(d.discount) + cashExpenseTotal;
+    const rightSide = num(d.cardSales) + num(d.cashSales) + num(d.emoneySales) + num(d.discount) + cashExpenseTotal;
     if(leftSide !== rightSide){
       const diff = leftSide - rightSide;
-      showToast("총매출이 안 맞아요. 카드매출+현금매출+할인+현금지출 합계보다 "+(diff>0?(diff.toLocaleString()+"원 많아요"):((-diff).toLocaleString()+"원 적어요"))+".");
+      showToast("총매출이 안 맞아요. 카드매출+현금매출+전자화폐+할인+현금지출 합계보다 "+(diff>0?(diff.toLocaleString()+"원 많아요"):((-diff).toLocaleString()+"원 적어요"))+".");
       return;
     }
 
@@ -1813,7 +1840,7 @@
       manager_name: managerName, crew_id: state.myCrewId || null,
       total_sales: num(d.totalSales), discount: num(d.discount), refund: num(d.refund), refund_reason: (d.refundReason||"").trim(),
       net_sales: num(d.netSales), cash_sales: num(d.cashSales), expense: cashExpenseTotal, cash_expense_items: (d.cashExpenseItems||[]), actual_cash: num(d.actualCash),
-      card_sales: num(d.cardSales), card_expense: sumCashExpenseItems(d.cardExpenseItems), card_expense_items: (d.cardExpenseItems||[]),
+      card_sales: num(d.cardSales), emoney_sales: num(d.emoneySales), card_expense: sumCashExpenseItems(d.cardExpenseItems), card_expense_items: (d.cardExpenseItems||[]),
       bank_transfer: sumCashExpenseItems(d.bankTransferItems), bank_transfer_items: (d.bankTransferItems||[]), till: num(d.till),
       delivery_baemin: num(d.deliveryBaemin), delivery_coupang: num(d.deliveryCoupang), delivery_yogiyo: num(d.deliveryYogiyo),
       note: (d.note||"").trim(),
@@ -1913,7 +1940,9 @@
       loadShifts(store, monthKey()),
       loadAttendance(store, monthKey()),
       loadAnnouncements(store),
-      loadHomeChecklistPreview(store)
+      loadHomeChecklistPreview(store),
+      loadSalesReports(store, monthKey()),
+      loadExpenseEntries(store, monthKey())
     ]);
     state.loading = false;
     render();
@@ -2680,8 +2709,32 @@
     const col = flag === "weeklyAllowance" ? "weekly_allowance" : flag;
     updateCrewRow(id, { [col]: checked });
   }
+  function isCrewActive(c){
+    return !(c.resignDate && c.resignDate <= todayKey());
+  }
+  function resignCrew(id){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c) return;
+    askConfirm(c.name+"님을 퇴사 처리할까요? 스케줄에는 더 이상 표시되지 않지만, 기존 근무·출퇴근·급여 기록은 그대로 보존돼요.", async ()=>{
+      const today = todayKey();
+      c.resignDate = today;
+      render();
+      await updateCrewRow(id, { resign_date: today });
+      showToast(c.name+"님을 퇴사 처리했어요. 기록은 보존됩니다.");
+    });
+  }
+  function reactivateCrew(id){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c) return;
+    c.resignDate = "";
+    render();
+    updateCrewRow(id, { resign_date: null });
+    showToast(c.name+"님을 다시 재직 상태로 돌렸어요.");
+  }
   function deleteCrew(id){
-    askConfirm("이 스텝을 삭제할까요? 기존 근무 기록은 남아있어요.", async ()=>{
+    const c = state.crew.find(c=>c.id===id);
+    const nm = c ? c.name : "이 스텝";
+    askConfirm(nm+"님을 완전히 삭제할까요? 근무·출퇴근·급여 기록까지 함께 사라지며 되돌릴 수 없어요. 기록을 남기려면 대신 '퇴사 처리'를 이용해 주세요.", async ()=>{
       try{ const { error } = await db.from('crew').delete().eq('id', id); if(error) throw error; }
       catch(e){ showToast("삭제에 실패했어요."); return; }
       state.crew = state.crew.filter(c=>c.id!==id);
@@ -3004,7 +3057,7 @@
         if(state.myStores.length > 1){
           state.myStores.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-ownerstore="'+escapeHtml(s)+'">'+escapeHtml(s)+'</button>'; });
         }else{
-          html += '<span class="store-tab active" style="cursor:default;">'+escapeHtml(state.store)+' 사장님</span>';
+          html += '<span class="store-tab active" style="cursor:default;display:inline-flex;align-items:center;gap:6px;">'+escapeHtml(state.store)+' <span class="pos-badge owner-badge">사장님</span></span>';
         }
       }else{
         html += '<span class="store-tab active" style="cursor:default;">내 매장 전체 보는 중</span>';
@@ -3389,7 +3442,22 @@
   }
 
   function renderStaffHomeContent(person){
-    let html = '<div class="staff-hero" style="display:flex;align-items:center;gap:12px;">'+renderAvatarBadge(person, 48)+'<div><p class="greet" style="margin:0;">'+person.name+'님, 오늘도 왔네요</p><p class="sub" style="margin:2px 0 0;">'+state.store+'</p></div></div>';
+    let html = '<div class="staff-hero" style="display:flex;align-items:center;gap:12px;">'+renderAvatarBadge(person, 48)+'<div><p class="greet" style="margin:0;">'+person.name+'님, 오늘도 왔네요</p><p class="sub" style="margin:2px 0 0;display:flex;align-items:center;gap:6px;">'+state.store+(person.isManager?' <span class="pos-badge mgr-badge">매니저</span>':' <span class="pos-badge staff-badge">스텝</span>')+'</p></div></div>';
+
+    if(person.isManager && managerDashboardEnabled(state.store)){
+      const sum = computeMyStoreSummary();
+      const ratioColor = sum.laborRatio===null ? "var(--ink-soft)" : (sum.laborRatio>25 ? "var(--danger)" : "var(--olive)");
+      const foodColor = sum.expenseRatio===null ? "var(--ink-soft)" : (sum.expenseRatio>35 ? "var(--danger)" : "var(--olive)");
+      html += '<div class="s-card">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'+labelWithIcon('chart','이번 달 매장 요약')+'</div>';
+      html += '<p class="s-main">'+sum.salesSum.toLocaleString()+'원</p>';
+      html += '<p class="crew-code-hint" style="margin-top:2px;">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>';
+      html += '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;">';
+      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">인건비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+ratioColor+';">'+(sum.laborRatio===null?'—':sum.laborRatio.toFixed(1)+'%')+'</div></div>';
+      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">식자재비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+foodColor+';">'+(sum.expenseRatio===null?'—':sum.expenseRatio.toFixed(1)+'%')+'</div></div>';
+      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">오늘 체크리스트</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;">'+(sum.checklistPct===null?'—':sum.checklistPct+'%')+'</div></div>';
+      html += '</div></div>';
+    }
 
     const editedRecs = state.attendance.filter(a=> a.crewId===state.myCrewId && a.timeEdited && !a.staffAckEdit);
     if(editedRecs.length>0){
@@ -3570,7 +3638,8 @@
 
     const fieldDefsB = [
       { key:"actualCash", label:"실현금매출 (현금매출-현금지출-계좌이체)", computed:true },
-      { key:"cardSales", label:"카드매출" }
+      { key:"cardSales", label:"카드매출" },
+      { key:"emoneySales", label:"전자화폐 (지역화폐·온누리상품권 등)" }
     ];
     fieldDefsB.forEach(f=>{
       html += '<label style="display:block;font-size:12px;color:var(--ink-soft);font-weight:600;margin:16px 0 4px;">'+f.label+'</label>';
@@ -4004,6 +4073,7 @@
 
     const vendorBreakdown = computeVendorBreakdown();
     let totalExpense = 0; vendorBreakdown.forEach(v=> totalExpense += v.amount);
+    const expenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : null;
     html += '<div class="day-panel" style="margin-bottom:14px;">';
     html += '<h3>지출 합산 (거래처별)</h3>';
     if(vendorBreakdown.length===0){
@@ -4013,7 +4083,7 @@
         const pct = totalExpense>0 ? (v.amount/totalExpense*100) : 0;
         html += '<div class="pay-list-item"><span class="d">'+escapeHtml(v.name)+'</span><span>'+v.amount.toLocaleString()+'원 · '+pct.toFixed(1)+'%</span></div>';
       });
-      html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalExpense.toLocaleString()+'원</span></div>';
+      html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalExpense.toLocaleString()+'원'+(expenseRatio!==null?' (매출대비 '+expenseRatio.toFixed(1)+'%)':'')+'</span></div>';
     }
     html += '</div>';
 
@@ -4023,6 +4093,7 @@
       totalLabor += info.pay;
       return { name: c.name, pay: info.pay, hours: info.hours, days: info.days };
     }).sort((a,b)=> b.pay-a.pay);
+    const laborRatio = totalSales>0 ? (totalLabor/totalSales*100) : null;
 
     html += '<div class="day-panel" style="margin-bottom:14px;">';
     html += '<h3>인건비 합산 (개인별)</h3>';
@@ -4032,7 +4103,7 @@
       perPerson.forEach(p=>{
         html += '<div class="pay-list-item"><span class="d">'+escapeHtml(p.name)+'</span><span>'+p.pay.toLocaleString()+'원 · '+p.days+'일 · '+p.hours.toFixed(1)+'시간</span></div>';
       });
-      html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalLabor.toLocaleString()+'원</span></div>';
+      html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalLabor.toLocaleString()+'원'+(laborRatio!==null?' (매출대비 '+laborRatio.toFixed(1)+'%)':'')+'</span></div>';
     }
     html += '</div>';
 
@@ -4052,18 +4123,13 @@
     if(state.showFixedExpenseManage) html += renderFixedExpenseManage();
 
     const netProfit = totalSales - totalExpense - totalLabor - totalFixed;
-    html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
-    html += '<p class="label">이번 달 순수익 (예상)</p>';
-    html += '<p class="amount">'+netProfit.toLocaleString()+'원</p>';
-    html += '<p class="meta">매출 '+totalSales.toLocaleString()+'원 − 지출 '+totalExpense.toLocaleString()+'원 − 인건비 '+totalLabor.toLocaleString()+'원 − 고정지출 '+totalFixed.toLocaleString()+'원</p>';
-    html += '</div>';
-
-    const laborRatio = totalSales>0 ? (totalLabor/totalSales*100) : null;
-    const expenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : null;
     const laborDanger = laborRatio!==null && laborRatio>25;
     const foodDanger = expenseRatio!==null && expenseRatio>40;
-    html += '<div class="pay-summary c-gold" style="margin-bottom:14px;">';
-    html += '<p class="label">종합 비율</p>';
+    html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
+    html += '<p class="label">이번 달 순수익 (예상) · 종합비율</p>';
+    html += '<p class="amount">'+netProfit.toLocaleString()+'원</p>';
+    html += '<p class="meta">매출 '+totalSales.toLocaleString()+'원 − 지출 '+totalExpense.toLocaleString()+'원 − 인건비 '+totalLabor.toLocaleString()+'원 − 고정지출 '+totalFixed.toLocaleString()+'원</p>';
+    html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.25);">';
     html += '<p class="meta">인건비율 '+(laborRatio!==null?laborRatio.toFixed(1):"0.0")+'% · 식자재비율 '+(expenseRatio!==null?expenseRatio.toFixed(1):"0.0")+'%</p>';
     if(laborRatio!==null){
       html += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+(laborDanger?'#FF8A8F':'#7CE6A6')+';margin-top:6px;margin-right:14px;"><span style="width:6px;height:6px;border-radius:50%;background:'+(laborDanger?'#FF8A8F':'#7CE6A6')+';display:inline-block;"></span>인건비 '+(laborDanger?'관리필요':'안정')+'</span>';
@@ -4071,7 +4137,7 @@
     if(expenseRatio!==null){
       html += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+(foodDanger?'#FF8A8F':'#7CE6A6')+';margin-top:6px;"><span style="width:6px;height:6px;border-radius:50%;background:'+(foodDanger?'#FF8A8F':'#7CE6A6')+';display:inline-block;"></span>식자재 '+(foodDanger?'관리필요':'안정')+'</span>';
     }
-    html += '</div>';
+    html += '</div></div>';
 
     html += '<button class="crew-code-btn" id="export-monthly-report-excel-btn">이번 달 리포트 엑셀로 내보내기</button>';
     return html;
@@ -4125,7 +4191,7 @@
     if(diffPct >= 50){
       return { type:"high", text:"오늘 매출이 이번 달 평균("+Math.round(avg).toLocaleString()+"원)보다 "+Math.round(diffPct)+"% 높아요. 특별한 날이었는지 확인해보세요." };
     }
-    const cashPlusCard = (Number(report.cashSales)||0) + (Number(report.cardSales)||0) + (Number(report.deliveryBaemin)||0) + (Number(report.deliveryCoupang)||0) + (Number(report.deliveryYogiyo)||0);
+    const cashPlusCard = (Number(report.cashSales)||0) + (Number(report.cardSales)||0) + (Number(report.emoneySales)||0) + (Number(report.deliveryBaemin)||0) + (Number(report.deliveryCoupang)||0) + (Number(report.deliveryYogiyo)||0);
     const netForCheck = Number(report.netSales)||0;
     if(netForCheck>0 && Math.abs(cashPlusCard - netForCheck) > netForCheck*0.1 && cashPlusCard>0){
       return { type:"mismatch", text:"현금+카드+배달매출 합계가 순매출과 좀 차이나요. 입력값을 한 번 확인해보세요." };
@@ -4229,7 +4295,7 @@
           html += '<div class="pay-list-item" style="padding:4px 0;font-weight:800;"><span class="d">계좌이체 합계</span><span>'+Number(report.bankTransfer||0).toLocaleString()+'원</span></div>';
           html += '</div>';
         }
-        [["actualCash","실현금매출 (현금매출-현금지출-계좌이체)"],["cardSales","카드매출"]].forEach(([key,label])=>{
+        [["actualCash","실현금매출 (현금매출-현금지출-계좌이체)"],["cardSales","카드매출"],["emoneySales","전자화폐"]].forEach(([key,label])=>{
           html += '<div class="pay-list-item"><span class="d">'+label+'</span><span>'+(Number(report[key])||0).toLocaleString()+'원</span></div>';
         });
         if(report.cardExpenseItems && report.cardExpenseItems.length>0){
@@ -4327,12 +4393,13 @@
       html += '<div class="day-panel">';
       html += '<h3>'+(dObj.getMonth()+1)+'월 '+dObj.getDate()+'일 ('+dows2[dObj.getDay()]+') 근무</h3>';
       html += renderShiftsGrouped(state.selectedDate, true);
-      if(state.crew.length===0){
-        html += '<div class="empty-note" style="padding:12px 0 0;">먼저 "스텝 관리"에서 스텝을 등록해 주세요.</div>';
+      const activeCrewForShift = state.crew.filter(isCrewActive);
+      if(activeCrewForShift.length===0){
+        html += '<div class="empty-note" style="padding:12px 0 0;">먼저 "스텝 관리"에서 재직 중인 스텝을 등록해 주세요.</div>';
       }else{
         html += '<div class="shift-form">';
         html += '<label>스텝</label><select id="shift-crew-select">';
-        state.crew.forEach(c=> html += '<option value="'+c.id+'">'+c.name+'</option>');
+        activeCrewForShift.forEach(c=> html += '<option value="'+c.id+'">'+c.name+'</option>');
         html += '</select>';
         html += '<div class="row2"><div><label>시작</label>'+timeSelectHtml('shift-start','10:00')+'</div><div><label>종료</label>'+timeSelectHtml('shift-end','18:00')+'</div></div>';
         html += '<button id="add-shift-btn">근무 추가</button>';
@@ -4361,7 +4428,7 @@
       if(state.crew.length>0){
         html += '<div class="shift-form" style="margin-top:10px;">';
         html += '<label>스텝</label><select id="manual-att-crew-select">';
-        state.crew.forEach(c=> html += '<option value="'+c.id+'">'+c.name+'</option>');
+        state.crew.forEach(c=> html += '<option value="'+c.id+'">'+c.name+(isCrewActive(c)?'':' (퇴사)')+'</option>');
         html += '</select>';
         html += '<label>출근</label>'+timeSelectHtml('manual-att-in','10:00');
         html += '<label>퇴근</label>'+timeSelectHtml('manual-att-out','18:00');
@@ -4376,14 +4443,15 @@
   function renderFixedPanel(){
     let html = '<div class="day-panel">';
     html += '<h3>고정 근무 설정</h3>';
-    if(state.crew.length===0){
-      html += '<div class="empty-note" style="padding:8px 0;">먼저 "스텝 관리"에서 스텝을 등록해 주세요.</div>';
+    const activeCrewForFixed = state.crew.filter(isCrewActive);
+    if(activeCrewForFixed.length===0){
+      html += '<div class="empty-note" style="padding:8px 0;">먼저 "스텝 관리"에서 재직 중인 스텝을 등록해 주세요.</div>';
       html += '<button class="switch-link" id="close-fixed-btn">닫기</button></div>';
       return html;
     }
     html += '<div class="shift-form">';
     html += '<label>스텝</label><select id="fixed-crew-select">';
-    state.crew.forEach(c=> html += '<option value="'+c.id+'"'+(c.id===state.fixedDraft.crewId?' selected':'')+'>'+c.name+'</option>');
+    activeCrewForFixed.forEach(c=> html += '<option value="'+c.id+'"'+(c.id===state.fixedDraft.crewId?' selected':'')+'>'+c.name+'</option>');
     html += '</select>';
     html += '<label>요일 선택</label><div class="day-chips">';
     DOW_LABELS.forEach((label, idx)=>{
@@ -4511,31 +4579,59 @@
     html += '<button class="crew-code-btn" id="set-store-location-btn">지금 이 위치를 매장 위치로 설정</button>';
     html += '<p class="crew-code-hint" style="margin-top:6px;">매장 안에서 눌러야 정확해요.</p>';
     html += '</div>';
+    html += '<div class="day-panel" style="margin-bottom:12px;">';
+    html += '<h3 style="margin:0 0 6px;">매니저 홈 화면 요약정보</h3>';
+    html += '<p class="crew-code-hint" style="margin-bottom:8px;">켜두면 매니저 권한이 있는 스텝의 홈 화면에 이번 달 매출·인건비율·식자재비율·오늘 체크리스트 진행률 카드가 보여요.</p>';
+    html += '<div class="mgr-toggle-row"><input type="checkbox" id="mgr-dashboard-toggle"'+(managerDashboardEnabled(state.store)?' checked':'')+'><label for="mgr-dashboard-toggle">매니저 홈 화면에 매장 요약정보 표시</label></div>';
+    html += '</div>';
     html += '<button class="crew-code-btn" id="export-crew-excel-btn" style="margin-bottom:12px;">스텝 전체 엑셀로 내보내기</button>';
+    const activeCrew = state.crew.filter(isCrewActive);
+    const resignedCrew = state.crew.filter(c=>!isCrewActive(c));
     if(state.crew.length===0){
       html += '<div class="empty-note">등록된 스텝이 없어요. 아래에서 추가해 주세요.</div>';
     }else{
-      const groups = ["홀","주방","그 외"];
-      groups.forEach(g=>{
-        const members = state.crew.filter(c=> (c.position||"홀") === g);
-        if(members.length===0) return;
-        html += '<div class="crew-group-label">'+g+' · '+members.length+'명</div>';
-        members.forEach(c=>{
-          const wageLabel = c.wageType==="monthly" ? "월급" : "시급";
-          html += '<div class="crew-card">';
-          html += '<div class="crew-top">'+renderAvatarBadge(c, 38)+'<div class="crew-info"><div class="name">'+c.name+' <span class="pos-badge '+posClass(c.position)+'">'+(c.position||"홀")+'</span>'+(c.isManager?' <span class="pos-badge mgr-badge">매니저</span>':'')+'</div><div class="wage">'+wageLabel+' '+c.wage.toLocaleString()+'원'+(c.phone?(' · '+c.phone):'')+'</div></div><button class="crew-del" data-delcrew="'+c.id+'">삭제</button></div>';
-          html += '<div style="margin-top:10px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
-          html += '<div class="crew-code-row"><span class="crew-code">'+(c.joinCode||"------")+'</span><button class="crew-code-btn" data-copycode="'+c.joinCode+'">복사</button><button class="crew-code-btn" data-regencode="'+c.id+'">재발급</button></div>';
-          html += '<div class="mgr-toggle-row" style="margin-top:10px;"><input type="checkbox" data-toggle-manager="'+c.id+'"'+(c.isManager?' checked':'')+' id="mgr-toggle-'+c.id+'"><label for="mgr-toggle-'+c.id+'">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
-          html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" data-toggle-salesaccess="'+c.id+'"'+(c.salesAccess?' checked':'')+' id="sales-toggle-'+c.id+'"><label for="sales-toggle-'+c.id+'">매출 탭 조회 권한 (급여·매출보고·월말리포트 열람)</label></div>';
-          html += '<div style="margin-top:10px;">'+renderHireDates(c)+'</div>';
-          html += '<div style="margin-top:10px;">'+renderProbationToggle(c)+'</div>';
-          html += '<div style="margin-top:10px;">'+renderPayrollFlags(c)+'</div>';
-          html += renderExtraCrewFields(c);
-          html += '<p class="crew-code-hint">이 코드를 '+c.name+'님께 카톡이나 말로 전달하면, 앱에서 "코드로 참여하기"로 본인 화면을 만들 수 있어요.</p>';
-          html += '</div>';
+      if(activeCrew.length===0){
+        html += '<div class="empty-note">현재 재직 중인 스텝이 없어요.</div>';
+      }else{
+        const groups = ["홀","주방","그 외"];
+        groups.forEach(g=>{
+          const members = activeCrew.filter(c=> (c.position||"홀") === g);
+          if(members.length===0) return;
+          html += '<div class="crew-group-label">'+g+' · '+members.length+'명</div>';
+          members.forEach(c=>{
+            const wageLabel = c.wageType==="monthly" ? "월급" : "시급";
+            html += '<div class="crew-card">';
+            html += '<div class="crew-top">'+renderAvatarBadge(c, 38)+'<div class="crew-info"><div class="name">'+c.name+' <span class="pos-badge '+posClass(c.position)+'">'+(c.position||"홀")+'</span>'+(c.isManager?' <span class="pos-badge mgr-badge">매니저</span>':'')+'</div><div class="wage">'+wageLabel+' '+c.wage.toLocaleString()+'원'+(c.phone?(' · '+c.phone):'')+'</div></div><button class="crew-del" data-resigncrew="'+c.id+'">퇴사 처리</button></div>';
+            html += '<div style="margin-top:10px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
+            html += '<div class="crew-code-row"><span class="crew-code">'+(c.joinCode||"------")+'</span><button class="crew-code-btn" data-copycode="'+c.joinCode+'">복사</button><button class="crew-code-btn" data-regencode="'+c.id+'">재발급</button></div>';
+            html += '<div class="mgr-toggle-row" style="margin-top:10px;"><input type="checkbox" data-toggle-manager="'+c.id+'"'+(c.isManager?' checked':'')+' id="mgr-toggle-'+c.id+'"><label for="mgr-toggle-'+c.id+'">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
+            html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" data-toggle-salesaccess="'+c.id+'"'+(c.salesAccess?' checked':'')+' id="sales-toggle-'+c.id+'"><label for="sales-toggle-'+c.id+'">매출 탭 조회 권한 (급여·매출보고·월말리포트 열람)</label></div>';
+            html += '<div style="margin-top:10px;">'+renderHireDates(c)+'</div>';
+            html += '<div style="margin-top:10px;">'+renderProbationToggle(c)+'</div>';
+            html += '<div style="margin-top:10px;">'+renderPayrollFlags(c)+'</div>';
+            html += renderExtraCrewFields(c);
+            html += '<p class="crew-code-hint">이 코드를 '+c.name+'님께 카톡이나 말로 전달하면, 앱에서 "코드로 참여하기"로 본인 화면을 만들 수 있어요.</p>';
+            html += '</div>';
+          });
         });
-      });
+      }
+      if(resignedCrew.length>0){
+        html += '<button class="switch-link" id="toggle-resigned-crew-btn" style="margin:14px 0 4px;">'+(state.showResignedCrew?'▲ 퇴사자 숨기기':'▼ 퇴사자 보기 ('+resignedCrew.length+'명)')+'</button>';
+        if(state.showResignedCrew){
+          html += '<div class="crew-group-label">퇴사자 · '+resignedCrew.length+'명</div>';
+          resignedCrew.forEach(c=>{
+            const wageLabel = c.wageType==="monthly" ? "월급" : "시급";
+            html += '<div class="crew-card" style="opacity:0.65;">';
+            html += '<div class="crew-top">'+renderAvatarBadge(c, 38)+'<div class="crew-info"><div class="name">'+c.name+' <span class="pos-badge '+posClass(c.position)+'">'+(c.position||"홀")+'</span> <span class="pos-badge" style="background:var(--ink-soft);">퇴사 '+c.resignDate+'</span></div><div class="wage">'+wageLabel+' '+c.wage.toLocaleString()+'원'+(c.phone?(' · '+c.phone):'')+'</div></div></div>';
+            html += '<p class="crew-code-hint" style="margin-top:8px;">근무·출퇴근·급여 기록은 보존되어 있어요. 급여 탭에서 계속 조회할 수 있습니다.</p>';
+            html += '<div style="display:flex;gap:8px;margin-top:10px;">';
+            html += '<button class="crew-code-btn" data-reactivatecrew="'+c.id+'">재입사(복귀) 처리</button>';
+            html += '<button class="crew-del" data-delcrew="'+c.id+'">완전 삭제</button>';
+            html += '</div>';
+            html += '</div>';
+          });
+        }
+      }
     }
     html += '<div class="crew-form">';
     html += '<div class="row2"><div><label class="field-label">이름</label><input id="crew-name-input" type="text" placeholder="이름"></div><div class="narrow"><label class="field-label">급여방식</label><select id="crew-wagetype-select"><option value="hourly">시급</option><option value="monthly">월급</option></select></div></div>';
@@ -4816,6 +4912,14 @@
     app.querySelectorAll("[data-delcrew]").forEach(btn=>{
       btn.addEventListener("click", ()=> deleteCrew(btn.getAttribute("data-delcrew")));
     });
+    app.querySelectorAll("[data-resigncrew]").forEach(btn=>{
+      btn.addEventListener("click", ()=> resignCrew(btn.getAttribute("data-resigncrew")));
+    });
+    app.querySelectorAll("[data-reactivatecrew]").forEach(btn=>{
+      btn.addEventListener("click", ()=> reactivateCrew(btn.getAttribute("data-reactivatecrew")));
+    });
+    const toggleResignedBtn = document.getElementById("toggle-resigned-crew-btn");
+    if(toggleResignedBtn) toggleResignedBtn.addEventListener("click", ()=>{ state.showResignedCrew = !state.showResignedCrew; render(); });
     app.querySelectorAll("[data-regencode]").forEach(btn=>{
       btn.addEventListener("click", ()=> regenCode(btn.getAttribute("data-regencode")));
     });
