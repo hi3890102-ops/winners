@@ -4624,17 +4624,20 @@
 
   function renderCrewManage(){
     const hasLoc = state.storeLocationMap && state.storeLocationMap[state.store];
+    const isOwnerLevel = (state.role === "storeOwner" || state.role === "hq");
     let html = '<div class="day-panel" style="margin-bottom:12px;">';
     html += '<h3 style="margin:0 0 6px;">매장 위치 설정</h3>';
     html += '<p class="crew-code-hint" style="margin-bottom:8px;">'+(hasLoc?'📍 위치가 설정돼있어요. 스텝 출퇴근이 매장 100m 이내에서만 찍혀요.':'아직 위치가 설정 안 됐어요. 설정 전까지는 출퇴근 위치 제한이 없어요.')+'</p>';
     html += '<button class="crew-code-btn" id="set-store-location-btn">지금 이 위치를 매장 위치로 설정</button>';
     html += '<p class="crew-code-hint" style="margin-top:6px;">매장 안에서 눌러야 정확해요.</p>';
     html += '</div>';
-    html += '<div class="day-panel" style="margin-bottom:12px;">';
-    html += '<h3 style="margin:0 0 6px;">매니저 홈 화면 요약정보</h3>';
-    html += '<p class="crew-code-hint" style="margin-bottom:8px;">켜두면 매니저 권한이 있는 스텝의 홈 화면에 이번 달 매출·인건비율·식자재비율·오늘 체크리스트 진행률 카드가 보여요.</p>';
-    html += '<div class="mgr-toggle-row"><input type="checkbox" id="mgr-dashboard-toggle"'+(managerDashboardEnabled(state.store)?' checked':'')+'><label for="mgr-dashboard-toggle">매니저 홈 화면에 매장 요약정보 표시</label></div>';
-    html += '</div>';
+    if(isOwnerLevel){
+      html += '<div class="day-panel" style="margin-bottom:12px;">';
+      html += '<h3 style="margin:0 0 6px;">매니저 홈 화면 요약정보</h3>';
+      html += '<p class="crew-code-hint" style="margin-bottom:8px;">켜두면 매니저 권한이 있는 스텝의 홈 화면에 이번 달 매출·인건비율·식자재비율·오늘 체크리스트 진행률 카드가 보여요.</p>';
+      html += '<div class="mgr-toggle-row"><input type="checkbox" id="mgr-dashboard-toggle"'+(managerDashboardEnabled(state.store)?' checked':'')+'><label for="mgr-dashboard-toggle">매니저 홈 화면에 매장 요약정보 표시</label></div>';
+      html += '</div>';
+    }
     html += '<div class="day-panel" style="margin-bottom:12px;">';
     html += '<h3 style="margin:0 0 6px;">영업일 기준 시간</h3>';
     html += '<p class="crew-code-hint" style="margin-bottom:8px;">이 매장은 매일 몇 시까지를 "전날 영업일"로 볼지 정해요. 예를 들어 새벽 3시까지 영업한다면 6시 정도로, 아침 일찍 출근하는 매장이면 더 낮게(예: 4시) 설정하세요. 체크리스트·출퇴근·매출보고 날짜 기준에 모두 적용돼요.</p>';
