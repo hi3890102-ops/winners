@@ -490,13 +490,13 @@
   async function loadStoreList(){
     let rows = [];
     try{
-      const { data, error } = await db.from('stores').select('id,name,lat,lng,onboarding_done').order('created_at');
+      const { data, error } = await db.from('stores').select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled').order('created_at');
       if(error) throw error;
       rows = data || [];
     }catch(e){ rows = []; }
     if(rows.length === 0){
       try{
-        const { data, error } = await db.from('stores').insert(DEFAULT_STORES.map(name=>({name}))).select('id,name,lat,lng,onboarding_done');
+        const { data, error } = await db.from('stores').insert(DEFAULT_STORES.map(name=>({name}))).select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled');
         if(error) throw error;
         rows = data || [];
       }catch(e){ rows = DEFAULT_STORES.map(name=>({ id:null, name })); }
@@ -505,17 +505,25 @@
     state.storeIdMap = {};
     state.storeLocationMap = {};
     state.storeOnboardingMap = {};
-    rows.forEach(r=>{ state.storeIdMap[r.name] = r.id; state.storeLocationMap[r.name] = (r.lat!=null && r.lng!=null) ? { lat:r.lat, lng:r.lng } : null; state.storeOnboardingMap[r.name] = !!r.onboarding_done; });
+    state.storeManagerDashboardMap = {};
+    rows.forEach(r=>{ state.storeIdMap[r.name] = r.id; state.storeLocationMap[r.name] = (r.lat!=null && r.lng!=null) ? { lat:r.lat, lng:r.lng } : null; state.storeOnboardingMap[r.name] = !!r.onboarding_done; state.storeManagerDashboardMap[r.name] = !!r.manager_dashboard_enabled; });
     state.store = state.storeList[0];
   }
   function currentStoreId(){ return state.storeIdMap[state.store]; }
 
-  // ---------- manager home dashboard toggle (per-store, saved to this device) ----------
+  // ---------- manager home dashboard toggle (per-store, synced to Supabase) ----------
   function managerDashboardEnabled(store){
-    try{ return localStorage.getItem("sm_mgrdash_"+store) === "1"; }catch(e){ return false; }
+    return !!(state.storeManagerDashboardMap && state.storeManagerDashboardMap[store]);
   }
   function setManagerDashboardEnabled(store, val){
-    try{ localStorage.setItem("sm_mgrdash_"+store, val ? "1" : "0"); }catch(e){}
+    if(!state.storeManagerDashboardMap) state.storeManagerDashboardMap = {};
+    state.storeManagerDashboardMap[store] = val;
+    const storeId = state.storeIdMap[store];
+    if(!storeId) return;
+    (async ()=>{
+      try{ await db.from('stores').update({ manager_dashboard_enabled: val }).eq('id', storeId); }
+      catch(e){ showToast("설정 저장에 실패했어요."); }
+    })();
   }
   function computeMyStoreSummary(){
     const y = state.monthYear, m = state.monthNum;
@@ -4907,6 +4915,11 @@
   function bindCrewManageEvents(){
     const setStoreLocBtn = document.getElementById("set-store-location-btn");
     if(setStoreLocBtn) setStoreLocBtn.addEventListener("click", ()=> setStoreLocation(state.store));
+    const mgrDashToggle = document.getElementById("mgr-dashboard-toggle");
+    if(mgrDashToggle) mgrDashToggle.addEventListener("change", ()=>{
+      setManagerDashboardEnabled(state.store, mgrDashToggle.checked);
+      showToast(mgrDashToggle.checked ? "매니저 홈 화면에 요약정보를 표시해요" : "매니저 홈 화면 요약정보를 껐어요");
+    });
     const addCrewBtn = document.getElementById("add-crew-btn");
     if(addCrewBtn) addCrewBtn.addEventListener("click", addCrewMember);
     app.querySelectorAll("[data-delcrew]").forEach(btn=>{
