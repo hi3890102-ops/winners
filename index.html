@@ -2741,6 +2741,46 @@
     render();
     updateCrewRow(id, { wage_type: wageType });
   }
+  function updateCrewName(id, val){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c) return;
+    const v = String(val||"").trim();
+    if(!v){ render(); return; } // 빈 이름은 무시하고 원래 값으로 되돌림
+    if(v === c.name) return;
+    c.name = v;
+    render();
+    updateCrewRow(id, { name: v });
+    showToast("이름을 수정했어요.");
+  }
+  function updateCrewWage(id, val){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c) return;
+    const v = Math.max(0, Number(val)||0);
+    if(v === c.wage) return;
+    c.wage = v;
+    render();
+    updateCrewRow(id, { wage: v });
+    showToast("금액을 수정했어요.");
+  }
+  function updateCrewPhone(id, val){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c) return;
+    const v = String(val||"").trim();
+    if(v === (c.phone||"")) return;
+    c.phone = v;
+    render();
+    updateCrewRow(id, { phone: v });
+    showToast("전화번호를 수정했어요.");
+  }
+  function updateCrewPosition(id, val){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c) return;
+    if(val === c.position) return;
+    c.position = val;
+    render();
+    updateCrewRow(id, { position: val });
+    showToast("근무 파트를 수정했어요.");
+  }
   function togglePayrollFlag(id, flag, checked){
     const c = state.crew.find(c=>c.id===id);
     if(!c) return;
@@ -4654,19 +4694,23 @@
     if(state.crew.length===0){
       html += '<div class="empty-note">등록된 스텝이 없어요. 아래에서 추가해 주세요.</div>';
     }else{
+      html += '<div style="margin-bottom:12px;"><input class="field-input" type="text" id="crew-search-input" placeholder="🔍 이름으로 검색"></div>';
       if(activeCrew.length===0){
         html += '<div class="empty-note">현재 재직 중인 스텝이 없어요.</div>';
       }else{
         const groups = ["홀","주방","그 외"];
         groups.forEach(g=>{
-          const members = activeCrew.filter(c=> (c.position||"홀") === g);
+          const members = activeCrew.filter(c=> (c.position||"홀") === g).sort((a,b)=> a.name.localeCompare(b.name,'ko'));
           if(members.length===0) return;
+          html += '<div class="crew-group" data-group="'+g+'">';
           html += '<div class="crew-group-label">'+g+' · '+members.length+'명</div>';
           members.forEach(c=>{
             const wageLabel = c.wageType==="monthly" ? "월급" : "시급";
-            html += '<div class="crew-card">';
+            html += '<div class="crew-card" data-crewname="'+escapeHtml(c.name)+'">';
             html += '<div class="crew-top">'+renderAvatarBadge(c, 38)+'<div class="crew-info"><div class="name">'+c.name+' <span class="pos-badge '+posClass(c.position)+'">'+(c.position||"홀")+'</span>'+(c.isManager?' <span class="pos-badge mgr-badge">매니저</span>':'')+'</div><div class="wage">'+wageLabel+' '+c.wage.toLocaleString()+'원'+(c.phone?(' · '+c.phone):'')+'</div></div><button class="crew-del" data-resigncrew="'+c.id+'">퇴사 처리</button></div>';
-            html += '<div style="margin-top:10px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
+            html += '<div class="row2" style="margin-top:10px;"><div><label class="field-label">이름</label><input class="field-input" type="text" value="'+escapeHtml(c.name)+'" data-editname="'+c.id+'"></div><div class="narrow"><label class="field-label">근무 파트</label><select class="field-input" data-editposition="'+c.id+'"><option value="홀"'+((c.position||"홀")==="홀"?' selected':'')+'>홀</option><option value="주방"'+(c.position==="주방"?' selected':'')+'>주방</option><option value="그 외"'+(c.position==="그 외"?' selected':'')+'>그 외</option></select></div></div>';
+            html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">금액 (원)</label><input class="field-input" type="number" min="0" step="100" value="'+c.wage+'" data-editwage="'+c.id+'"></div><div><label class="field-label">전화번호</label><input class="field-input" type="text" value="'+escapeHtml(c.phone||"")+'" placeholder="전화번호" data-editphone="'+c.id+'"></div></div>';
+            html += '<div style="margin-top:8px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
             html += '<div class="crew-code-row"><span class="crew-code">'+(c.joinCode||"------")+'</span><button class="crew-code-btn" data-copycode="'+c.joinCode+'">복사</button><button class="crew-code-btn" data-regencode="'+c.id+'">재발급</button></div>';
             html += '<div class="mgr-toggle-row" style="margin-top:10px;"><input type="checkbox" data-toggle-manager="'+c.id+'"'+(c.isManager?' checked':'')+' id="mgr-toggle-'+c.id+'"><label for="mgr-toggle-'+c.id+'">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
             html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" data-toggle-salesaccess="'+c.id+'"'+(c.salesAccess?' checked':'')+' id="sales-toggle-'+c.id+'"><label for="sales-toggle-'+c.id+'">매출 탭 조회 권한 (급여·매출보고·월말리포트 열람)</label></div>';
@@ -4677,6 +4721,7 @@
             html += '<p class="crew-code-hint">이 코드를 '+c.name+'님께 카톡이나 말로 전달하면, 앱에서 "코드로 참여하기"로 본인 화면을 만들 수 있어요.</p>';
             html += '</div>';
           });
+          html += '</div>';
         });
       }
       if(resignedCrew.length>0){
@@ -5012,6 +5057,36 @@
     app.querySelectorAll("[data-wagetype]").forEach(sel=>{
       sel.addEventListener("change", ()=> updateCrewWageType(sel.getAttribute("data-wagetype"), sel.value));
     });
+    app.querySelectorAll("[data-editname]").forEach(inp=>{
+      inp.addEventListener("change", ()=> updateCrewName(inp.getAttribute("data-editname"), inp.value));
+    });
+    app.querySelectorAll("[data-editwage]").forEach(inp=>{
+      inp.addEventListener("change", ()=> updateCrewWage(inp.getAttribute("data-editwage"), inp.value));
+    });
+    app.querySelectorAll("[data-editphone]").forEach(inp=>{
+      inp.addEventListener("change", ()=> updateCrewPhone(inp.getAttribute("data-editphone"), inp.value));
+    });
+    app.querySelectorAll("[data-editposition]").forEach(sel=>{
+      sel.addEventListener("change", ()=> updateCrewPosition(sel.getAttribute("data-editposition"), sel.value));
+    });
+    const crewSearchInput = document.getElementById("crew-search-input");
+    if(crewSearchInput){
+      crewSearchInput.addEventListener("input", ()=>{
+        const q = crewSearchInput.value.trim().toLowerCase();
+        app.querySelectorAll(".crew-group").forEach(group=>{
+          let anyVisible = false;
+          group.querySelectorAll(".crew-card[data-crewname]").forEach(card=>{
+            const nm = (card.getAttribute("data-crewname")||"").toLowerCase();
+            const match = !q || nm.includes(q);
+            card.style.display = match ? "" : "none";
+            if(match) anyVisible = true;
+          });
+          const label = group.querySelector(".crew-group-label");
+          if(label) label.style.display = anyVisible ? "" : "none";
+          group.style.display = anyVisible ? "" : "none";
+        });
+      });
+    }
     app.querySelectorAll("[data-copycode]").forEach(btn=>{
       btn.addEventListener("click", ()=> copyCode(btn.getAttribute("data-copycode")));
     });
