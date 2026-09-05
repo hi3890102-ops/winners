@@ -4645,9 +4645,14 @@
     const hasLoc = state.storeLocationMap && state.storeLocationMap[state.store];
     const isOwnerLevel = (state.role === "storeOwner" || state.role === "hq");
     let html = '<div class="day-panel" style="margin-bottom:12px;">';
-    html += '<h3 style="margin:0 0 6px;">매장 위치 설정</h3>';
-    html += '<p class="crew-code-hint" style="margin-bottom:8px;">'+(hasLoc?'📍 위치가 설정돼있어요. 스텝 출퇴근이 매장 100m 이내에서만 찍혀요.':'아직 위치가 설정 안 됐어요. 설정 전까지는 출퇴근 위치 제한이 없어요.')+'</p>';
-    html += '<button class="crew-code-btn" id="set-store-location-btn">지금 이 위치를 매장 위치로 설정</button>';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+    html += '<h3 style="margin:0;">매장 위치 설정</h3>';
+    html += hasLoc
+      ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:800;color:#fff;background:var(--olive);padding:4px 10px;border-radius:999px;">✓ 설정됨</span>'
+      : '<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:800;color:#fff;background:var(--danger);padding:4px 10px;border-radius:999px;">✕ 미설정</span>';
+    html += '</div>';
+    html += '<p class="crew-code-hint" style="margin-bottom:8px;">'+(hasLoc?'스텝 출퇴근이 매장 100m 이내에서만 찍혀요.':'설정 전까지는 출퇴근 위치 제한이 없어요.')+'</p>';
+    html += '<button class="crew-code-btn" id="set-store-location-btn" style="'+(hasLoc?'':'background:var(--brick);color:#fff;')+'">'+(hasLoc?'위치 재설정':'지금 이 위치를 매장 위치로 설정')+'</button>';
     html += '<p class="crew-code-hint" style="margin-top:6px;">매장 안에서 눌러야 정확해요.</p>';
     html += '</div>';
     if(isOwnerLevel){
