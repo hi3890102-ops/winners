@@ -4690,7 +4690,6 @@
               html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
               html += '<div class="row2"><div><label class="field-label">이름</label><input class="field-input" type="text" value="'+escapeHtml(c.name)+'" data-editname="'+c.id+'"></div><div class="narrow"><label class="field-label">근무 파트</label><select class="field-input" data-editposition="'+c.id+'"><option value="홀"'+((c.position||"홀")==="홀"?' selected':'')+'>홀</option><option value="주방"'+(c.position==="주방"?' selected':'')+'>주방</option><option value="그 외"'+(c.position==="그 외"?' selected':'')+'>그 외</option></select></div></div>';
               html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">금액 (원)</label><input class="field-input" type="number" min="0" step="100" value="'+c.wage+'" data-editwage="'+c.id+'"></div><div><label class="field-label">전화번호</label><input class="field-input" type="text" value="'+escapeHtml(c.phone||"")+'" placeholder="전화번호" data-editphone="'+c.id+'"></div></div>';
-              html += '<div style="display:flex;gap:8px;margin-top:10px;"><button class="crew-code-btn" style="flex:1;background:var(--ink);color:#fff;" data-savecrewinfo="'+c.id+'">수정 저장</button><button class="crew-del" data-resigncrew="'+c.id+'">퇴사 처리</button></div>';
               html += '<div style="margin-top:12px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
               html += '<div class="crew-code-row"><span class="crew-code">'+(c.joinCode||"------")+'</span><button class="crew-code-btn" data-copycode="'+c.joinCode+'">복사</button><button class="crew-code-btn" data-regencode="'+c.id+'">재발급</button></div>';
               html += '<div class="mgr-toggle-row" style="margin-top:10px;"><input type="checkbox" data-toggle-manager="'+c.id+'"'+(c.isManager?' checked':'')+' id="mgr-toggle-'+c.id+'"><label for="mgr-toggle-'+c.id+'">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
@@ -4700,6 +4699,7 @@
               html += '<div style="margin-top:10px;">'+renderPayrollFlags(c)+'</div>';
               html += renderExtraCrewFields(c);
               html += '<p class="crew-code-hint">이 코드를 '+c.name+'님께 카톡이나 말로 전달하면, 앱에서 "코드로 참여하기"로 본인 화면을 만들 수 있어요.</p>';
+              html += '<div style="display:flex;gap:8px;margin-top:14px;"><button style="flex:1;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;" data-savecrewinfo="'+c.id+'">수정 저장</button><button style="flex:1;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--danger);color:#fff;" data-resigncrew="'+c.id+'">퇴사 처리</button></div>';
               html += '</div>';
             }
             html += '</div>';
