@@ -2695,7 +2695,9 @@
       if(error) throw error;
       state.crew.push(rowToCrew(data));
       nameInput.value=""; wageInput.value=""; phoneInput.value="";
+      state.showAddCrewForm = false;
       render();
+      showToast(name+"님을 추가했어요.");
     }catch(e){ showToast("스텝 저장에 실패했어요."); }
   }
   function toggleProbation(id, val){
@@ -4726,16 +4728,23 @@
       }
     }
     html += '<div class="crew-form">';
-    html += '<div class="row2"><div><label class="field-label">이름</label><input id="crew-name-input" type="text" placeholder="이름"></div><div class="narrow"><label class="field-label">급여방식</label><select id="crew-wagetype-select"><option value="hourly">시급</option><option value="monthly">월급</option></select></div></div>';
-    html += '<div class="row2"><div><label class="field-label">금액 (원)</label><input id="crew-wage-input" type="number" placeholder="금액" min="0" step="100"></div><div><label class="field-label">전화번호 (선택)</label><input id="crew-phone-input" type="text" placeholder="전화번호"></div></div>';
-    html += '<div><label class="field-label">근무 파트</label><select id="crew-position-select"><option value="홀">홀</option><option value="주방">주방</option><option value="그 외">그 외</option></select></div>';
-    html += renderHireDates(null);
-    html += '<div class="mgr-toggle-row"><input type="checkbox" id="crew-manager-checkbox"><label for="crew-manager-checkbox">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
-    html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" id="crew-salesaccess-checkbox"><label for="crew-salesaccess-checkbox">매출 탭 조회 권한 (급여·매출보고·월말리포트 열람)</label></div>';
-    html += renderProbationToggle(null);
-    html += renderPayrollFlags(null);
-    html += renderExtraCrewFields(null);
-    html += '<button id="add-crew-btn">스텝 추가</button>';
+    if(!state.showAddCrewForm){
+      html += '<button id="show-add-crew-btn" style="width:100%;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:800;cursor:pointer;background:var(--ink);color:#fff;">+ 스텝 추가</button>';
+    }else{
+      html += '<div class="row2"><div><label class="field-label">이름</label><input id="crew-name-input" type="text" placeholder="이름"></div><div class="narrow"><label class="field-label">급여방식</label><select id="crew-wagetype-select"><option value="hourly">시급</option><option value="monthly">월급</option></select></div></div>';
+      html += '<div class="row2"><div><label class="field-label">금액 (원)</label><input id="crew-wage-input" type="number" placeholder="금액" min="0" step="100"></div><div><label class="field-label">전화번호 (선택)</label><input id="crew-phone-input" type="text" placeholder="전화번호"></div></div>';
+      html += '<div><label class="field-label">근무 파트</label><select id="crew-position-select"><option value="홀">홀</option><option value="주방">주방</option><option value="그 외">그 외</option></select></div>';
+      html += renderHireDates(null);
+      html += '<div class="mgr-toggle-row"><input type="checkbox" id="crew-manager-checkbox"><label for="crew-manager-checkbox">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
+      html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" id="crew-salesaccess-checkbox"><label for="crew-salesaccess-checkbox">매출 탭 조회 권한 (급여·매출보고·월말리포트 열람)</label></div>';
+      html += renderProbationToggle(null);
+      html += renderPayrollFlags(null);
+      html += renderExtraCrewFields(null);
+      html += '<div style="display:flex;gap:8px;margin-top:12px;">';
+      html += '<button id="add-crew-btn" style="flex:1;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">추가 완료</button>';
+      html += '<button id="cancel-add-crew-btn" style="border:none;border-radius:10px;padding:13px 16px;font-size:14px;font-weight:700;cursor:pointer;background:var(--cream);color:var(--ink-soft);">취소</button>';
+      html += '</div>';
+    }
     html += '</div>';
     return html;
   }
@@ -5011,6 +5020,10 @@
     });
     const addCrewBtn = document.getElementById("add-crew-btn");
     if(addCrewBtn) addCrewBtn.addEventListener("click", addCrewMember);
+    const showAddCrewBtn = document.getElementById("show-add-crew-btn");
+    if(showAddCrewBtn) showAddCrewBtn.addEventListener("click", ()=>{ state.showAddCrewForm = true; render(); });
+    const cancelAddCrewBtn = document.getElementById("cancel-add-crew-btn");
+    if(cancelAddCrewBtn) cancelAddCrewBtn.addEventListener("click", ()=>{ state.showAddCrewForm = false; render(); });
     app.querySelectorAll("[data-delcrew]").forEach(btn=>{
       btn.addEventListener("click", ()=> deleteCrew(btn.getAttribute("data-delcrew")));
     });
