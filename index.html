@@ -1699,6 +1699,7 @@
       }
       nameInp.value=""; phoneInp.value=""; partyInp.value=""; memoInp.value=""; timeInp.value="";
       if(dateInp) dateInp.value = bizToday();
+      state.showReservationForm = false;
       render();
       showToast(isToday ? "예약을 등록했어요." : (formatDateLabel(resDate)+" 예약을 등록했어요. 그날 알림이 갈 거예요."));
       if(isToday) sendReservationPush(res);
@@ -3721,20 +3722,28 @@
     }
     html += '</div>';
 
-    html += '<div class="s-card">'+labelWithIcon('chart','예약 등록');
-    html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+bizToday()+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div></div>';
-    html += '<div style="margin-top:8px;"><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div>';
-    html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
-    html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
-    html += '<button id="add-reservation-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
+    html += '<div class="s-card">'+labelWithIcon('chart','예약');
     const todayRes = (state.reservations||[]).filter(r=>r.date===bizToday()).sort((a,b)=> (a.time||"").localeCompare(b.time||""));
     if(todayRes.length>0){
-      html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
-      html += '<p class="crew-code-hint" style="margin-bottom:6px;">오늘 예약 '+todayRes.length+'건</p>';
+      html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 예약 '+todayRes.length+'건</p>';
       todayRes.forEach(r=>{
         html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(r.partySize?r.partySize+'명':'')+'<button class="crew-del" data-cancelres="'+r.id+'">취소</button></span></div>';
       });
-      html += '</div>';
+    }else{
+      html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 등록된 예약이 없어요.</p>';
+    }
+    if(!state.showReservationForm){
+      html += '<button id="show-reservation-form-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--ink);color:#fff;">+ 예약 등록</button>';
+    }else{
+      html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
+      html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+bizToday()+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div></div>';
+      html += '<div style="margin-top:8px;"><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div>';
+      html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
+      html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
+      html += '<div style="display:flex;gap:8px;margin-top:10px;">';
+      html += '<button id="add-reservation-btn" style="flex:1;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
+      html += '<button id="cancel-reservation-form-btn" style="border:none;border-radius:10px;padding:12px 16px;font-size:13.5px;font-weight:700;cursor:pointer;background:var(--cream);color:var(--ink-soft);">취소</button>';
+      html += '</div></div>';
     }
     html += '</div>';
 
@@ -4141,26 +4150,34 @@
 
     if(state.role === "storeOwner"){
       html += '<div class="day-panel" style="margin-bottom:14px;">';
-      html += '<h3 style="margin:0 0 6px;">예약 등록</h3>';
-      if(state.myStores && state.myStores.length > 1){
-        html += '<div style="margin-bottom:8px;"><label class="field-label">매장 선택</label><select id="res-store-select" class="field-input">';
-        state.myStores.forEach(s=> html += '<option value="'+escapeHtml(s)+'"'+(s===state.store?' selected':'')+'>'+escapeHtml(s)+'</option>');
-        html += '</select></div>';
-        html += '<p class="crew-code-hint" style="margin-bottom:8px;">지금 "'+escapeHtml(state.store)+'" 매장에 등록돼요.</p>';
-      }
-      html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+bizToday()+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div></div>';
-      html += '<div style="margin-top:8px;"><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div>';
-      html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
-      html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
-      html += '<button id="add-reservation-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
+      html += '<h3 style="margin:0 0 6px;">예약</h3>';
       const todayResDash = (state.reservations||[]).filter(r=>r.date===bizToday()).sort((a,b)=> (a.time||"").localeCompare(b.time||""));
       if(todayResDash.length>0){
-        html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
-        html += '<p class="crew-code-hint" style="margin-bottom:6px;">오늘 예약 '+todayResDash.length+'건 · '+escapeHtml(state.store)+'</p>';
+        html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 예약 '+todayResDash.length+'건 · '+escapeHtml(state.store)+'</p>';
         todayResDash.forEach(r=>{
           html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(r.partySize?r.partySize+'명':'')+'<button class="crew-del" data-cancelres="'+r.id+'">취소</button></span></div>';
         });
-        html += '</div>';
+      }else{
+        html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 등록된 예약이 없어요 · '+escapeHtml(state.store)+'</p>';
+      }
+      if(!state.showReservationForm){
+        html += '<button id="show-reservation-form-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--ink);color:#fff;">+ 예약 등록</button>';
+      }else{
+        html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
+        if(state.myStores && state.myStores.length > 1){
+          html += '<div style="margin-bottom:8px;"><label class="field-label">매장 선택</label><select id="res-store-select" class="field-input">';
+          state.myStores.forEach(s=> html += '<option value="'+escapeHtml(s)+'"'+(s===state.store?' selected':'')+'>'+escapeHtml(s)+'</option>');
+          html += '</select></div>';
+          html += '<p class="crew-code-hint" style="margin-bottom:8px;">지금 "'+escapeHtml(state.store)+'" 매장에 등록돼요.</p>';
+        }
+        html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+bizToday()+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div></div>';
+        html += '<div style="margin-top:8px;"><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div>';
+        html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
+        html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
+        html += '<div style="display:flex;gap:8px;margin-top:10px;">';
+        html += '<button id="add-reservation-btn" style="flex:1;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
+        html += '<button id="cancel-reservation-form-btn" style="border:none;border-radius:10px;padding:12px 16px;font-size:13.5px;font-weight:700;cursor:pointer;background:var(--cream);color:var(--ink-soft);">취소</button>';
+        html += '</div></div>';
       }
       html += '</div>';
     }
@@ -5168,6 +5185,10 @@
     if(addQuickExpenseBtn) addQuickExpenseBtn.addEventListener("click", addQuickExpenseEntry);
     const addReservationBtn = document.getElementById("add-reservation-btn");
     if(addReservationBtn) addReservationBtn.addEventListener("click", addReservation);
+    const showReservationFormBtn = document.getElementById("show-reservation-form-btn");
+    if(showReservationFormBtn) showReservationFormBtn.addEventListener("click", ()=>{ state.showReservationForm = true; render(); });
+    const cancelReservationFormBtn = document.getElementById("cancel-reservation-form-btn");
+    if(cancelReservationFormBtn) cancelReservationFormBtn.addEventListener("click", ()=>{ state.showReservationForm = false; render(); });
     app.querySelectorAll("[data-cancelres]").forEach(btn=>{
       btn.addEventListener("click", ()=> cancelReservation(btn.getAttribute("data-cancelres")));
     });
@@ -5681,6 +5702,10 @@
     if(refreshDashboardBtn) refreshDashboardBtn.addEventListener("click", loadDashboardData);
     const addReservationBtnDash = document.getElementById("add-reservation-btn");
     if(addReservationBtnDash) addReservationBtnDash.addEventListener("click", addReservation);
+    const showReservationFormBtnDash = document.getElementById("show-reservation-form-btn");
+    if(showReservationFormBtnDash) showReservationFormBtnDash.addEventListener("click", ()=>{ state.showReservationForm = true; render(); });
+    const cancelReservationFormBtnDash = document.getElementById("cancel-reservation-form-btn");
+    if(cancelReservationFormBtnDash) cancelReservationFormBtnDash.addEventListener("click", ()=>{ state.showReservationForm = false; render(); });
     app.querySelectorAll("[data-cancelres]").forEach(btn=>{
       btn.addEventListener("click", ()=> cancelReservation(btn.getAttribute("data-cancelres")));
     });
