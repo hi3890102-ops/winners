@@ -1670,6 +1670,7 @@
     }catch(e){ state.reservations = []; }
   }
   async function addReservation(){
+    const dateInp = document.getElementById("res-date-input");
     const timeInp = document.getElementById("res-time-input");
     const partyInp = document.getElementById("res-party-input");
     const nameInp = document.getElementById("res-name-input");
@@ -1679,22 +1680,28 @@
     const customerName = (nameInp.value||"").trim();
     if(!customerName){ showToast("예약자명을 입력해 주세요."); return; }
     const storeId = currentStoreId();
+    const resDate = (dateInp && dateInp.value) ? dateInp.value : bizToday();
+    const isToday = resDate === bizToday();
     const payload = {
-      store_id: storeId, date: bizToday(), time: timeInp.value||"",
+      store_id: storeId, date: resDate, time: timeInp.value||"",
       customer_name: customerName, phone: (phoneInp.value||"").trim(),
       party_size: parseInt(partyInp.value||"0",10) || null, memo: (memoInp.value||"").trim(),
-      created_by: (state.crew.find(c=>c.id===state.myCrewId)||{}).name || (state.role==="storeOwner"?state.store+" 사장님":"")
+      created_by: (state.crew.find(c=>c.id===state.myCrewId)||{}).name || (state.role==="storeOwner"?state.store+" 사장님":""),
+      notified: isToday
     };
     try{
       const { data, error } = await db.from('reservations').insert(payload).select().single();
       if(error) throw error;
       const res = { id:data.id, date:data.date, time:data.time||"", customerName:data.customer_name||"", phone:data.phone||"", partySize:data.party_size||0, memo:data.memo||"" };
-      if(!state.reservations) state.reservations = [];
-      state.reservations.push(res);
+      if(isToday){
+        if(!state.reservations) state.reservations = [];
+        state.reservations.push(res);
+      }
       nameInp.value=""; phoneInp.value=""; partyInp.value=""; memoInp.value=""; timeInp.value="";
+      if(dateInp) dateInp.value = bizToday();
       render();
-      showToast("예약을 등록했어요.");
-      sendReservationPush(res);
+      showToast(isToday ? "예약을 등록했어요." : (formatDateLabel(resDate)+" 예약을 등록했어요. 그날 알림이 갈 거예요."));
+      if(isToday) sendReservationPush(res);
     }catch(e){ showToast("예약 등록에 실패했어요."); }
   }
   function cancelReservation(id){
@@ -3715,7 +3722,8 @@
     html += '</div>';
 
     html += '<div class="s-card">'+labelWithIcon('chart','예약 등록');
-    html += '<div class="row2"><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div><div><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div></div>';
+    html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+bizToday()+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div></div>';
+    html += '<div style="margin-top:8px;"><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div>';
     html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
     html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
     html += '<button id="add-reservation-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
@@ -4140,7 +4148,8 @@
         html += '</select></div>';
         html += '<p class="crew-code-hint" style="margin-bottom:8px;">지금 "'+escapeHtml(state.store)+'" 매장에 등록돼요.</p>';
       }
-      html += '<div class="row2"><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div><div><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div></div>';
+      html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+bizToday()+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div></div>';
+      html += '<div style="margin-top:8px;"><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div>';
       html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
       html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
       html += '<button id="add-reservation-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
