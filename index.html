@@ -542,6 +542,75 @@
     })();
   }
 
+  // ---------- push notifications (출퇴근·예약 알림) ----------
+  const VAPID_PUBLIC_KEY = "BKIv1GiVTaXN7fjha_FJEBV6EGQ2xA6nEEJLtxJrZTsI0R80OuEESkS3-SYlpSEvY01-LRE9-DiwhDRk7ma0MoU";
+  function urlBase64ToUint8Array(base64String){
+    const padding = "=".repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for(let i=0;i<rawData.length;++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  }
+  async function refreshPushSubStatus(){
+    if(!("serviceWorker" in navigator) || !("PushManager" in window)){ state.pushSubscribed = false; return; }
+    try{
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      state.pushSubscribed = !!sub;
+    }catch(e){ state.pushSubscribed = false; }
+    render();
+  }
+  async function subscribeToPush(){
+    if(!("serviceWorker" in navigator) || !("PushManager" in window)){ showToast("이 브라우저는 푸시 알림을 지원하지 않아요."); return; }
+    try{
+      const permission = await Notification.requestPermission();
+      if(permission !== "granted"){ showToast("알림 권한을 허용해야 알림을 받을 수 있어요."); return; }
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if(!sub){
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+      }
+      const raw = sub.toJSON();
+      const storeId = currentStoreId();
+      await db.from("push_subscriptions").upsert({
+        store_id: storeId, crew_id: state.myCrewId || null, role: state.role,
+        endpoint: raw.endpoint, p256dh: raw.keys.p256dh, auth: raw.keys.auth
+      }, { onConflict: "endpoint" });
+      state.pushSubscribed = true;
+      showToast("출퇴근 알림을 켰어요.");
+      render();
+    }catch(e){ showToast("알림 구독에 실패했어요."); }
+  }
+  async function unsubscribeFromPush(){
+    try{
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if(sub){
+        try{ await db.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); }catch(e){}
+        await sub.unsubscribe();
+      }
+      state.pushSubscribed = false;
+      showToast("출퇴근 알림을 껐어요.");
+      render();
+    }catch(e){ showToast("해제에 실패했어요."); }
+  }
+  async function sendAttendancePush(action, crewName){
+    const storeId = currentStoreId();
+    if(!storeId) return;
+    try{
+      await fetch("/.netlify/functions/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId, title: state.store,
+          body: crewName+"님이 "+(action==="in"?"출근":"퇴근")+"했어요 ("+nowTimeStr()+")",
+          tag: "attendance", excludeCrewId: state.myCrewId
+        })
+      });
+    }catch(e){ /* 알림 발송 실패는 조용히 무시 (출퇴근 처리 자체엔 영향 없음) */ }
+  }
+
   // ---------- manager home dashboard toggle (per-store, synced to Supabase) ----------
   function managerDashboardEnabled(store){
     return !!(state.storeManagerDashboardMap && state.storeManagerDashboardMap[store]);
@@ -1971,6 +2040,7 @@
     ]);
     state.loading = false;
     render();
+    if(state.role === "storeOwner") refreshPushSubStatus();
   }
 
   async function loadHomeChecklistPreview(store){
@@ -2000,10 +2070,13 @@
       loadAnnouncements(store),
       loadHomeChecklistPreview(store),
       loadSalesReports(store, monthKey()),
-      loadExpenseEntries(store, monthKey())
+      loadExpenseEntries(store, monthKey()),
+      loadVendors(store)
     ]);
     state.loading = false;
     render();
+    const me = state.crew.find(c=>c.id===crewId);
+    if(me && me.isManager) refreshPushSubStatus();
   }
 
   async function saveChecks(){
@@ -2967,6 +3040,8 @@
       state.attendance.push({ id:data.id, date:data.date, crewId: state.myCrewId, checkIn: nowTimeStr(), checkOut:null, confirmed:false });
       render();
       showToast("출근 처리됐어요");
+      const me = state.crew.find(c=>c.id===state.myCrewId);
+      sendAttendancePush("in", me ? me.name : "스텝");
     }catch(e){ showToast("저장에 실패했어요."); }
   }
   async function clockOut(){
@@ -2984,6 +3059,8 @@
     try{ await db.from('attendance').update({ check_out: checkOut, confirmed:false, staff_confirmed:false }).eq('id', rec.id); }
     catch(e){ showToast("저장에 실패했어요."); return; }
     showToast("퇴근 처리됐어요");
+    const me = state.crew.find(c=>c.id===state.myCrewId);
+    sendAttendancePush("out", me ? me.name : "스텝");
     state.attConfirmPrompt = { attId: rec.id, checkIn: checkInForPrompt, checkOut: checkOut, editing:false };
     render();
   }
@@ -3541,6 +3618,17 @@
       html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">식자재비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+foodColor+';">'+(sum.expenseRatio===null?'—':sum.expenseRatio.toFixed(1)+'%')+'</div></div>';
       html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">오늘 체크리스트</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;">'+(sum.checklistPct===null?'—':sum.checklistPct+'%')+'</div></div>';
       html += '</div></div>';
+    }
+
+    if(person.isManager){
+      html += '<div class="s-card">'+labelWithIcon('bell','출퇴근 알림');
+      html += '<p class="crew-code-hint" style="margin-bottom:8px;">스텝이 출근·퇴근하면 이 폰으로 알림이 와요.</p>';
+      if(state.pushSubscribed){
+        html += '<button class="crew-code-btn" id="push-toggle-btn" style="background:var(--danger);color:#fff;border:none;">알림 끄기</button>';
+      }else{
+        html += '<button class="crew-code-btn" id="push-toggle-btn" style="background:var(--brick);color:#fff;border:none;">알림 켜기</button>';
+      }
+      html += '</div>';
     }
 
     const editedRecs = state.attendance.filter(a=> a.crewId===state.myCrewId && a.timeEdited && !a.staffAckEdit);
@@ -4696,6 +4784,17 @@
       html += '<div class="mgr-toggle-row"><input type="checkbox" id="mgr-dashboard-toggle"'+(managerDashboardEnabled(state.store)?' checked':'')+'><label for="mgr-dashboard-toggle">매니저 홈 화면에 매장 요약정보 표시</label></div>';
       html += '</div>';
     }
+    if(state.role === "storeOwner"){
+      html += '<div class="day-panel" style="margin-bottom:12px;">';
+      html += '<h3 style="margin:0 0 6px;">출퇴근 알림</h3>';
+      html += '<p class="crew-code-hint" style="margin-bottom:8px;">스텝이 출근·퇴근하면 이 폰으로 알림이 와요.</p>';
+      if(state.pushSubscribed){
+        html += '<button class="crew-code-btn" id="owner-push-toggle-btn" style="background:var(--danger);color:#fff;border:none;">알림 끄기</button>';
+      }else{
+        html += '<button class="crew-code-btn" id="owner-push-toggle-btn" style="background:var(--brick);color:#fff;border:none;">알림 켜기</button>';
+      }
+      html += '</div>';
+    }
     html += '<div class="day-panel" style="margin-bottom:12px;">';
     html += '<h3 style="margin:0 0 6px;">영업일 기준 시간</h3>';
     html += '<p class="crew-code-hint" style="margin-bottom:8px;">이 매장은 매일 몇 시까지를 "전날 영업일"로 볼지 정해요. 예를 들어 새벽 3시까지 영업한다면 6시 정도로, 아침 일찍 출근하는 매장이면 더 낮게(예: 4시) 설정하세요. 체크리스트·출퇴근·매출보고 날짜 기준에 모두 적용돼요.</p>';
@@ -4934,6 +5033,10 @@
     if(clockOutBtn) clockOutBtn.addEventListener("click", clockOut);
     const addQuickExpenseBtn = document.getElementById("add-quick-expense-btn");
     if(addQuickExpenseBtn) addQuickExpenseBtn.addEventListener("click", addQuickExpenseEntry);
+    const pushToggleBtn = document.getElementById("push-toggle-btn");
+    if(pushToggleBtn) pushToggleBtn.addEventListener("click", ()=>{
+      if(state.pushSubscribed) unsubscribeFromPush(); else subscribeToPush();
+    });
     app.querySelectorAll("[data-staffnav]").forEach(btn=>{
       btn.addEventListener("click", ()=> goToStaffTab(btn.getAttribute("data-staffnav")));
     });
@@ -5053,6 +5156,10 @@
     if(mgrDashToggle) mgrDashToggle.addEventListener("change", ()=>{
       setManagerDashboardEnabled(state.store, mgrDashToggle.checked);
       showToast(mgrDashToggle.checked ? "매니저 홈 화면에 요약정보를 표시해요" : "매니저 홈 화면 요약정보를 껐어요");
+    });
+    const ownerPushToggleBtn = document.getElementById("owner-push-toggle-btn");
+    if(ownerPushToggleBtn) ownerPushToggleBtn.addEventListener("click", ()=>{
+      if(state.pushSubscribed) unsubscribeFromPush(); else subscribeToPush();
     });
     const storeCutoffSelect = document.getElementById("store-cutoff-select");
     if(storeCutoffSelect) storeCutoffSelect.addEventListener("change", ()=>{
