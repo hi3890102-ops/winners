@@ -1,0 +1,2 @@
+[functions."notify-reservations-cron"]
+  schedule = "0 15 * * *"
