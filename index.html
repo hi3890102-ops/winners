@@ -631,6 +631,21 @@
       });
     }catch(e){ /* 알림 발송 실패는 조용히 무시 */ }
   }
+  async function sendReservationCancelPush(res){
+    const storeId = currentStoreId();
+    if(!storeId) return;
+    try{
+      await fetch("/.netlify/functions/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId, title: "예약 취소",
+          body: (res.time?res.time+' ':'')+(res.customerName||'예약')+' 예약이 취소됐어요',
+          tag: "reservation-cancel", managerOnly: false
+        })
+      });
+    }catch(e){ /* 알림 발송 실패는 조용히 무시 */ }
+  }
 
   // ---------- manager home dashboard toggle (per-store, synced to Supabase) ----------
   function managerDashboardEnabled(store){
@@ -1681,6 +1696,17 @@
       showToast("예약을 등록했어요.");
       sendReservationPush(res);
     }catch(e){ showToast("예약 등록에 실패했어요."); }
+  }
+  function cancelReservation(id){
+    const res = (state.reservations||[]).find(r=>String(r.id)===String(id));
+    if(!res) return;
+    askConfirm((res.customerName||'예약')+' 예약을 취소할까요?', async ()=>{
+      state.reservations = state.reservations.filter(r=>String(r.id)!==String(id));
+      render();
+      try{ await db.from('reservations').delete().eq('id', id); }catch(e){}
+      showToast("예약을 취소했어요.");
+      sendReservationCancelPush(res);
+    });
   }
   function deleteExpenseEntry(id){
     state.expenseEntries = state.expenseEntries.filter(e=>e.id!==id);
@@ -3698,7 +3724,7 @@
       html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
       html += '<p class="crew-code-hint" style="margin-bottom:6px;">오늘 예약 '+todayRes.length+'건</p>';
       todayRes.forEach(r=>{
-        html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span>'+(r.partySize?r.partySize+'명':'')+'</span></div>';
+        html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(r.partySize?r.partySize+'명':'')+'<button class="crew-del" data-cancelres="'+r.id+'">취소</button></span></div>';
       });
       html += '</div>';
     }
@@ -4108,6 +4134,12 @@
     if(state.role === "storeOwner"){
       html += '<div class="day-panel" style="margin-bottom:14px;">';
       html += '<h3 style="margin:0 0 6px;">예약 등록</h3>';
+      if(state.myStores && state.myStores.length > 1){
+        html += '<div style="margin-bottom:8px;"><label class="field-label">매장 선택</label><select id="res-store-select" class="field-input">';
+        state.myStores.forEach(s=> html += '<option value="'+escapeHtml(s)+'"'+(s===state.store?' selected':'')+'>'+escapeHtml(s)+'</option>');
+        html += '</select></div>';
+        html += '<p class="crew-code-hint" style="margin-bottom:8px;">지금 "'+escapeHtml(state.store)+'" 매장에 등록돼요.</p>';
+      }
       html += '<div class="row2"><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div><div><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div></div>';
       html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
       html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
@@ -4115,9 +4147,9 @@
       const todayResDash = (state.reservations||[]).filter(r=>r.date===bizToday()).sort((a,b)=> (a.time||"").localeCompare(b.time||""));
       if(todayResDash.length>0){
         html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
-        html += '<p class="crew-code-hint" style="margin-bottom:6px;">오늘 예약 '+todayResDash.length+'건</p>';
+        html += '<p class="crew-code-hint" style="margin-bottom:6px;">오늘 예약 '+todayResDash.length+'건 · '+escapeHtml(state.store)+'</p>';
         todayResDash.forEach(r=>{
-          html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span>'+(r.partySize?r.partySize+'명':'')+'</span></div>';
+          html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(r.partySize?r.partySize+'명':'')+'<button class="crew-del" data-cancelres="'+r.id+'">취소</button></span></div>';
         });
         html += '</div>';
       }
@@ -5127,6 +5159,9 @@
     if(addQuickExpenseBtn) addQuickExpenseBtn.addEventListener("click", addQuickExpenseEntry);
     const addReservationBtn = document.getElementById("add-reservation-btn");
     if(addReservationBtn) addReservationBtn.addEventListener("click", addReservation);
+    app.querySelectorAll("[data-cancelres]").forEach(btn=>{
+      btn.addEventListener("click", ()=> cancelReservation(btn.getAttribute("data-cancelres")));
+    });
     const pushToggleBtn = document.getElementById("push-toggle-btn");
     if(pushToggleBtn) pushToggleBtn.addEventListener("click", ()=>{
       if(state.pushSubscribed) unsubscribeFromPush(); else subscribeToPush();
@@ -5637,6 +5672,11 @@
     if(refreshDashboardBtn) refreshDashboardBtn.addEventListener("click", loadDashboardData);
     const addReservationBtnDash = document.getElementById("add-reservation-btn");
     if(addReservationBtnDash) addReservationBtnDash.addEventListener("click", addReservation);
+    app.querySelectorAll("[data-cancelres]").forEach(btn=>{
+      btn.addEventListener("click", ()=> cancelReservation(btn.getAttribute("data-cancelres")));
+    });
+    const resStoreSelect = document.getElementById("res-store-select");
+    if(resStoreSelect) resStoreSelect.addEventListener("change", ()=> switchOwnerStore(resStoreSelect.value));
     const askAppBtn = document.getElementById("ask-app-btn");
     if(askAppBtn) askAppBtn.addEventListener("click", askApp);
     const askAppMicBtn = document.getElementById("ask-app-mic-btn");
