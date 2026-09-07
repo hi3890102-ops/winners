@@ -1536,6 +1536,25 @@
       render();
     }catch(e){ showToast("지출 저장에 실패했어요."); }
   }
+  async function addQuickExpenseEntry(){
+    const vendorSel = document.getElementById("quick-expense-vendor-select");
+    const amtInp = document.getElementById("quick-expense-amount-input");
+    if(!vendorSel || !amtInp) return;
+    const vendorId = vendorSel.value;
+    const vendorName = vendorSel.options[vendorSel.selectedIndex] ? vendorSel.options[vendorSel.selectedIndex].text : "";
+    const amount = parseInt(amtInp.value||"0",10);
+    if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
+    const storeId = currentStoreId();
+    const dateStr = bizToday();
+    try{
+      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount }).select().single();
+      if(error) throw error;
+      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount });
+      amtInp.value = "";
+      render();
+      showToast("지출을 등록했어요. 오늘 매출보고에 자동으로 반영돼요.");
+    }catch(e){ showToast("지출 저장에 실패했어요."); }
+  }
   function deleteExpenseEntry(id){
     state.expenseEntries = state.expenseEntries.filter(e=>e.id!==id);
     render();
@@ -1817,7 +1836,7 @@
     state.askAppPendingAction = null;
     render();
   }
-  function openSalesReportForDate(dateStr){
+  async function openSalesReportForDate(dateStr){
     const existing = state.salesReports.find(r=>r.date===dateStr);
     if(existing){
       state.salesEditingId = existing.id;
@@ -3542,6 +3561,21 @@
     html += todayShift ? '<p class="s-main">'+todayShift.start+' – '+todayShift.end+'</p>' : '<p class="s-main">예정된 근무가 없어요</p>';
     html += '</div>';
 
+    html += '<div class="s-card">'+labelWithIcon('chart','거래처 지출 등록');
+    if(state.vendors.length===0){
+      html += '<p class="crew-code-hint">등록된 거래처가 없어요. 사장님이 매출 탭에서 거래처를 먼저 등록해야 지출을 남길 수 있어요.</p>';
+    }else{
+      html += '<div class="add-row" style="padding:6px 0 0;background:transparent;">';
+      html += '<select id="quick-expense-vendor-select" class="field-input" style="flex:1;">';
+      state.vendors.forEach(v=> html += '<option value="'+v.id+'">'+escapeHtml(v.name)+'</option>');
+      html += '</select>';
+      html += '<input id="quick-expense-amount-input" type="number" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
+      html += '<button id="add-quick-expense-btn">등록</button>';
+      html += '</div>';
+      html += '<p class="crew-code-hint" style="margin-top:6px;">오늘 등록한 지출은 매출보고에 자동으로 반영돼요.</p>';
+    }
+    html += '</div>';
+
     if(state.homeChecklistItems){
       const all = countAllFrom(state.homeChecklistItems, state.homeChecklistChecks);
       const remaining = all.total - all.done;
@@ -4898,6 +4932,8 @@
     if(clockInBtn) clockInBtn.addEventListener("click", clockIn);
     const clockOutBtn = document.getElementById("clock-out-btn");
     if(clockOutBtn) clockOutBtn.addEventListener("click", clockOut);
+    const addQuickExpenseBtn = document.getElementById("add-quick-expense-btn");
+    if(addQuickExpenseBtn) addQuickExpenseBtn.addEventListener("click", addQuickExpenseEntry);
     app.querySelectorAll("[data-staffnav]").forEach(btn=>{
       btn.addEventListener("click", ()=> goToStaffTab(btn.getAttribute("data-staffnav")));
     });
