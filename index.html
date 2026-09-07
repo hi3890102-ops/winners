@@ -4105,6 +4105,25 @@
       html += '</div>';
     }
 
+    if(state.role === "storeOwner"){
+      html += '<div class="day-panel" style="margin-bottom:14px;">';
+      html += '<h3 style="margin:0 0 6px;">예약 등록</h3>';
+      html += '<div class="row2"><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div><div><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div></div>';
+      html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
+      html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
+      html += '<button id="add-reservation-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
+      const todayResDash = (state.reservations||[]).filter(r=>r.date===bizToday()).sort((a,b)=> (a.time||"").localeCompare(b.time||""));
+      if(todayResDash.length>0){
+        html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
+        html += '<p class="crew-code-hint" style="margin-bottom:6px;">오늘 예약 '+todayResDash.length+'건</p>';
+        todayResDash.forEach(r=>{
+          html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span>'+(r.partySize?r.partySize+'명':'')+'</span></div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
     html += '<div class="day-panel" style="margin-bottom:14px;">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><h3 style="margin:0;">✨ AI한테 물어보기</h3>';
     if((state.askAppMessages||[]).length>0){
@@ -4867,22 +4886,6 @@
         html += '<button class="crew-code-btn" id="owner-push-toggle-btn" style="background:var(--brick);color:#fff;border:none;">알림 켜기</button>';
       }
       html += '</div>';
-      html += '<div class="day-panel" style="margin-bottom:12px;">';
-      html += '<h3 style="margin:0 0 6px;">예약 등록</h3>';
-      html += '<div class="row2"><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div><div><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div></div>';
-      html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
-      html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
-      html += '<button id="add-reservation-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
-      const todayResOwner = (state.reservations||[]).filter(r=>r.date===bizToday()).sort((a,b)=> (a.time||"").localeCompare(b.time||""));
-      if(todayResOwner.length>0){
-        html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
-        html += '<p class="crew-code-hint" style="margin-bottom:6px;">오늘 예약 '+todayResOwner.length+'건</p>';
-        todayResOwner.forEach(r=>{
-          html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span>'+(r.partySize?r.partySize+'명':'')+'</span></div>';
-        });
-        html += '</div>';
-      }
-      html += '</div>';
     }
     html += '<div class="day-panel" style="margin-bottom:12px;">';
     html += '<h3 style="margin:0 0 6px;">영업일 기준 시간</h3>';
@@ -5252,8 +5255,6 @@
     if(ownerPushToggleBtn) ownerPushToggleBtn.addEventListener("click", ()=>{
       if(state.pushSubscribed) unsubscribeFromPush(); else subscribeToPush();
     });
-    const addReservationBtnOwner = document.getElementById("add-reservation-btn");
-    if(addReservationBtnOwner) addReservationBtnOwner.addEventListener("click", addReservation);
     const storeCutoffSelect = document.getElementById("store-cutoff-select");
     if(storeCutoffSelect) storeCutoffSelect.addEventListener("change", ()=>{
       setStoreCutoffHour(state.store, storeCutoffSelect.value);
@@ -5634,6 +5635,8 @@
     });
     const refreshDashboardBtn = document.getElementById("refresh-dashboard-btn");
     if(refreshDashboardBtn) refreshDashboardBtn.addEventListener("click", loadDashboardData);
+    const addReservationBtnDash = document.getElementById("add-reservation-btn");
+    if(addReservationBtnDash) addReservationBtnDash.addEventListener("click", addReservation);
     const askAppBtn = document.getElementById("ask-app-btn");
     if(askAppBtn) askAppBtn.addEventListener("click", askApp);
     const askAppMicBtn = document.getElementById("ask-app-mic-btn");
