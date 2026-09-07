@@ -3733,7 +3733,7 @@
       html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 등록된 예약이 없어요.</p>';
     }
     if(!state.showReservationForm){
-      html += '<button id="show-reservation-form-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--ink);color:#fff;">+ 예약 등록</button>';
+      html += '<button id="show-reservation-form-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">+ 예약 등록</button>';
     }else{
       html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
       html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+bizToday()+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div></div>';
@@ -4161,7 +4161,7 @@
         html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 등록된 예약이 없어요 · '+escapeHtml(state.store)+'</p>';
       }
       if(!state.showReservationForm){
-        html += '<button id="show-reservation-form-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--ink);color:#fff;">+ 예약 등록</button>';
+        html += '<button id="show-reservation-form-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">+ 예약 등록</button>';
       }else{
         html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
         if(state.myStores && state.myStores.length > 1){
