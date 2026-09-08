@@ -718,6 +718,21 @@
       });
     }catch(e){ /* 알림 발송 실패는 조용히 무시 */ }
   }
+  async function sendAnnouncementPush(title, body, authorName){
+    const storeId = currentStoreId();
+    if(!storeId) return;
+    try{
+      await fetch("/.netlify/functions/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId, title: "새 공지: "+title,
+          body: authorName+' · '+(body ? (body.length>60 ? body.slice(0,60)+'…' : body) : '내용을 확인해 주세요'),
+          tag: "announcement", excludeCrewId: state.myCrewId, managerOnly: false
+        })
+      });
+    }catch(e){ /* 알림 발송 실패는 조용히 무시 */ }
+  }
 
   // ---------- manager home dashboard toggle (per-store, synced to Supabase) ----------
   function managerDashboardEnabled(store){
@@ -1841,6 +1856,7 @@
       state.showAnnounceForm = false;
       render();
       showToast("공지사항을 등록했어요");
+      sendAnnouncementPush(title, body, authorName);
     }catch(e){ showToast("공지사항 저장에 실패했어요."); }
   }
   function deleteAnnouncement(id){
@@ -2063,6 +2079,7 @@
         if(error) throw error;
         state.announcements.unshift({ id:data.id, title: action.params.title, body: action.params.body||"", authorName, createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(), reads:{} });
         showToast("공지사항을 등록했어요.");
+        sendAnnouncementPush(action.params.title, action.params.body||"", authorName);
       }else if(action.actionType === "add_vendor"){
         if(state.vendors.some(v=>v.name===action.params.name)){ showToast("이미 있는 거래처예요."); state.askAppPendingAction = null; render(); return; }
         const { data, error } = await db.from('vendors').insert({ store_id: storeId, name: action.params.name }).select().single();
