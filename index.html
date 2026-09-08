@@ -3717,6 +3717,71 @@
   function renderStaffHomeContent(person){
     let html = '<div class="staff-hero" style="display:flex;align-items:center;gap:12px;">'+renderAvatarBadge(person, 48)+'<div><p class="greet" style="margin:0;">'+person.name+'님, 오늘도 왔네요</p><p class="sub" style="margin:2px 0 0;display:flex;align-items:center;gap:6px;">'+state.store+(person.isManager?' <span class="pos-badge mgr-badge">매니저</span>':' <span class="pos-badge staff-badge">스텝</span>')+'</p></div></div>';
 
+    // ---------- 출퇴근 (최상단, 가장 중요) ----------
+    const openAtt = findOpenAttendance(state.myCrewId);
+    const todayAtt = openAtt || state.attendance.find(a=>a.date===bizToday() && a.crewId===state.myCrewId);
+    html += '<div class="s-card">';
+    if(!todayAtt){
+      html += labelWithIcon('clock','출퇴근')+'<p class="attend-status">아직 출근 전이에요</p>';
+      html += '<button class="clock-btn in" id="clock-in-btn">출근했어요</button>';
+    }else if(!todayAtt.checkOut){
+      const crossedMidnight = todayAtt.date !== bizToday();
+      const statusText = crossedMidnight
+        ? (formatDateLabel(todayAtt.date)+' '+todayAtt.checkIn+'부터 근무 중이에요 (영업일이 바뀌었어요)')
+        : (todayAtt.checkIn+'부터 근무 중이에요');
+      html += labelWithIcon('clock','출퇴근')+'<p class="attend-status">'+statusText+'</p>';
+      html += '<button class="clock-btn out" id="clock-out-btn">퇴근할게요</button>';
+    }else{
+      const h = hoursBetween(todayAtt.checkIn, todayAtt.checkOut);
+      html += labelWithIcon('clock','출퇴근')+'<p class="attend-status">오늘 근무 완료 · '+todayAtt.checkIn+' – '+todayAtt.checkOut+' · 총 '+h.toFixed(1)+'시간</p>';
+      html += '<p class="crew-code-hint" style="margin-top:6px;">'+(todayAtt.confirmed ? "매니저 근무확인 완료" : "매니저 근무확인 대기 중이에요")+'</p>';
+    }
+    html += '</div>';
+
+    const todayShift = state.shifts.find(s=>s.date===bizToday() && s.crewId===state.myCrewId);
+    html += '<div class="s-card">'+labelWithIcon('clock','오늘 예정 근무');
+    html += todayShift ? '<p class="s-main">'+todayShift.start+' – '+todayShift.end+'</p>' : '<p class="s-main">예정된 근무가 없어요</p>';
+    html += '</div>';
+
+    const editedRecs = state.attendance.filter(a=> a.crewId===state.myCrewId && a.timeEdited && !a.staffAckEdit);
+    if(editedRecs.length>0){
+      html += '<div style="background:#FFF4E5;border:1px solid #FFD9A0;border-radius:12px;padding:12px 14px;margin-bottom:14px;">';
+      html += '<div style="font-weight:800;font-size:13px;color:#8A5A00;margin-bottom:6px;">📝 매니저가 근무시간을 수정했어요</div>';
+      editedRecs.forEach(a=>{
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">';
+        html += '<span style="font-size:12.5px;color:#6B4500;">'+formatDateLabel(a.date)+' · '+(a.checkIn||"?")+'–'+(a.checkOut||"?")+'</span>';
+        html += '<button class="crew-code-btn" data-ackedit="'+a.id+'">확인</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    if(state.homeChecklistItems){
+      const all = countAllFrom(state.homeChecklistItems, state.homeChecklistChecks);
+      const remaining = all.total - all.done;
+      html += '<div class="s-card">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">';
+      html += labelWithIcon('check','지금 할 일');
+      html += '<button class="crew-code-btn" id="home-go-checklist-btn">체크하러 가기 ›</button>';
+      html += '</div>';
+      html += '<p class="s-main">'+(remaining>0 ? (remaining+'개 남음') : '오늘 체크리스트 완료!')+'</p>';
+      html += '</div>';
+    }
+
+    const coworkers = state.shifts.filter(s=>s.date===bizToday() && s.crewId!==state.myCrewId);
+    if(coworkers.length>0){
+      html += '<div class="s-card">'+labelWithIcon('people','오늘 함께 일해요')+'<div class="coworkers">';
+      coworkers.forEach(s=>{
+        const c = state.crew.find(c=>c.id===s.crewId);
+        const nm = c ? c.name : "?";
+        html += '<div class="cw-chip">'+renderAvatarBadge(c, 42)+'<div class="cw-name">'+nm+'</div><div class="cw-time">'+s.start+'–'+s.end+'</div></div>';
+      });
+      html += '</div></div>';
+    }
+
+    // ---------- 매장 정보 (부가 정보, 아래로 정리) ----------
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:20px 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">매장 정보</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+
     if(person.isManager && managerDashboardEnabled(state.store)){
       const sum = computeMyStoreSummary();
       const ratioColor = sum.laborRatio===null ? "var(--ink-soft)" : (sum.laborRatio>25 ? "var(--danger)" : "var(--olive)");
@@ -3766,24 +3831,6 @@
     }
     html += '</div>';
 
-    const editedRecs = state.attendance.filter(a=> a.crewId===state.myCrewId && a.timeEdited && !a.staffAckEdit);
-    if(editedRecs.length>0){
-      html += '<div style="background:#FFF4E5;border:1px solid #FFD9A0;border-radius:12px;padding:12px 14px;margin-bottom:14px;">';
-      html += '<div style="font-weight:800;font-size:13px;color:#8A5A00;margin-bottom:6px;">📝 매니저가 근무시간을 수정했어요</div>';
-      editedRecs.forEach(a=>{
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;">';
-        html += '<span style="font-size:12.5px;color:#6B4500;">'+formatDateLabel(a.date)+' · '+(a.checkIn||"?")+'–'+(a.checkOut||"?")+'</span>';
-        html += '<button class="crew-code-btn" data-ackedit="'+a.id+'">확인</button>';
-        html += '</div>';
-      });
-      html += '</div>';
-    }
-
-    const todayShift = state.shifts.find(s=>s.date===bizToday() && s.crewId===state.myCrewId);
-    html += '<div class="s-card">'+labelWithIcon('clock','오늘 예정 근무');
-    html += todayShift ? '<p class="s-main">'+todayShift.start+' – '+todayShift.end+'</p>' : '<p class="s-main">예정된 근무가 없어요</p>';
-    html += '</div>';
-
     html += '<div class="s-card">'+labelWithIcon('chart','거래처 지출 등록');
     if(state.vendors.length===0){
       html += '<p class="crew-code-hint">등록된 거래처가 없어요. 사장님이 매출 탭에서 거래처를 먼저 등록해야 지출을 남길 수 있어요.</p>';
@@ -3796,49 +3843,6 @@
       html += '<button id="add-quick-expense-btn">등록</button>';
       html += '</div>';
       html += '<p class="crew-code-hint" style="margin-top:6px;">오늘 등록한 지출은 매출보고에 자동으로 반영돼요.</p>';
-    }
-    html += '</div>';
-
-    if(state.homeChecklistItems){
-      const all = countAllFrom(state.homeChecklistItems, state.homeChecklistChecks);
-      const remaining = all.total - all.done;
-      html += '<div class="s-card">';
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">';
-      html += labelWithIcon('check','지금 할 일');
-      html += '<button class="crew-code-btn" id="home-go-checklist-btn">체크하러 가기 ›</button>';
-      html += '</div>';
-      html += '<p class="s-main">'+(remaining>0 ? (remaining+'개 남음') : '오늘 체크리스트 완료!')+'</p>';
-      html += '</div>';
-    }
-
-    const coworkers = state.shifts.filter(s=>s.date===bizToday() && s.crewId!==state.myCrewId);
-    if(coworkers.length>0){
-      html += '<div class="s-card">'+labelWithIcon('people','오늘 함께 일해요')+'<div class="coworkers">';
-      coworkers.forEach(s=>{
-        const c = state.crew.find(c=>c.id===s.crewId);
-        const nm = c ? c.name : "?";
-        html += '<div class="cw-chip">'+renderAvatarBadge(c, 42)+'<div class="cw-name">'+nm+'</div><div class="cw-time">'+s.start+'–'+s.end+'</div></div>';
-      });
-      html += '</div></div>';
-    }
-
-    const openAtt = findOpenAttendance(state.myCrewId);
-    const todayAtt = openAtt || state.attendance.find(a=>a.date===bizToday() && a.crewId===state.myCrewId);
-    html += '<div class="s-card">';
-    if(!todayAtt){
-      html += labelWithIcon('clock','출퇴근')+'<p class="attend-status">아직 출근 전이에요</p>';
-      html += '<button class="clock-btn in" id="clock-in-btn">출근했어요</button>';
-    }else if(!todayAtt.checkOut){
-      const crossedMidnight = todayAtt.date !== bizToday();
-      const statusText = crossedMidnight
-        ? (formatDateLabel(todayAtt.date)+' '+todayAtt.checkIn+'부터 근무 중이에요 (영업일이 바뀌었어요)')
-        : (todayAtt.checkIn+'부터 근무 중이에요');
-      html += labelWithIcon('clock','출퇴근')+'<p class="attend-status">'+statusText+'</p>';
-      html += '<button class="clock-btn out" id="clock-out-btn">퇴근할게요</button>';
-    }else{
-      const h = hoursBetween(todayAtt.checkIn, todayAtt.checkOut);
-      html += labelWithIcon('clock','출퇴근')+'<p class="attend-status">오늘 근무 완료 · '+todayAtt.checkIn+' – '+todayAtt.checkOut+' · 총 '+h.toFixed(1)+'시간</p>';
-      html += '<p class="crew-code-hint" style="margin-top:6px;">'+(todayAtt.confirmed ? "매니저 근무확인 완료" : "매니저 근무확인 대기 중이에요")+'</p>';
     }
     html += '</div>';
 
