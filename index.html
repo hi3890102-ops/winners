@@ -2333,8 +2333,8 @@
   }
   function renderSplash(){
     let html = '<div class="splash-screen">';
-    html += '<img src="'+MASCOT_IMG_DATA+'" alt="매니" style="width:260px;max-width:70vw;height:auto;display:block;">';
-    html += '<div class="hero-tagline" style="font-size:15px;margin-top:0;">우리가게 매니저</div>';
+    html += '<img src="'+MASCOT_IMG_DATA+'" alt="매니" style="width:200px;max-width:58vw;height:auto;display:block;">';
+    html += '<div class="hero-tagline" style="font-size:13px;margin-top:0;">우리가게 매니저</div>';
     html += '<p class="splash-sub">가게 운영이 더 쉬워지는 시작,<br>매니와 함께</p>';
     html += '</div>';
     return html;
@@ -3367,17 +3367,18 @@
 
   // ---------- render ----------
   function render(){
+    if(!state.splashDone){
+      if(!state.splashTimerStarted){
+        state.splashTimerStarted = true;
+        setTimeout(()=>{ state.splashDone = true; render(); }, 2000);
+      }
+      app.classList.remove("has-bottom-nav");
+      app.innerHTML = renderSplash();
+      return;
+    }
     if(state.loading){ app.innerHTML = '<div class="loading">불러오는 중이에요…</div>'; app.classList.remove("has-bottom-nav"); return; }
     if(state.role === "landing"){
       app.classList.remove("has-bottom-nav");
-      if(!state.splashDone){
-        app.innerHTML = renderSplash();
-        if(!state.splashTimerStarted){
-          state.splashTimerStarted = true;
-          setTimeout(()=>{ state.splashDone = true; render(); }, 2000);
-        }
-        return;
-      }
       app.innerHTML = renderLanding() + renderConfirmOverlay(); bindLandingEvents(); bindConfirmOverlay(); return;
     }
     if(state.role === "staff"){
