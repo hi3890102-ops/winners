@@ -17,8 +17,8 @@
     --card:#FFFFFF;
     --ink:#17181C;
     --ink-soft:#8A8F98;
-    --brick:#0F3D2E;
-    --brick-dim:#DCEAE4;
+    --brick:#1FA35A;
+    --brick-dim:#E1F6EA;
     --olive:#42B545;
     --olive-dim:#E1F5E2;
     --danger:#E5484D;
@@ -63,6 +63,7 @@
 
   /* ---------- landing ---------- */
   .landing{ padding:60px 24px; text-align:center; }
+  .splash-screen{ min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; background:var(--cream); }
   .app-logo{ width:56px; height:56px; border-radius:16px; background:var(--brick); margin:0 auto 18px; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 14px rgba(181,64,46,0.25); }
   .app-logo svg{ width:28px; height:28px; }
   .logo-lockup{ display:inline-flex; align-items:center; gap:9px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 18px 6px 6px; box-shadow:0 2px 10px rgba(23,24,28,0.06); }
@@ -72,13 +73,22 @@
   .hero-brand{ display:flex; flex-direction:column; align-items:center; margin-bottom:14px; }
   .hero-symbol{ width:88px; height:88px; border-radius:24px; background:#fff; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; overflow:hidden; box-shadow:0 10px 24px rgba(23,24,28,0.12); margin-bottom:18px; }
   .hero-symbol svg{ width:48px; height:48px; }
-  .hero-wordmark{ font-size:30px; font-weight:800; letter-spacing:-0.03em; }
+  .hero-wordmark{ font-size:34px; font-weight:800; letter-spacing:-0.03em; }
   .hero-wordmark .wm-a{ color:var(--ink); }
-  .hero-wordmark .wm-b{ color:var(--brick); }
+  .hero-wordmark .wm-b{ color:var(--olive); }
+  .hero-tagline{ font-size:13.5px; font-weight:700; color:var(--ink-soft); margin-top:6px; }
+  .landing-greet{ font-size:22px; font-weight:800; color:var(--ink); line-height:1.35; margin:26px 0 8px; }
+  .landing-sub{ font-size:13.5px; color:var(--ink-soft); line-height:1.5; margin:0 0 26px; }
+  .login-tabs{ display:flex; background:var(--cream); border-radius:999px; padding:4px; margin-bottom:18px; }
+  .login-tabs button{ flex:1; border:none; background:transparent; border-radius:999px; padding:12px; font-size:14px; font-weight:700; color:var(--ink-soft); cursor:pointer; }
+  .login-tabs button.active{ background:var(--brick); color:#fff; }
+  .field-box{ text-align:left; }
+  .field-box input{ width:100%; border:1px solid var(--line); background:var(--cream); border-radius:12px; padding:14px 16px; font-size:14.5px; font-weight:500; color:var(--ink); margin-bottom:10px; }
+  .field-box input:focus{ outline:none; border-color:var(--brick); }
   .landing h1{ font-size:22px; font-weight:800; margin:0 0 8px; letter-spacing:-0.02em; }
   .landing p{ font-size:14px; color:var(--ink-soft); margin:0 0 36px; line-height:1.5; }
   .landing-btn{ width:100%; border:none; border-radius:999px; padding:16px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:10px; }
-  .landing-btn.primary{ background:var(--ink); color:var(--cream); }
+  .landing-btn.primary{ background:var(--brick); color:#fff; }
   .landing-btn.secondary{ background:var(--card); color:var(--ink); border:1px solid var(--line); }
   .code-box{ margin-top:18px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; text-align:left; }
   .code-box label{ font-size:12.5px; color:var(--ink-soft); font-weight:600; display:block; margin-bottom:8px; }
@@ -967,7 +977,8 @@
     if(state.landingMode === "password-reset-request"){
       state.landingMode = "store-login";
     }else if(state.landingMode === "store-login" || state.landingMode === "request-form"){
-      state.landingMode = "store-entry";
+      state.landingMode = "default";
+      state.landingTab = "owner";
     }else{
       state.landingMode = "default";
       state.pendingStoreForOwner = null;
@@ -2275,12 +2286,22 @@
     return '<img src="'+MASCOT_IMG_DATA+'" alt="" style="width:88%;height:88%;object-fit:contain;display:block;">';
   }
   function renderLogoLockup(){
-    return '<div class="logo-lockup"><div class="logo-symbol">'+mascotSymbolSvg()+'</div><span class="logo-text">매니<span style="color:var(--olive);">·</span></span></div>';
+    return '<div class="logo-lockup"><div class="logo-symbol">'+mascotSymbolSvg()+'</div><span class="logo-text">우리가게 매니저</span></div>';
+  }
+  function renderSplash(){
+    let html = '<div class="splash-screen">';
+    html += '<div class="hero-symbol" style="width:110px;height:110px;border-radius:28px;">'+mascotSymbolSvg()+'</div>';
+    html += '<div class="hero-wordmark" style="font-size:44px;margin-top:20px;"><span class="wm-a">매니</span><span class="wm-b">·</span></div>';
+    html += '<div class="hero-tagline" style="font-size:15px;margin-top:8px;">우리가게 매니저</div>';
+    html += '<p class="landing-sub" style="margin-top:34px;">가게 운영이 더 쉬워지는 시작,<br>매니와 함께</p>';
+    html += '</div>';
+    return html;
   }
   function renderLandingHero(){
     let html = '<div class="hero-brand">';
     html += '<div class="hero-symbol">'+mascotSymbolSvg()+'</div>';
-    html += '<div class="hero-wordmark"><span class="wm-a">Store</span><span class="wm-b">Manager</span></div>';
+    html += '<div class="hero-wordmark"><span class="wm-a">매니</span><span class="wm-b">·</span></div>';
+    html += '<div class="hero-tagline">우리가게 매니저</div>';
     html += '</div>';
     return html;
   }
@@ -3071,7 +3092,7 @@
   function renderOnboardingWizard(){
     const step = state.onboardingStep;
     let html = '<div style="min-height:100vh;background:var(--cream);padding:28px 20px;">';
-    html += '<div style="text-align:center;margin-bottom:22px;"><span class="mark">'+mascotSymbolSvg()+'</span><h1 style="margin:10px 0 0;font-size:18px;"><span style="color:var(--ink);">매니</span><span style="color:var(--olive);">·</span></h1></div>';
+    html += '<div style="text-align:center;margin-bottom:22px;"><span class="mark">'+mascotSymbolSvg()+'</span><h1 style="margin:10px 0 0;font-size:18px;"><span style="color:var(--ink);">우리가게 매니저</span></h1></div>';
     html += '<h2 style="font-size:17px;margin:0 0 6px;">'+escapeHtml(state.store)+' 매장 설정을 시작해요</h2>';
     html += '<div style="display:flex;gap:6px;margin:14px 0 20px;">';
     html += '<div style="flex:1;height:4px;border-radius:4px;background:var(--brick);"></div>';
@@ -3306,7 +3327,18 @@
   // ---------- render ----------
   function render(){
     if(state.loading){ app.innerHTML = '<div class="loading">불러오는 중이에요…</div>'; app.classList.remove("has-bottom-nav"); return; }
-    if(state.role === "landing"){ app.classList.remove("has-bottom-nav"); app.innerHTML = renderLanding() + renderConfirmOverlay(); bindLandingEvents(); bindConfirmOverlay(); return; }
+    if(state.role === "landing"){
+      app.classList.remove("has-bottom-nav");
+      if(!state.splashDone){
+        app.innerHTML = renderSplash();
+        if(!state.splashTimerStarted){
+          state.splashTimerStarted = true;
+          setTimeout(()=>{ state.splashDone = true; render(); }, 1300);
+        }
+        return;
+      }
+      app.innerHTML = renderLanding() + renderConfirmOverlay(); bindLandingEvents(); bindConfirmOverlay(); return;
+    }
     if(state.role === "staff"){
       app.classList.add("has-bottom-nav");
       app.innerHTML = renderStaffApp() + renderConfirmOverlay() + renderAttConfirmPrompt() + renderLightbox() + renderInfoModal();
@@ -3327,7 +3359,7 @@
     const isHq = state.role === "hq";
     let html = "";
     html += '<header>';
-    html += '<div class="brand"><span class="mark">'+mascotSymbolSvg()+'</span><h1><span style="color:var(--ink);">매니</span><span style="color:var(--olive);">·</span></h1><span class="date">'+todayLabel()+'</span></div>';
+    html += '<div class="brand"><span class="mark">'+mascotSymbolSvg()+'</span><h1><span style="color:var(--ink);">우리가게 매니저</span></h1><span class="date">'+todayLabel()+'</span></div>';
     if(isHq){
       html += '<div class="store-tabs">';
       if(state.section !== "dashboard"){
@@ -3651,9 +3683,28 @@
       html += '</div>';
       html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
     }else{
-      html += '<p>매장 체크리스트, 스케줄, 출퇴근을 한곳에서 관리해요.</p>';
-      html += '<button class="landing-btn primary" id="be-store-owner-btn">매장 사장님으로 시작하기</button>';
-      html += '<button class="landing-btn secondary" id="show-code-btn">스텝으로 시작하기</button>';
+      html += '<p class="landing-greet">오늘도 좋은 하루 되세요!</p>';
+      html += '<p class="landing-sub">매니와 함께<br>더 쉽고 스마트한 매장 운영을 시작하세요.</p>';
+      html += '<div class="login-tabs">';
+      html += '<button data-landingtab="owner" class="'+(state.landingTab!=="staff"?"active":"")+'">사장님 로그인</button>';
+      html += '<button data-landingtab="staff" class="'+(state.landingTab==="staff"?"active":"")+'">스텝 로그인</button>';
+      html += '</div>';
+      if(state.landingTab === "staff"){
+        html += '<div class="field-box">';
+        html += '<input id="join-code-input" type="text" inputmode="numeric" maxlength="6" placeholder="사장님께 받은 6자리 코드" style="text-align:center;letter-spacing:0.2em;font-weight:800;">';
+        html += '</div>';
+        html += '<button class="landing-btn primary" id="join-code-btn">참여하기</button>';
+      }else{
+        html += '<div class="field-box">';
+        html += '<input id="store-login-username-input" type="text" placeholder="아이디(이메일 또는 휴대폰 번호)">';
+        html += '<input id="store-login-password-input" type="password" placeholder="비밀번호">';
+        html += '</div>';
+        html += '<button class="landing-btn primary" id="store-login-submit-btn">로그인하기</button>';
+        html += '<div style="display:flex;justify-content:space-between;margin-top:4px;">';
+        html += '<button class="switch-link" id="forgot-password-btn" style="margin:0;">비밀번호를 잊으셨나요?</button>';
+        html += '<button class="switch-link" id="store-signup-btn" style="margin:0;">가입 신청하기 ›</button>';
+        html += '</div>';
+      }
       html += '<button class="switch-link" id="be-hq-btn" style="margin-top:26px;">관리자모드</button>';
     }
     html += '</div>';
@@ -3664,7 +3715,7 @@
     const person = state.crew.find(c=>c.id===state.myCrewId);
     let html = "";
     html += '<header>';
-    html += '<div class="brand"><span class="mark">'+mascotSymbolSvg()+'</span><h1><span style="color:var(--ink);">매니</span><span style="color:var(--olive);">·</span></h1><span class="date">'+todayLabel()+'</span></div>';
+    html += '<div class="brand"><span class="mark">'+mascotSymbolSvg()+'</span><h1><span style="color:var(--ink);">우리가게 매니저</span></h1><span class="date">'+todayLabel()+'</span></div>';
     html += '</header>';
     html += '<main>';
     if(!person){
@@ -5153,6 +5204,9 @@
 
   // ---------- event binding ----------
   function bindLandingEvents(){
+    app.querySelectorAll("[data-landingtab]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{ state.landingTab = btn.getAttribute("data-landingtab"); render(); });
+    });
     const hqBtn = document.getElementById("be-hq-btn");
     if(hqBtn) hqBtn.addEventListener("click", startHqFlow);
     const storeOwnerBtn = document.getElementById("be-store-owner-btn");
