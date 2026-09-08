@@ -566,10 +566,19 @@
     const me = state.crew.find(c=>c.id===state.myCrewId);
     return !!(me && me.isManager);
   }
+  function isInstalledApp(){
+    try{
+      return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    }catch(e){ return false; }
+  }
   async function subscribeToPush(){
     if(!("serviceWorker" in navigator) || !("PushManager" in window)){ showToast("이 브라우저는 푸시 알림을 지원하지 않아요."); return; }
     if(typeof Notification !== "undefined" && Notification.permission === "denied"){
-      showToast("알림이 차단되어 있어요. 브라우저 설정 > 사이트 설정 > 알림에서 이 사이트를 허용으로 바꿔주세요.");
+      if(isInstalledApp()){
+        showToast("앱 알림이 꺼져있어요. 폰 설정 > 앱 > StoreManager > 알림에서 켜주세요.");
+      }else{
+        showToast("알림이 차단되어 있어요. 브라우저 설정 > 사이트 설정 > 알림에서 이 사이트를 허용으로 바꿔주세요.");
+      }
       return;
     }
     try{
