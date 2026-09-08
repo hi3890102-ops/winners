@@ -1,13 +1,13 @@
 {
-  "name": "StoreManager",
-  "short_name": "StoreManager",
+  "name": "우리가게 매니저",
+  "short_name": "매니",
   "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#F7F8FA",
-  "theme_color": "#3D6EF0",
+  "theme_color": "#1FA35A",
   "lang": "ko",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
