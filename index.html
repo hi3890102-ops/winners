@@ -616,8 +616,8 @@
       });
     }catch(e){ /* 알림 발송 실패는 조용히 무시 (출퇴근 처리 자체엔 영향 없음) */ }
   }
-  async function sendReservationPush(res){
-    const storeId = currentStoreId();
+  async function sendReservationPush(res, storeIdOverride){
+    const storeId = storeIdOverride || currentStoreId();
     if(!storeId) return;
     try{
       await fetch("/.netlify/functions/send-push", {
@@ -631,8 +631,8 @@
       });
     }catch(e){ /* 알림 발송 실패는 조용히 무시 */ }
   }
-  async function sendReservationCancelPush(res){
-    const storeId = currentStoreId();
+  async function sendReservationCancelPush(res, storeIdOverride){
+    const storeId = storeIdOverride || currentStoreId();
     if(!storeId) return;
     try{
       await fetch("/.netlify/functions/send-push", {
@@ -1702,18 +1702,22 @@
       state.showReservationForm = false;
       render();
       showToast(isToday ? "예약을 등록했어요." : (formatDateLabel(resDate)+" 예약을 등록했어요. 그날 알림이 갈 거예요."));
-      if(isToday) sendReservationPush(res);
+      if(isToday) sendReservationPush(res, storeId);
+      if(state.role === "storeOwner" && state.myStores && state.myStores.length > 1) loadDashboardReservations();
     }catch(e){ showToast("예약 등록에 실패했어요."); }
   }
   function cancelReservation(id){
-    const res = (state.reservations||[]).find(r=>String(r.id)===String(id));
+    let res = (state.reservations||[]).find(r=>String(r.id)===String(id));
+    if(!res) res = (state.dashboardReservations||[]).find(r=>String(r.id)===String(id));
     if(!res) return;
+    const storeIdForPush = res.storeName ? state.storeIdMap[res.storeName] : currentStoreId();
     askConfirm((res.customerName||'예약')+' 예약을 취소할까요?', async ()=>{
-      state.reservations = state.reservations.filter(r=>String(r.id)!==String(id));
+      state.reservations = (state.reservations||[]).filter(r=>String(r.id)!==String(id));
+      if(state.dashboardReservations) state.dashboardReservations = state.dashboardReservations.filter(r=>String(r.id)!==String(id));
       render();
       try{ await db.from('reservations').delete().eq('id', id); }catch(e){}
       showToast("예약을 취소했어요.");
-      sendReservationCancelPush(res);
+      sendReservationCancelPush(res, storeIdForPush);
     });
   }
   function deleteExpenseEntry(id){
@@ -2529,6 +2533,21 @@
     results.sort((a,b)=> b.salesSum - a.salesSum);
     state.dashboardData = results;
     state.dashboardLoading = false;
+    render();
+    loadDashboardReservations();
+  }
+
+  async function loadDashboardReservations(){
+    const storesToLoad = state.role==="hq" ? state.storeList : state.myStores;
+    if(!storesToLoad || storesToLoad.length===0){ state.dashboardReservations = []; return; }
+    const idToName = {};
+    const storeIds = storesToLoad.map(s=>{ const id = state.storeIdMap[s]; if(id) idToName[id] = s; return id; }).filter(Boolean);
+    if(storeIds.length===0){ state.dashboardReservations = []; render(); return; }
+    try{
+      const { data, error } = await db.from('reservations').select('*').in('store_id', storeIds).eq('date', bizToday()).order('time');
+      if(error) throw error;
+      state.dashboardReservations = (data||[]).map(r=>({ id:r.id, date:r.date, time:r.time||"", customerName:r.customer_name||"", phone:r.phone||"", partySize:r.party_size||0, memo:r.memo||"", storeName: idToName[r.store_id]||"" }));
+    }catch(e){ state.dashboardReservations = []; }
     render();
   }
 
@@ -4149,16 +4168,29 @@
     }
 
     if(state.role === "storeOwner"){
+      const isMultiStore = state.myStores && state.myStores.length > 1;
       html += '<div class="day-panel" style="margin-bottom:14px;">';
       html += '<h3 style="margin:0 0 6px;">예약</h3>';
-      const todayResDash = (state.reservations||[]).filter(r=>r.date===bizToday()).sort((a,b)=> (a.time||"").localeCompare(b.time||""));
-      if(todayResDash.length>0){
-        html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 예약 '+todayResDash.length+'건 · '+escapeHtml(state.store)+'</p>';
-        todayResDash.forEach(r=>{
-          html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(r.partySize?r.partySize+'명':'')+'<button class="crew-del" data-cancelres="'+r.id+'">취소</button></span></div>';
-        });
+      if(isMultiStore){
+        const allTodayRes = state.dashboardReservations || [];
+        if(allTodayRes.length>0){
+          html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 전체 매장 예약 '+allTodayRes.length+'건</p>';
+          allTodayRes.forEach(r=>{
+            html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+' <span style="color:var(--ink-soft);font-weight:400;">· '+escapeHtml(r.storeName)+'</span></span><span style="display:flex;align-items:center;gap:8px;">'+(r.partySize?r.partySize+'명':'')+'<button class="crew-del" data-cancelres="'+r.id+'">취소</button></span></div>';
+          });
+        }else{
+          html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 전체 매장에 등록된 예약이 없어요.</p>';
+        }
       }else{
-        html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 등록된 예약이 없어요 · '+escapeHtml(state.store)+'</p>';
+        const todayResDash = (state.reservations||[]).filter(r=>r.date===bizToday()).sort((a,b)=> (a.time||"").localeCompare(b.time||""));
+        if(todayResDash.length>0){
+          html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 예약 '+todayResDash.length+'건 · '+escapeHtml(state.store)+'</p>';
+          todayResDash.forEach(r=>{
+            html += '<div class="pay-list-item"><span class="d">'+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(r.partySize?r.partySize+'명':'')+'<button class="crew-del" data-cancelres="'+r.id+'">취소</button></span></div>';
+          });
+        }else{
+          html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 등록된 예약이 없어요 · '+escapeHtml(state.store)+'</p>';
+        }
       }
       if(!state.showReservationForm){
         html += '<button id="show-reservation-form-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">+ 예약 등록</button>';
