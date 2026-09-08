@@ -642,15 +642,23 @@
       }
       const raw = sub.toJSON();
       const storeId = currentStoreId();
-      await db.from("push_subscriptions").upsert({
+      const { error: subError } = await db.from("push_subscriptions").upsert({
         store_id: storeId, crew_id: state.myCrewId || null, role: state.role,
         is_manager: isManagerTier(),
         endpoint: raw.endpoint, p256dh: raw.keys.p256dh, auth: raw.keys.auth
       }, { onConflict: "endpoint" });
+      if(subError){
+        console.error("푸시 구독 저장 실패:", subError);
+        showToast("알림 구독 저장에 실패했어요: "+(subError.message||"알 수 없는 오류"));
+        return;
+      }
       state.pushSubscribed = true;
       showToast("출퇴근 알림이 와요.");
       render();
-    }catch(e){ showToast("알림 구독에 실패했어요."); }
+    }catch(e){
+      console.error("알림 구독 실패:", e);
+      showToast("알림 구독에 실패했어요: "+(e && e.message ? e.message : ""));
+    }
   }
   async function unsubscribeFromPush(){
     try{
@@ -1746,6 +1754,7 @@
     const customerName = (nameInp.value||"").trim();
     if(!customerName){ showToast("예약자명을 입력해 주세요."); return; }
     const storeId = currentStoreId();
+    if(!storeId){ showToast("매장 정보를 불러오는 중이에요. 잠시 후 다시 시도해 주세요."); return; }
     const resDate = (dateInp && dateInp.value) ? dateInp.value : bizToday();
     const isToday = resDate === bizToday();
     const payload = {
@@ -1770,7 +1779,11 @@
       showToast(isToday ? "예약을 등록했어요." : (formatDateLabel(resDate)+" 예약을 등록했어요. 그날 알림이 갈 거예요."));
       if(isToday) sendReservationPush(res, storeId);
       if(state.role === "storeOwner" && state.myStores && state.myStores.length > 1) loadDashboardReservations();
-    }catch(e){ showToast("예약 등록에 실패했어요."); }
+    }catch(e){
+      console.error("예약 등록 실패:", e);
+      const detail = (e && (e.message || e.details || e.hint)) ? (e.message || e.details || e.hint) : "";
+      showToast(detail ? ("예약 등록에 실패했어요: "+detail) : "예약 등록에 실패했어요.");
+    }
   }
   function cancelReservation(id){
     let res = (state.reservations||[]).find(r=>String(r.id)===String(id));
