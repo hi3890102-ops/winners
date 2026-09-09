@@ -989,11 +989,8 @@
     try{
       const roleR = localGet("my-role");
       if(roleR && roleR.value === "hq"){
-        state.role = "hq";
-        await loadStoreList();
-        await loadAllForStore(state.store);
-        render();
-        return;
+        // 이 빌드(사용자 앱)는 관리자 모드를 지원하지 않아요. 저장된 플래그는 무시해요.
+        localSet("my-role", "");
       }
     }catch(e){}
     state.role = "landing";
@@ -5417,19 +5414,7 @@
     if(rememberToggleBtn) rememberToggleBtn.addEventListener("click", ()=>{ state.rememberMeChecked = !(state.rememberMeChecked !== false); render(); });
     const hqBtn = document.getElementById("be-hq-btn");
     if(hqBtn) hqBtn.addEventListener("click", startHqFlow);
-    const logoTapArea = document.getElementById("brand-logo-tap-area");
-    if(logoTapArea){
-      logoTapArea.addEventListener("click", ()=>{
-        const now = Date.now();
-        if(!state.logoTapTimes || now - (state.lastLogoTapTime||0) > 1200) state.logoTapTimes = [];
-        state.logoTapTimes.push(now);
-        state.lastLogoTapTime = now;
-        if(state.logoTapTimes.length >= 5){
-          state.logoTapTimes = [];
-          startHqFlow();
-        }
-      });
-    }
+    // (관리자 진입 경로 없음 — 이 빌드는 사장님/스텝 전용 사용자 앱이에요)
     const storeOwnerBtn = document.getElementById("be-store-owner-btn");
     if(storeOwnerBtn) storeOwnerBtn.addEventListener("click", startStoreOwnerFlow);
     const showCodeBtn = document.getElementById("show-code-btn");
