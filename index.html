@@ -3694,7 +3694,7 @@
     let html = '<div style="margin-bottom:14px;">';
     html += '<button type="button" id="notif-summary-toggle-btn" style="width:100%;text-align:left;background:var(--card);border:1px solid #F0B8B8;border-radius:16px;padding:16px;cursor:pointer;">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;">';
-    html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none">'+navIcon('bell')+'</svg>알림</span>';
+    html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><span style="width:26px;height:26px;border-radius:50%;background:var(--danger);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('bell')+'</svg></span>알림</span>';
     html += '<svg width="15" height="15" viewBox="0 0 24 24" style="transform:rotate('+(state.notifBarExpanded?180:0)+'deg);"><path d="M6 9l6 6 6-6" stroke="var(--ink-soft)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     html += '</div>';
     html += '<p style="margin:8px 0 0;font-size:15px;font-weight:800;color:var(--danger);">확인할 알림 '+groups.length+'건</p>';
@@ -4496,13 +4496,16 @@
     }
     const max = Math.max.apply(null, days.map(d=>d.val).concat([1]));
     const dowLabel = ['일','월','화','수','목','금','토'];
-    let html = '<div style="display:flex;align-items:flex-end;gap:5px;height:44px;">';
+    let html = '<div style="display:flex;align-items:flex-end;gap:8px;height:88px;">';
     days.forEach((d,i)=>{
-      const h = Math.max(4, Math.round((d.val/max)*40));
+      const h = Math.max(6, Math.round((d.val/max)*80));
       const isToday = i === days.length-1;
-      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">';
-      html += '<div style="width:100%;background:'+(isToday?'var(--brick)':'var(--brick-dim)')+';border-radius:3px 3px 0 0;height:'+h+'px;"></div>';
-      html += '<span style="font-size:9px;color:'+(isToday?'var(--brick)':'var(--ink-soft)')+';font-weight:'+(isToday?'800':'400')+';">'+(isToday?'오늘':dowLabel[d.dow])+'</span>';
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;">';
+      if(isToday){
+        html += '<span style="font-size:10.5px;font-weight:800;color:var(--brick);position:absolute;top:-18px;white-space:nowrap;">'+Math.round(d.val/10000).toLocaleString()+'만</span>';
+      }
+      html += '<div style="width:100%;background:'+(isToday?'var(--brick)':'var(--brick-dim)')+';border-radius:4px 4px 0 0;height:'+h+'px;"></div>';
+      html += '<span style="font-size:10.5px;color:'+(isToday?'var(--brick)':'var(--ink-soft)')+';font-weight:'+(isToday?'800':'400')+';">'+(isToday?'오늘':dowLabel[d.dow])+'</span>';
       html += '</div>';
     });
     html += '</div>';
@@ -4533,7 +4536,7 @@
     if(state.role === "storeOwner"){
       const isMultiStore = state.myStores && state.myStores.length > 1;
       html += '<div class="day-panel" style="margin-bottom:14px;">';
-      html += '<h3 style="margin:0 0 6px;">예약</h3>';
+      html += '<h3 style="margin:0 0 6px;display:flex;align-items:center;gap:8px;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('calendar')+'</svg></span>예약</h3>';
       if(isMultiStore){
         const allTodayRes = state.dashboardReservations || [];
         if(allTodayRes.length>0){
@@ -4578,7 +4581,7 @@
     }
 
     html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
-    html += '<span style="font-size:13.5px;font-weight:800;">'+state.monthNum+'월 합산 매출</span>';
+    html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('chart')+'</svg></span>'+state.monthNum+'월 합산 매출</span>';
     html += '<p style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;">'+totalSales.toLocaleString()+'원</p>';
     if(deltaPct!==null){
       html += '<p style="margin:0 0 10px;font-size:12px;font-weight:700;color:'+(deltaPct>=0?'var(--olive)':'var(--danger)')+';">전월 대비 '+(deltaPct>=0?'+':'')+deltaPct.toFixed(1)+'%</p>';
@@ -4595,29 +4598,30 @@
 
     html += '<div style="display:flex;align-items:center;gap:8px;margin:18px 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">매장별 현황</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
     html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
-    data.forEach((d)=>{
+    data.forEach((d, idx)=>{
       const laborBad = d.laborRatio!==null && d.laborRatio>25;
       const foodBad = d.expenseRatio!==null && d.expenseRatio>40;
       const hasIssue = laborBad || foodBad;
       const expanded = !!state.expandedStoreRows[d.store];
-      html += '<div class="pay-list-item" data-storetoggle="'+escapeHtml(d.store)+'" style="cursor:pointer;">';
-      html += '<span class="d" style="display:flex;align-items:center;gap:7px;color:var(--ink);font-weight:700;">';
+      html += '<div style="'+(idx < data.length-1 ? 'border-bottom:1px solid var(--line);' : '')+'">';
+      html += '<div data-storetoggle="'+escapeHtml(d.store)+'" style="cursor:pointer;display:grid;grid-template-columns:1fr 74px 74px;align-items:center;gap:6px;padding:14px 0;">';
+      html += '<div style="display:flex;align-items:center;gap:7px;min-width:0;">';
       html += '<svg width="13" height="13" viewBox="0 0 24 24" style="transform:rotate('+(expanded?180:0)+'deg);flex:0 0 auto;"><path d="M6 9l6 6 6-6" stroke="var(--ink-soft)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       if(hasIssue) html += '<span style="width:6px;height:6px;border-radius:50%;background:var(--danger);flex:0 0 auto;"></span>';
-      html += escapeHtml(d.store)+'</span>';
-      html += '<span style="display:flex;align-items:baseline;gap:10px;font-size:11.5px;color:var(--ink-soft);">';
-      html += '<span style="font-size:14px;font-weight:800;color:var(--ink);">'+Math.round(d.salesSum/10000).toLocaleString()+'만</span>';
-      html += '<span>배달 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만</span>';
-      html += '</span></div>';
+      html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(d.store)+'</span>';
+      html += '</div>';
+      html += '<div style="text-align:right;font-size:14px;font-weight:800;color:var(--ink);">'+Math.round(d.salesSum/10000).toLocaleString()+'만</div>';
+      html += '<div style="text-align:right;font-size:12px;color:var(--ink-soft);">배달 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만</div>';
+      html += '</div>';
       if(expanded){
         const ratioText = d.laborRatio===null ? "—" : d.laborRatio.toFixed(1)+"%";
         const foodText = d.expenseRatio===null ? "—" : d.expenseRatio.toFixed(1)+"%";
-        html += '<div style="padding:0 0 12px 21px;font-size:12px;color:var(--ink-soft);">';
-        html += '인건비율 <span style="font-weight:700;color:'+(laborBad?'var(--danger)':'var(--olive)')+';">'+ratioText+(laborBad?' 초과':'')+'</span>';
-        html += '<span style="margin:0 8px;">·</span>';
-        html += '식자재비율 <span style="font-weight:700;color:'+(foodBad?'var(--danger)':'var(--olive)')+';">'+foodText+(foodBad?' 초과':'')+'</span>';
+        html += '<div style="padding:0 0 14px 20px;display:flex;gap:28px;">';
+        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">인건비율</div><div style="font-size:16px;font-weight:800;color:'+(laborBad?'var(--danger)':'var(--olive)')+';">'+ratioText+'</div>'+(laborBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">25% 초과</div>':'')+'</div>';
+        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">식자재비율</div><div style="font-size:16px;font-weight:800;color:'+(foodBad?'var(--danger)':'var(--olive)')+';">'+foodText+'</div>'+(foodBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">40% 초과</div>':'')+'</div>';
         html += '</div>';
       }
+      html += '</div>';
     });
     html += '</div>';
 
