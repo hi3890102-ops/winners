@@ -458,6 +458,8 @@
     askAppPendingAction: null,
     taxReminderInfo: null,
     notifBarExpanded: false,
+    announceDraft: { title: "", body: "" },
+    reservationDraft: {},
     showVendorManage: false,
     editingStoreOld: null,
     editingOwnerId: null,
@@ -964,7 +966,7 @@
             state.myStores = await computeMyStoresDb(record.username);
             await loadAllForStore(record.store);
             state.onboardingStep = (state.storeOnboardingMap && !state.storeOnboardingMap[record.store]) ? "location" : null;
-            loadTaxReminderInfo().then(render);
+            render();
             return;
           }
           if(record.status === "pending"){
@@ -990,7 +992,7 @@
         state.role = "hq";
         await loadStoreList();
         await loadAllForStore(state.store);
-        loadTaxReminderInfo().then(render);
+        render();
         return;
       }
     }catch(e){}
@@ -1004,21 +1006,21 @@
     state.role = "hq";
     await loadStoreList();
     await loadAllForStore(state.store);
-    loadTaxReminderInfo().then(render);
+    render();
   }
   async function becomeStoreOwner(storeName){
     state.role = "storeOwner";
     state.store = storeName;
     await loadAllForStore(storeName);
     state.onboardingStep = (state.storeOnboardingMap && !state.storeOnboardingMap[storeName]) ? "location" : null;
-    loadTaxReminderInfo().then(render);
+    render();
   }
   async function switchOwnerStore(storeName){
     if(storeName === state.store) return;
     state.store = storeName;
     state.showAddStoreForm = false;
     await loadAllForStore(storeName);
-    loadTaxReminderInfo().then(render);
+    render();
   }
 
   async function startHqFlow(){
@@ -1795,6 +1797,7 @@
       }
       nameInp.value=""; phoneInp.value=""; partyInp.value=""; memoInp.value=""; timeInp.value="";
       if(dateInp) dateInp.value = bizToday();
+      state.reservationDraft = {};
       state.showReservationForm = false;
       render();
       showToast(isToday ? "예약을 등록했어요." : (formatDateLabel(resDate)+" 예약을 등록했어요. 그날 알림이 갈 거예요."));
@@ -1860,6 +1863,7 @@
       if(error) throw error;
       state.announcements.unshift({ id:data.id, title, body, authorName, createdAt: new Date(data.created_at).getTime(), reads:{} });
       state.showAnnounceForm = false;
+      state.announceDraft = { title: "", body: "" };
       render();
       showToast("공지사항을 등록했어요");
     }catch(e){ showToast("공지사항 저장에 실패했어요."); }
@@ -2572,6 +2576,19 @@
     const mKey = monthKey();
     const y = state.monthYear, m = state.monthNum;
     const storesToLoad = state.role==="hq" ? state.storeList : state.myStores;
+    const day = now.getDate();
+    const showTax = day >= 5;
+    let curM = now.getMonth()+1, prevM = curM-1, prevY = now.getFullYear();
+    if(prevM < 1){ prevM = 12; prevY -= 1; }
+    const prevMonthKey = prevY+"-"+pad(prevM);
+    const curMonthKey = now.getFullYear()+"-"+pad(now.getMonth()+1);
+    let ackedStoreIds = new Set();
+    if(showTax){
+      try{
+        const { data } = await db.from('tax_reminder_ack').select('store_id').eq('month_key', curMonthKey);
+        (data||[]).forEach(r=> ackedStoreIds.add(r.store_id));
+      }catch(e){}
+    }
     const results = await Promise.all(storesToLoad.map(async (store)=>{
       let crewArr = [], attArr = [], salesArr = [], items = {}, checks = {};
       const storeId = state.storeIdMap[store];
@@ -2637,7 +2654,31 @@
 
       const yKey = yesterdayKey();
       const hasYesterdayReport = salesArr.some(s=> s.date===yKey);
-      return { store, salesSum, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport };
+
+      const todayD = new Date(todayKey());
+      const expiringCerts = crewArr
+        .filter(c=> !!c.healthCertExpiry)
+        .map(c=>{
+          const exp = new Date(c.healthCertExpiry);
+          const daysUntil = Math.round((exp - todayD) / 86400000);
+          return { name: c.name, expiry: c.healthCertExpiry, daysUntil };
+        })
+        .filter(item=> item.daysUntil <= 30)
+        .sort((a,b)=> a.daysUntil - b.daysUntil);
+
+      let taxInfo = null;
+      if(showTax && storeId && !ackedStoreIds.has(storeId)){
+        try{
+          const { start, end } = monthDateRange(prevMonthKey);
+          const { data } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
+          const prevAttArr = (data||[]).map(r=>({ crewId:r.crew_id, date:r.date, checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out? r.check_out.slice(0,5): null, confirmed: !!r.confirmed }));
+          let prevTotal = 0;
+          crewArr.forEach(c=>{ prevTotal += calcCrewPayFrom(c, prevAttArr, prevY, prevM).pay; });
+          taxInfo = { monthKey: curMonthKey, prevMonthLabel: prevY+"년 "+prevM+"월", total: prevTotal, isPastDeadline: day > 10 };
+        }catch(e){}
+      }
+
+      return { store, salesSum, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo };
     }));
     results.sort((a,b)=> b.salesSum - a.salesSum);
     state.dashboardData = results;
@@ -3439,7 +3480,10 @@
     html += '<div class="brand"><span class="mark">'+mascotSymbolSvg()+'</span><h1><span style="color:var(--ink);">우리가게 매니저</span></h1><span class="date">'+todayLabel()+'</span></div>';
     if(isHq){
       html += '<div class="store-tabs">';
-      if(state.section !== "dashboard"){
+      html += '<button class="store-tab'+(state.section==="ai"?' active':'')+'" id="open-ai-chat-btn">✨ AI 물어보기</button>';
+      if(state.section === "ai"){
+        html += '<span class="store-tab active" style="cursor:default;">전체 매장 기준으로 답변해요</span>';
+      }else if(state.section !== "dashboard"){
         state.storeList.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-store="'+s+'">'+s+'</button>'; });
       }else{
         html += '<button class="store-tab'+(!state.showStoreManage?' active':'')+'" id="dashboard-view-all-btn">전체 매장 보는 중</button>';
@@ -3448,7 +3492,10 @@
       html += '</div>';
     }else{
       html += '<div class="store-tabs">';
-      if(state.section !== "dashboard"){
+      html += '<button class="store-tab'+(state.section==="ai"?' active':'')+'" id="open-ai-chat-btn">✨ AI 물어보기</button>';
+      if(state.section === "ai"){
+        html += '<span class="store-tab active" style="cursor:default;">전체 매장 기준으로 답변해요</span>';
+      }else if(state.section !== "dashboard"){
         if(state.myStores.length > 1){
           state.myStores.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-ownerstore="'+escapeHtml(s)+'">'+escapeHtml(s)+'</button>'; });
         }else{
@@ -3462,18 +3509,21 @@
     }
     html += '</header>';
     html += '<main>';
-    html += renderAskAppBox();
+    if(!state.dashboardData && !state.dashboardLoading) setTimeout(loadDashboardData, 0);
     html += renderNotifSummaryBar();
+    if(state.section === "ai"){
+      html += renderAiChatSection();
+    }else{
     if(state.showStoreManage) html += renderStoreManage();
     if(state.showAddStoreForm) html += renderAddStoreForm();
     if(state.section === "dashboard"){
-      if(!state.dashboardData && !state.dashboardLoading) setTimeout(loadDashboardData, 0);
       html += renderDashboard();
     }
     else if(state.section === "checklist") html += renderChecklist();
     else if(state.section === "announce") html += renderAnnouncementsOwnerTab();
     else if(state.section === "sales") html += renderSalesSection();
     else html += renderSchedule();
+    }
     html += '<button class="switch-link" id="switch-user-btn">다른 사용자로 전환</button>';
     html += '</main>';
     html += '<nav class="bottom-nav">';
@@ -3517,19 +3567,6 @@
       .filter(item=> item.daysUntil <= 30)
       .sort((a,b)=> a.daysUntil - b.daysUntil);
   }
-  function renderHealthCertBanner(){
-    const list = getExpiringHealthCerts();
-    if(list.length===0) return "";
-    let html = '<div style="background:#FFF4E5;border:1px solid #FFD9A0;border-radius:12px;padding:12px 14px;margin:0 0 14px;">';
-    html += '<div style="font-weight:800;font-size:13px;color:#8A5A00;margin-bottom:6px;">⚠️ 보건증 만료 임박</div>';
-    list.forEach(item=>{
-      const statusText = item.daysUntil < 0 ? (Math.abs(item.daysUntil)+'일 지남 (만료됨)') : (item.daysUntil===0 ? '오늘 만료' : ('D-'+item.daysUntil));
-      html += '<div style="font-size:12.5px;color:#6B4500;padding:2px 0;">'+escapeHtml(item.name)+' · '+item.expiry+' · '+statusText+'</div>';
-    });
-    html += '</div>';
-    return html;
-  }
-
   function yesterdayKey(){
     const d = new Date(bizDateObj().getTime() - 86400000);
     return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
@@ -3548,66 +3585,77 @@
     return html;
   }
 
-  async function loadTaxReminderInfo(){
-    const day = now.getDate();
-    if(day < 5){ state.taxReminderInfo = null; return; }
-    const curMonthKey = now.getFullYear()+"-"+pad(now.getMonth()+1);
-    const storeId = currentStoreId();
-    if(!storeId){ state.taxReminderInfo = null; return; }
+  async function ackTaxReminderForStore(storeName){
+    const storeId = state.storeIdMap[storeName];
+    const d = (state.dashboardData||[]).find(x=> x.store===storeName);
+    if(!storeId || !d || !d.taxInfo) return;
     try{
-      const { data: ackRows } = await db.from('tax_reminder_ack').select('id').eq('store_id', storeId).eq('month_key', curMonthKey);
-      if(ackRows && ackRows.length>0){ state.taxReminderInfo = null; return; }
+      await db.from('tax_reminder_ack').insert({ store_id: storeId, month_key: d.taxInfo.monthKey });
     }catch(e){}
-    let curM = now.getMonth()+1, prevM = curM-1, prevY = now.getFullYear();
-    if(prevM < 1){ prevM = 12; prevY -= 1; }
-    const prevKey = prevY+"-"+pad(prevM);
-    const { start, end } = monthDateRange(prevKey);
-    let attArr = [];
-    try{
-      const { data } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
-      attArr = (data||[]).map(r=>({ crewId:r.crew_id, date:r.date, checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out? r.check_out.slice(0,5): null, confirmed: !!r.confirmed }));
-    }catch(e){}
-    let total = 0;
-    (state.crew||[]).forEach(c=>{
-      const info = calcCrewPayFrom(c, attArr, prevY, prevM);
-      total += info.pay;
-    });
-    state.taxReminderInfo = { monthKey: curMonthKey, prevMonthLabel: prevY+"년 "+prevM+"월", total, isPastDeadline: day > 10 };
-  }
-  function renderTaxReminderBanner(){
-    if(!state.taxReminderInfo) return "";
-    const info = state.taxReminderInfo;
-    const bg = info.isPastDeadline ? "var(--danger-dim)" : "#FFF4E5";
-    const border = info.isPastDeadline ? "#F5B5B8" : "#FFD9A0";
-    const fg = info.isPastDeadline ? "var(--danger)" : "#8A5A00";
-    let html = '<div style="background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:12px 14px;margin:0 0 14px;">';
-    html += '<div style="font-weight:800;font-size:13px;color:'+fg+';margin-bottom:4px;">'+(info.isPastDeadline?'⚠️ 원천세 신고 기한이 지났어요 (매달 10일)':'📋 원천세 신고 기한이 다가와요 (매달 10일까지)')+'</div>';
-    html += '<div style="font-size:12.5px;color:'+fg+';">'+info.prevMonthLabel+' 급여 합계 '+info.total.toLocaleString()+'원 · 참고용 수치예요, 정확한 신고는 세무사와 확인해 주세요</div>';
-    html += '<button class="crew-code-btn" id="tax-reminder-ack-btn" style="margin-top:8px;">신고 완료, 이번 달엔 안 보이게 하기</button>';
-    html += '</div>';
-    return html;
-  }
-  async function ackTaxReminder(){
-    const storeId = currentStoreId();
-    if(!storeId || !state.taxReminderInfo) return;
-    try{
-      await db.from('tax_reminder_ack').insert({ store_id: storeId, month_key: state.taxReminderInfo.monthKey });
-    }catch(e){}
-    state.taxReminderInfo = null;
+    d.taxInfo = null;
     render();
   }
 
   function getNotifGroups(){
     const groups = [];
-    const certList = getExpiringHealthCerts();
-    if(certList.length>0) groups.push({ key:'cert', label:'보건증 만료 임박 '+certList.length+'명' });
-    const yKey = yesterdayKey();
-    const hasReport = state.salesReports.some(r=> r.date===yKey);
-    if(!hasReport) groups.push({ key:'report', label:'어제 매출보고 미제출' });
-    if(state.taxReminderInfo) groups.push({ key:'tax', label: state.taxReminderInfo.isPastDeadline ? '원천세 신고 기한 지남' : '원천세 신고 기한 임박' });
+    const data = state.dashboardData || [];
+    let certTotal = 0, certStoreCount = 0;
+    data.forEach(d=>{
+      if(d.expiringCerts && d.expiringCerts.length>0){ certTotal += d.expiringCerts.length; certStoreCount++; }
+    });
+    if(certTotal>0) groups.push({ key:'cert', label:'보건증 만료 임박 '+certTotal+'명'+(certStoreCount>1?' ('+certStoreCount+'개 매장)':'') });
+    const missingStores = data.filter(d=> !d.hasYesterdayReport);
+    if(missingStores.length>0) groups.push({ key:'report', label:'어제 매출보고 미제출'+(missingStores.length>1?' '+missingStores.length+'개 매장':'') });
+    const taxStores = data.filter(d=> d.taxInfo);
+    if(taxStores.length>0){
+      const anyPast = taxStores.some(d=> d.taxInfo.isPastDeadline);
+      groups.push({ key:'tax', label:(anyPast?'원천세 신고 기한 지남':'원천세 신고 기한 임박')+(taxStores.length>1?' '+taxStores.length+'개 매장':'') });
+    }
     return groups;
   }
+
+  function renderNotifDetails(){
+    const data = state.dashboardData || [];
+    let html = '';
+
+    const certRows = [];
+    data.forEach(d=> (d.expiringCerts||[]).forEach(item=> certRows.push({ store:d.store, name:item.name, expiry:item.expiry, daysUntil:item.daysUntil })));
+    if(certRows.length>0){
+      certRows.sort((a,b)=> a.daysUntil-b.daysUntil);
+      html += '<div style="background:#FFF4E5;border:1px solid #FFD9A0;border-radius:12px;padding:12px 14px;margin:0 0 10px;">';
+      html += '<div style="font-weight:800;font-size:13px;color:#8A5A00;margin-bottom:6px;">⚠️ 보건증 만료 임박</div>';
+      certRows.forEach(item=>{
+        const statusText = item.daysUntil < 0 ? (Math.abs(item.daysUntil)+'일 지남 (만료됨)') : (item.daysUntil===0 ? '오늘 만료' : ('D-'+item.daysUntil));
+        html += '<div style="font-size:12.5px;color:#6B4500;padding:2px 0;">'+escapeHtml(item.store)+' · '+escapeHtml(item.name)+' · '+item.expiry+' · '+statusText+'</div>';
+      });
+      html += '</div>';
+    }
+
+    const missingStores = data.filter(d=> !d.hasYesterdayReport);
+    if(missingStores.length>0){
+      html += '<div style="background:var(--danger-dim);border:1px solid #F5B5B8;border-radius:12px;padding:12px 14px;margin:0 0 10px;">';
+      html += '<div style="font-weight:800;font-size:13px;color:var(--danger);">⚠️ 어제('+formatDateLabel(yesterdayKey())+') 매출보고 미제출</div>';
+      html += '<div style="font-size:12.5px;color:var(--danger);margin-top:4px;">'+missingStores.map(d=>escapeHtml(d.store)).join(', ')+'</div>';
+      html += '</div>';
+    }
+
+    data.filter(d=> d.taxInfo).forEach(d=>{
+      const info = d.taxInfo;
+      const bg = info.isPastDeadline ? "var(--danger-dim)" : "#FFF4E5";
+      const border = info.isPastDeadline ? "#F5B5B8" : "#FFD9A0";
+      const fg = info.isPastDeadline ? "var(--danger)" : "#8A5A00";
+      html += '<div style="background:'+bg+';border:1px solid '+border+';border-radius:12px;padding:12px 14px;margin:0 0 10px;">';
+      html += '<div style="font-weight:800;font-size:13px;color:'+fg+';margin-bottom:4px;">'+escapeHtml(d.store)+' · '+(info.isPastDeadline?'⚠️ 원천세 신고 기한이 지났어요 (매달 10일)':'📋 원천세 신고 기한이 다가와요 (매달 10일까지)')+'</div>';
+      html += '<div style="font-size:12.5px;color:'+fg+';">'+info.prevMonthLabel+' 급여 합계 '+info.total.toLocaleString()+'원 · 참고용 수치예요, 정확한 신고는 세무사와 확인해 주세요</div>';
+      html += '<button class="crew-code-btn" data-taxack="'+escapeHtml(d.store)+'" style="margin-top:8px;">신고 완료, 이번 달엔 안 보이게 하기</button>';
+      html += '</div>';
+    });
+
+    return html;
+  }
+
   function renderNotifSummaryBar(){
+    if(!state.dashboardData) return "";
     const groups = getNotifGroups();
     if(groups.length===0) return "";
     let html = '<div style="margin-bottom:14px;">';
@@ -3616,11 +3664,7 @@
     html += '<span style="flex:0 0 auto;font-size:11px;">'+(state.notifBarExpanded?'접기 ▲':'펼치기 ▼')+'</span>';
     html += '</button>';
     if(state.notifBarExpanded){
-      html += '<div style="margin-top:8px;">';
-      html += renderHealthCertBanner();
-      html += renderMissingReportBanner();
-      html += renderTaxReminderBanner();
-      html += '</div>';
+      html += '<div style="margin-top:8px;">'+renderNotifDetails()+'</div>';
     }
     html += '</div>';
     return html;
@@ -3670,6 +3714,12 @@
       html += '<p class="crew-code-hint" style="margin-top:10px;">데이터를 살펴보고 있어요…</p>';
     }
     html += '</div>';
+    return html;
+  }
+
+  function renderAiChatSection(){
+    let html = '<button class="switch-link" id="close-ai-chat-btn" style="margin-bottom:10px;">← 뒤로가기</button>';
+    html += renderAskAppBox();
     return html;
   }
 
@@ -4381,10 +4431,17 @@
   }
   function renderAnnounceForm(){
     let html = '<div class="s-card">';
+    if(state.role==="storeOwner" && state.myStores && state.myStores.length > 1){
+      html += '<label style="display:block;font-size:12px;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">보낼 매장</label>';
+      html += '<select id="ann-store-select" class="field-input" style="margin-bottom:10px;">';
+      state.myStores.forEach(s=> html += '<option value="'+escapeHtml(s)+'"'+(s===state.store?' selected':'')+'>'+escapeHtml(s)+'</option>');
+      html += '</select>';
+      html += '<p class="crew-code-hint" style="margin:-4px 0 10px;">지금 "'+escapeHtml(state.store)+'" 매장 스텝에게만 전달돼요.</p>';
+    }
     html += '<label style="display:block;font-size:12px;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">제목</label>';
-    html += '<input id="ann-title-input" type="text" placeholder="공지 제목" style="width:100%;border:1px solid var(--line);background:var(--cream);border-radius:9px;padding:9px 12px;font-size:14px;font-family:inherit;color:var(--ink);margin-bottom:10px;">';
+    html += '<input id="ann-title-input" type="text" placeholder="공지 제목" value="'+escapeHtml((state.announceDraft&&state.announceDraft.title)||"")+'" style="width:100%;border:1px solid var(--line);background:var(--cream);border-radius:9px;padding:9px 12px;font-size:14px;font-family:inherit;color:var(--ink);margin-bottom:10px;">';
     html += '<label style="display:block;font-size:12px;color:var(--ink-soft);font-weight:600;margin-bottom:4px;">내용</label>';
-    html += '<textarea id="ann-body-input" rows="4" placeholder="전달할 내용을 적어주세요" style="width:100%;border:1px solid var(--line);background:var(--cream);border-radius:9px;padding:10px;font-size:13.5px;font-family:inherit;color:var(--ink);resize:vertical;"></textarea>';
+    html += '<textarea id="ann-body-input" rows="4" placeholder="전달할 내용을 적어주세요" style="width:100%;border:1px solid var(--line);background:var(--cream);border-radius:9px;padding:10px;font-size:13.5px;font-family:inherit;color:var(--ink);resize:vertical;">'+escapeHtml((state.announceDraft&&state.announceDraft.body)||"")+'</textarea>';
     html += '<button class="landing-btn primary" id="submit-ann-btn" style="margin-top:10px;">등록하기</button>';
     html += '</div>';
     return html;
@@ -4451,10 +4508,10 @@
           html += '</select></div>';
           html += '<p class="crew-code-hint" style="margin-bottom:8px;">지금 "'+escapeHtml(state.store)+'" 매장에 등록돼요.</p>';
         }
-        html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+bizToday()+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input"></div></div>';
-        html += '<div style="margin-top:8px;"><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input"></div>';
-        html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input"></div></div>';
-        html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input"></div>';
+        html += '<div class="row2"><div><label class="field-label">날짜</label><input id="res-date-input" type="date" class="field-input" value="'+(state.reservationDraft.date||bizToday())+'" min="'+bizToday()+'"></div><div><label class="field-label">시간</label><input id="res-time-input" type="time" class="field-input" value="'+escapeHtml(state.reservationDraft.time||"")+'"></div></div>';
+        html += '<div style="margin-top:8px;"><label class="field-label">인원</label><input id="res-party-input" type="number" min="1" placeholder="인원수" class="field-input" value="'+escapeHtml(state.reservationDraft.party||"")+'"></div>';
+        html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">예약자명</label><input id="res-name-input" type="text" placeholder="이름" class="field-input" value="'+escapeHtml(state.reservationDraft.name||"")+'"></div><div><label class="field-label">연락처</label><input id="res-phone-input" type="text" placeholder="선택" class="field-input" value="'+escapeHtml(state.reservationDraft.phone||"")+'"></div></div>';
+        html += '<div style="margin-top:8px;"><label class="field-label">메모</label><input id="res-memo-input" type="text" placeholder="선택 (창가자리, 알러지 등)" class="field-input" value="'+escapeHtml(state.reservationDraft.memo||"")+'"></div>';
         html += '<div style="display:flex;gap:8px;margin-top:10px;">';
         html += '<button id="add-reservation-btn" style="flex:1;border:none;border-radius:10px;padding:12px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">예약 등록</button>';
         html += '<button id="cancel-reservation-form-btn" style="border:none;border-radius:10px;padding:12px 16px;font-size:13.5px;font-weight:700;cursor:pointer;background:var(--cream);color:var(--ink-soft);">취소</button>';
@@ -5877,6 +5934,17 @@
       state.notifBarExpanded = !state.notifBarExpanded;
       render();
     });
+    const openAiChatBtn = document.getElementById("open-ai-chat-btn");
+    if(openAiChatBtn) openAiChatBtn.addEventListener("click", ()=>{
+      if(state.section !== "ai") state.aiPrevSection = state.section;
+      state.section = "ai";
+      render();
+    });
+    const closeAiChatBtn = document.getElementById("close-ai-chat-btn");
+    if(closeAiChatBtn) closeAiChatBtn.addEventListener("click", ()=>{
+      state.section = state.aiPrevSection || "dashboard";
+      render();
+    });
     app.querySelectorAll(".store-tab[data-store]").forEach(btn=>{
       btn.addEventListener("click", ()=>{
         const s = btn.getAttribute("data-store");
@@ -5968,12 +6036,24 @@
     const showReservationFormBtnDash = document.getElementById("show-reservation-form-btn");
     if(showReservationFormBtnDash) showReservationFormBtnDash.addEventListener("click", ()=>{ state.showReservationForm = true; render(); });
     const cancelReservationFormBtnDash = document.getElementById("cancel-reservation-form-btn");
-    if(cancelReservationFormBtnDash) cancelReservationFormBtnDash.addEventListener("click", ()=>{ state.showReservationForm = false; render(); });
+    if(cancelReservationFormBtnDash) cancelReservationFormBtnDash.addEventListener("click", ()=>{ state.showReservationForm = false; state.reservationDraft = {}; render(); });
     app.querySelectorAll("[data-cancelres]").forEach(btn=>{
       btn.addEventListener("click", ()=> cancelReservation(btn.getAttribute("data-cancelres")));
     });
     const resStoreSelect = document.getElementById("res-store-select");
     if(resStoreSelect) resStoreSelect.addEventListener("change", ()=> switchOwnerStore(resStoreSelect.value));
+    const resDateInput = document.getElementById("res-date-input");
+    if(resDateInput) resDateInput.addEventListener("input", ()=>{ state.reservationDraft.date = resDateInput.value; });
+    const resTimeInput = document.getElementById("res-time-input");
+    if(resTimeInput) resTimeInput.addEventListener("input", ()=>{ state.reservationDraft.time = resTimeInput.value; });
+    const resPartyInput = document.getElementById("res-party-input");
+    if(resPartyInput) resPartyInput.addEventListener("input", ()=>{ state.reservationDraft.party = resPartyInput.value; });
+    const resNameInput = document.getElementById("res-name-input");
+    if(resNameInput) resNameInput.addEventListener("input", ()=>{ state.reservationDraft.name = resNameInput.value; });
+    const resPhoneInput = document.getElementById("res-phone-input");
+    if(resPhoneInput) resPhoneInput.addEventListener("input", ()=>{ state.reservationDraft.phone = resPhoneInput.value; });
+    const resMemoInput = document.getElementById("res-memo-input");
+    if(resMemoInput) resMemoInput.addEventListener("input", ()=>{ state.reservationDraft.memo = resMemoInput.value; });
     const askAppBtn = document.getElementById("ask-app-btn");
     if(askAppBtn) askAppBtn.addEventListener("click", askApp);
     const askAppMicBtn = document.getElementById("ask-app-mic-btn");
@@ -5984,10 +6064,22 @@
     if(askAppConfirmBtn) askAppConfirmBtn.addEventListener("click", confirmPendingAction);
     const askAppCancelBtn = document.getElementById("ask-app-cancel-btn");
     if(askAppCancelBtn) askAppCancelBtn.addEventListener("click", cancelPendingAction);
-    const taxReminderAckBtn = document.getElementById("tax-reminder-ack-btn");
-    if(taxReminderAckBtn) taxReminderAckBtn.addEventListener("click", ackTaxReminder);
+    const taxReminderAckBtns = app.querySelectorAll("[data-taxack]");
+    taxReminderAckBtns.forEach(btn=>{
+      btn.addEventListener("click", ()=> ackTaxReminderForStore(btn.getAttribute("data-taxack")));
+    });
     const toggleAnnFormBtnOwner = document.getElementById("toggle-ann-form-btn");
-    if(toggleAnnFormBtnOwner) toggleAnnFormBtnOwner.addEventListener("click", ()=>{ state.showAnnounceForm = !state.showAnnounceForm; render(); });
+    if(toggleAnnFormBtnOwner) toggleAnnFormBtnOwner.addEventListener("click", ()=>{
+      state.showAnnounceForm = !state.showAnnounceForm;
+      if(!state.showAnnounceForm) state.announceDraft = { title: "", body: "" };
+      render();
+    });
+    const annTitleInput = document.getElementById("ann-title-input");
+    if(annTitleInput) annTitleInput.addEventListener("input", ()=>{ state.announceDraft.title = annTitleInput.value; });
+    const annBodyInput = document.getElementById("ann-body-input");
+    if(annBodyInput) annBodyInput.addEventListener("input", ()=>{ state.announceDraft.body = annBodyInput.value; });
+    const annStoreSelect = document.getElementById("ann-store-select");
+    if(annStoreSelect) annStoreSelect.addEventListener("change", ()=> switchOwnerStore(annStoreSelect.value));
     const submitAnnBtnOwner = document.getElementById("submit-ann-btn");
     if(submitAnnBtnOwner) submitAnnBtnOwner.addEventListener("click", createAnnouncement);
     app.querySelectorAll("[data-delann]").forEach(btn=>{
