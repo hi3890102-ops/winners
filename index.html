@@ -458,6 +458,8 @@
     askAppPendingAction: null,
     taxReminderInfo: null,
     notifBarExpanded: false,
+    expandedStoreRows: {},
+    dashboardDailyTrend: {},
     announceDraft: { title: "", body: "" },
     reservationDraft: {},
     showVendorManage: false,
@@ -989,8 +991,11 @@
     try{
       const roleR = localGet("my-role");
       if(roleR && roleR.value === "hq"){
-        // 이 빌드(사용자 앱)는 관리자 모드를 지원하지 않아요. 저장된 플래그는 무시해요.
-        localSet("my-role", "");
+        state.role = "hq";
+        await loadStoreList();
+        await loadAllForStore(state.store);
+        render();
+        return;
       }
     }catch(e){}
     state.role = "landing";
@@ -2408,6 +2413,16 @@
   }
   function roleCharacterSvg(role){
     const skin = "#FFD8B0";
+    if(role === "owner"){
+      return '<circle cx="12" cy="13.5" r="6.5" fill="'+skin+'"/>'+
+        '<path d="M5.6 12C5.6 8.4 8.4 5.7 12 5.7C15.6 5.7 18.4 8.4 18.4 12C16.5 10.6 14.3 9.9 12 9.9C9.7 9.9 7.5 10.6 5.6 12Z" fill="#2B2B30"/>'+
+        '<path d="M9.7 16.3C10.4 16.9 13.6 16.9 14.3 16.3" stroke="#9A6A48" stroke-width="0.9" stroke-linecap="round" fill="none"/>'+
+        '<path d="M4.5 22C4.5 18.6 7.8 17.2 12 17.2C16.2 17.2 19.5 18.6 19.5 22Z" fill="#2B2B30"/>'+
+        '<path d="M11 17.3L12 22L13 17.3Z" fill="#1FA35A"/>'+
+        '<circle cx="9.4" cy="13.8" r="1.7" fill="none" stroke="#2B2B30" stroke-width="0.7"/>'+
+        '<circle cx="14.6" cy="13.8" r="1.7" fill="none" stroke="#2B2B30" stroke-width="0.7"/>'+
+        '<path d="M11.1 13.8H12.9" stroke="#2B2B30" stroke-width="0.7"/>';
+    }
     if(role === "manager"){
       return '<circle cx="12" cy="13.5" r="6.5" fill="'+skin+'"/>'+
         '<path d="M5.6 12C5.6 8.4 8.4 5.7 12 5.7C15.6 5.7 18.4 8.4 18.4 12C16.5 10.6 14.3 9.9 12 9.9C9.7 9.9 7.5 10.6 5.6 12Z" fill="#2B2B30"/>'+
@@ -2441,10 +2456,13 @@
       '<path d="M9.7 17C10.4 17.6 13.6 17.6 14.3 17" stroke="#9A6A48" stroke-width="0.9" stroke-linecap="round" fill="none"/>'+
       '<path d="M5 22C5 18.7 8 17.4 12 17.4C16 17.4 19 18.7 19 22Z" fill="#8A8F98"/>';
   }
-  function renderAvatarBadge(c, size){
-    const role = roleKeyFor(c);
+  function renderRoleAvatar(role, size){
     const px = size || 38;
     return '<div style="width:'+px+'px;height:'+px+'px;border-radius:50%;background:#EDEFF3;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;"><svg viewBox="0 0 24 24" style="width:'+px+'px;height:'+px+'px;">'+roleCharacterSvg(role)+'</svg></div>';
+  }
+  function renderAvatarBadge(c, size){
+    const role = roleKeyFor(c);
+    return renderRoleAvatar(role, size);
   }
 
   // ---------- schedule / attendance logic ----------
@@ -2675,10 +2693,28 @@
         }catch(e){}
       }
 
-      return { store, salesSum, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo };
+      let prevMonthSalesSum = 0;
+      try{
+        if(storeId){
+          const { start, end } = monthDateRange(prevMonthKey);
+          const { data } = await db.from('sales_reports').select('total_sales').eq('store_id', storeId).gte('date', start).lte('date', end);
+          (data||[]).forEach(r=> prevMonthSalesSum += Number(r.total_sales)||0);
+        }
+      }catch(e){}
+      const dailySales = {};
+      salesArr.forEach(s=>{ dailySales[s.date] = (dailySales[s.date]||0) + (Number(s.totalSales)||0); });
+
+      return { store, salesSum, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, dailySales };
     }));
     results.sort((a,b)=> b.salesSum - a.salesSum);
     state.dashboardData = results;
+    const dailyTotals = {};
+    results.forEach(d=>{
+      Object.keys(d.dailySales||{}).forEach(date=>{
+        dailyTotals[date] = (dailyTotals[date]||0) + d.dailySales[date];
+      });
+    });
+    state.dashboardDailyTrend = dailyTotals;
     state.dashboardLoading = false;
     render();
     loadDashboardReservations();
@@ -3656,9 +3692,15 @@
     const groups = getNotifGroups();
     if(groups.length===0) return "";
     let html = '<div style="margin-bottom:14px;">';
-    html += '<button type="button" id="notif-summary-toggle-btn" style="width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--danger-dim);border:1px solid #F5B5B8;border-radius:12px;padding:10px 14px;font-size:12.5px;font-weight:800;color:var(--danger);cursor:pointer;">';
-    html += '<span style="text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">⚠️ 확인할 알림 '+groups.length+'건'+(state.notifBarExpanded?'':' · '+groups.map(g=>g.label).join(' · '))+'</span>';
-    html += '<span style="flex:0 0 auto;font-size:11px;">'+(state.notifBarExpanded?'접기 ▲':'펼치기 ▼')+'</span>';
+    html += '<button type="button" id="notif-summary-toggle-btn" style="width:100%;text-align:left;background:var(--card);border:1px solid #F0B8B8;border-radius:16px;padding:16px;cursor:pointer;">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;">';
+    html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none">'+navIcon('bell')+'</svg>알림</span>';
+    html += '<svg width="15" height="15" viewBox="0 0 24 24" style="transform:rotate('+(state.notifBarExpanded?180:0)+'deg);"><path d="M6 9l6 6 6-6" stroke="var(--ink-soft)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    html += '</div>';
+    html += '<p style="margin:8px 0 0;font-size:15px;font-weight:800;color:var(--danger);">확인할 알림 '+groups.length+'건</p>';
+    if(!state.notifBarExpanded){
+      html += '<p style="margin:4px 0 0;font-size:12px;color:var(--ink-soft);">'+groups.map(g=>g.label).join(' · ')+'</p>';
+    }
     html += '</button>';
     if(state.notifBarExpanded){
       html += '<div style="margin-top:8px;">'+renderNotifDetails()+'</div>';
@@ -4444,12 +4486,31 @@
     return html;
   }
 
+  function renderSalesTrendBars(){
+    const trend = state.dashboardDailyTrend || {};
+    const days = [];
+    for(let i=6;i>=0;i--){
+      const d = new Date(bizDateObj().getTime() - i*86400000);
+      const key = d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+      days.push({ key, dow: d.getDay(), val: trend[key]||0 });
+    }
+    const max = Math.max.apply(null, days.map(d=>d.val).concat([1]));
+    const dowLabel = ['일','월','화','수','목','금','토'];
+    let html = '<div style="display:flex;align-items:flex-end;gap:5px;height:44px;">';
+    days.forEach((d,i)=>{
+      const h = Math.max(4, Math.round((d.val/max)*40));
+      const isToday = i === days.length-1;
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">';
+      html += '<div style="width:100%;background:'+(isToday?'var(--brick)':'var(--brick-dim)')+';border-radius:3px 3px 0 0;height:'+h+'px;"></div>';
+      html += '<span style="font-size:9px;color:'+(isToday?'var(--brick)':'var(--ink-soft)')+';font-weight:'+(isToday?'800':'400')+';">'+(isToday?'오늘':dowLabel[d.dow])+'</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
   function renderDashboard(){
     let html = "";
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
-    html += '<span style="font-size:13px;color:var(--ink-soft);font-weight:700;">'+state.monthYear+'년 '+state.monthNum+'월 · 매장 '+state.storeList.length+'개</span>';
-    html += '<button class="crew-code-btn" id="refresh-dashboard-btn">새로고침</button>';
-    html += '</div>';
 
     if(state.dashboardLoading || !state.dashboardData){
       html += '<div class="empty-note">매장 '+state.storeList.length+'곳 데이터를 불러오는 중이에요…</div>';
@@ -4457,18 +4518,17 @@
     }
 
     const data = state.dashboardData;
-    let totalSales = 0, totalPay = 0, totalExpense = 0, totalDelivery = 0;
-    data.forEach(d=>{ totalSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalDelivery += (d.deliverySum||0); });
+    let totalSales = 0, totalPay = 0, totalExpense = 0, totalDelivery = 0, totalPrevMonth = 0;
+    data.forEach(d=>{ totalSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); });
     const overallRatio = totalSales>0 ? (totalPay/totalSales*100) : 0;
     const overallExpenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : 0;
+    const deltaPct = totalPrevMonth>0 ? ((totalSales-totalPrevMonth)/totalPrevMonth*100) : null;
 
-    const missingStores = data.filter(d=> !d.hasYesterdayReport);
-    if(missingStores.length>0){
-      html += '<div style="background:var(--danger-dim);border:1px solid #F5B5B8;border-radius:12px;padding:12px 14px;margin-bottom:14px;">';
-      html += '<div style="font-weight:800;font-size:13px;color:var(--danger);margin-bottom:4px;">⚠️ 어제 매출보고 미제출 매장</div>';
-      html += '<div style="font-size:12.5px;color:var(--danger);">'+missingStores.map(d=>escapeHtml(d.store)).join(', ')+'</div>';
-      html += '</div>';
-    }
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
+    html += renderRoleAvatar('owner', 44);
+    html += '<div style="flex:1;"><p style="margin:0;font-size:15px;font-weight:800;">사장님, 오늘도 오셨네요</p><p style="margin:2px 0 0;font-size:12px;color:var(--ink-soft);">'+state.monthYear+'년 '+state.monthNum+'월 · 매장 '+data.length+'개</p></div>';
+    html += '<button class="crew-code-btn" id="refresh-dashboard-btn">새로고침</button>';
+    html += '</div>';
 
     if(state.role === "storeOwner"){
       const isMultiStore = state.myStores && state.myStores.length > 1;
@@ -4517,33 +4577,50 @@
       html += '</div>';
     }
 
-    html += '<div class="pay-summary c-blue">';
-    html += '<p class="label">'+(state.role==="hq"?"전체 매장 합산 매출":"내 매장 합산 매출")+' (이번 달 누적)</p>';
-    html += '<p class="amount">'+totalSales.toLocaleString()+'원</p>';
-    html += '<p class="meta">전체 배달매출 '+totalDelivery.toLocaleString()+'원 (별도 집계)</p>';
-    html += '<p class="meta" style="margin-top:4px;">전체 인건비 '+totalPay.toLocaleString()+'원 · 매출 대비 '+overallRatio.toFixed(1)+'%</p>';
-    html += '<p class="meta" style="margin-top:4px;">전체 식자재비 '+totalExpense.toLocaleString()+'원 · 매출 대비 '+overallExpenseRatio.toFixed(1)+'%</p>';
+    html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
+    html += '<span style="font-size:13.5px;font-weight:800;">'+state.monthNum+'월 합산 매출</span>';
+    html += '<p style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;">'+totalSales.toLocaleString()+'원</p>';
+    if(deltaPct!==null){
+      html += '<p style="margin:0 0 10px;font-size:12px;font-weight:700;color:'+(deltaPct>=0?'var(--olive)':'var(--danger)')+';">전월 대비 '+(deltaPct>=0?'+':'')+deltaPct.toFixed(1)+'%</p>';
+    }else{
+      html += '<p style="margin:0 0 10px;font-size:12px;color:var(--ink-soft);">전월 데이터 없음</p>';
+    }
+    html += '<p style="margin:0 0 12px;font-size:12px;color:var(--ink-soft);">배달매출 '+totalDelivery.toLocaleString()+'원 (별도 집계)</p>';
+    html += '<div style="display:flex;gap:16px;margin-bottom:14px;">';
+    html += '<div><span style="font-size:11px;color:var(--ink-soft);">인건비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(overallRatio>25?'var(--danger)':'var(--olive)')+';">'+overallRatio.toFixed(1)+'%</span></div>';
+    html += '<div><span style="font-size:11px;color:var(--ink-soft);">식자재비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(overallExpenseRatio>40?'var(--danger)':'var(--olive)')+';">'+overallExpenseRatio.toFixed(1)+'%</span></div>';
+    html += '</div>';
+    html += renderSalesTrendBars();
     html += '</div>';
 
-    data.forEach(d=>{
-      const ratioColor = d.laborRatio===null ? "var(--ink-soft)" : (d.laborRatio>25 ? "var(--danger)" : "var(--olive)");
-      const ratioText = d.laborRatio===null ? "—" : d.laborRatio.toFixed(1)+"%";
-      const ratioStatus = d.laborRatio===null ? "" : (d.laborRatio>25 ? '<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:var(--danger);margin-top:2px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--danger);display:inline-block;"></span>관리필요</span>' : '<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:var(--olive);margin-top:2px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--olive);display:inline-block;"></span>안정</span>');
-      const foodColor = d.expenseRatio===null ? "var(--ink-soft)" : (d.expenseRatio>40 ? "var(--danger)" : "var(--olive)");
-      const foodText = d.expenseRatio===null ? "—" : d.expenseRatio.toFixed(1)+"%";
-      const foodStatus = d.expenseRatio===null ? "" : (d.expenseRatio>40 ? '<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:var(--danger);margin-top:2px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--danger);display:inline-block;"></span>관리필요</span>' : '<span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:var(--olive);margin-top:2px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--olive);display:inline-block;"></span>안정</span>');
-      const checklistColor = d.checklistPct===null ? "var(--ink-soft)" : (d.checklistPct>=100 ? "var(--olive)" : "var(--gold)");
-      const checklistText = d.checklistPct===null ? "—" : d.checklistPct+"%";
-      html += '<div class="category" style="padding:14px 16px;">';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-weight:800;font-size:14px;">'+escapeHtml(d.store)+'</span><span style="font-size:11px;color:var(--ink-soft);">스텝 '+d.crewCount+'명</span></div>';
-      html += '<div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;">';
-      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">매출</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;">'+d.salesSum.toLocaleString()+'원</div></div>';
-      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">배달매출</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;">'+(d.deliverySum||0).toLocaleString()+'원</div></div>';
-      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">인건비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+ratioColor+';">'+ratioText+'</div>'+ratioStatus+'</div>';
-      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">식자재비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+foodColor+';">'+foodText+'</div>'+foodStatus+'</div>';
-      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">오늘 체크리스트</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+checklistColor+';">'+checklistText+'</div></div>';
-      html += '</div></div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:18px 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">매장별 현황</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+    html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
+    data.forEach((d)=>{
+      const laborBad = d.laborRatio!==null && d.laborRatio>25;
+      const foodBad = d.expenseRatio!==null && d.expenseRatio>40;
+      const hasIssue = laborBad || foodBad;
+      const expanded = !!state.expandedStoreRows[d.store];
+      html += '<div class="pay-list-item" data-storetoggle="'+escapeHtml(d.store)+'" style="cursor:pointer;">';
+      html += '<span class="d" style="display:flex;align-items:center;gap:7px;color:var(--ink);font-weight:700;">';
+      html += '<svg width="13" height="13" viewBox="0 0 24 24" style="transform:rotate('+(expanded?180:0)+'deg);flex:0 0 auto;"><path d="M6 9l6 6 6-6" stroke="var(--ink-soft)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      if(hasIssue) html += '<span style="width:6px;height:6px;border-radius:50%;background:var(--danger);flex:0 0 auto;"></span>';
+      html += escapeHtml(d.store)+'</span>';
+      html += '<span style="display:flex;align-items:baseline;gap:10px;font-size:11.5px;color:var(--ink-soft);">';
+      html += '<span style="font-size:14px;font-weight:800;color:var(--ink);">'+Math.round(d.salesSum/10000).toLocaleString()+'만</span>';
+      html += '<span>배달 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만</span>';
+      html += '</span></div>';
+      if(expanded){
+        const ratioText = d.laborRatio===null ? "—" : d.laborRatio.toFixed(1)+"%";
+        const foodText = d.expenseRatio===null ? "—" : d.expenseRatio.toFixed(1)+"%";
+        html += '<div style="padding:0 0 12px 21px;font-size:12px;color:var(--ink-soft);">';
+        html += '인건비율 <span style="font-weight:700;color:'+(laborBad?'var(--danger)':'var(--olive)')+';">'+ratioText+(laborBad?' 초과':'')+'</span>';
+        html += '<span style="margin:0 8px;">·</span>';
+        html += '식자재비율 <span style="font-weight:700;color:'+(foodBad?'var(--danger)':'var(--olive)')+';">'+foodText+(foodBad?' 초과':'')+'</span>';
+        html += '</div>';
+      }
     });
+    html += '</div>';
+
     return html;
   }
 
@@ -5414,7 +5491,19 @@
     if(rememberToggleBtn) rememberToggleBtn.addEventListener("click", ()=>{ state.rememberMeChecked = !(state.rememberMeChecked !== false); render(); });
     const hqBtn = document.getElementById("be-hq-btn");
     if(hqBtn) hqBtn.addEventListener("click", startHqFlow);
-    // (관리자 진입 경로 없음 — 이 빌드는 사장님/스텝 전용 사용자 앱이에요)
+    const logoTapArea = document.getElementById("brand-logo-tap-area");
+    if(logoTapArea){
+      logoTapArea.addEventListener("click", ()=>{
+        const now = Date.now();
+        if(!state.logoTapTimes || now - (state.lastLogoTapTime||0) > 1200) state.logoTapTimes = [];
+        state.logoTapTimes.push(now);
+        state.lastLogoTapTime = now;
+        if(state.logoTapTimes.length >= 5){
+          state.logoTapTimes = [];
+          startHqFlow();
+        }
+      });
+    }
     const storeOwnerBtn = document.getElementById("be-store-owner-btn");
     if(storeOwnerBtn) storeOwnerBtn.addEventListener("click", startStoreOwnerFlow);
     const showCodeBtn = document.getElementById("show-code-btn");
@@ -5924,6 +6013,13 @@
       if(state.section !== "ai") state.aiPrevSection = state.section;
       state.section = "ai";
       render();
+    });
+    app.querySelectorAll("[data-storetoggle]").forEach(row=>{
+      row.addEventListener("click", ()=>{
+        const store = row.getAttribute("data-storetoggle");
+        state.expandedStoreRows[store] = !state.expandedStoreRows[store];
+        render();
+      });
     });
     const closeAiChatBtn = document.getElementById("close-ai-chat-btn");
     if(closeAiChatBtn) closeAiChatBtn.addEventListener("click", ()=>{
