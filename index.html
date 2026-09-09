@@ -467,6 +467,7 @@
     editingOwnerId: null,
     showOwnerSalesForm: false,
     showExpenseSection: false,
+    showLaborSection: false,
     lightboxSrc: null,
     announcements: [],
     showAnnounceForm: false,
@@ -4971,6 +4972,35 @@
     if(state.selectedSalesDate){
       const dateStr = state.selectedSalesDate;
       const report = state.salesReports.find(r=>r.date===dateStr);
+
+      const dayAttForLabor = state.attendance.filter(a=>a.date===dateStr && a.checkOut).sort((a,b)=> a.checkIn.localeCompare(b.checkIn));
+      const unconfirmedCount = dayAttForLabor.filter(a=>!a.confirmed).length;
+      html += '<div class="day-panel">';
+      html += '<button type="button" id="toggle-labor-section-btn" style="width:100%;display:flex;justify-content:space-between;align-items:center;background:none;border:none;padding:0;cursor:pointer;">';
+      html += '<h3 style="margin:0;">인건비보고</h3><span style="font-size:13px;color:var(--ink-soft);">'+(state.showLaborSection?'▲':'▼')+'</span>';
+      html += '</button>';
+      if(dayAttForLabor.length===0){
+        html += '<p class="crew-code-hint" style="margin-top:8px;">이 날 퇴근 처리된 스텝이 없어요.</p>';
+      }else if(unconfirmedCount>0){
+        html += '<p class="crew-code-hint" style="margin-top:8px;color:var(--danger);font-weight:700;">미확인 '+unconfirmedCount+'건</p>';
+      }else{
+        html += '<p class="crew-code-hint" style="margin-top:8px;color:var(--olive);font-weight:700;">전원 확인 완료</p>';
+      }
+      if(state.showLaborSection && dayAttForLabor.length>0){
+        html += '<div style="margin-top:10px;">';
+        dayAttForLabor.forEach(a=>{
+          const c = state.crew.find(c=>c.id===a.crewId);
+          const nm = c ? c.name : "(삭제된 스텝)";
+          const h = hoursBetween(a.checkIn, a.checkOut);
+          html += '<div class="pay-list-item"><span class="d">'+escapeHtml(nm)+' <span style="color:var(--ink-soft);font-weight:400;">'+a.checkIn+'–'+a.checkOut+' · '+h.toFixed(1)+'시간</span></span>';
+          html += a.confirmed ? '<span style="color:var(--olive);font-weight:700;font-size:12.5px;">확인됨</span>' : '<span style="color:var(--danger);font-weight:700;font-size:12.5px;">미확인</span>';
+          html += '</div>';
+        });
+        html += '<p class="crew-code-hint" style="margin-top:8px;">시간 수정이나 확인 처리는 "수정하기"에서 할 수 있어요.</p>';
+        html += '</div>';
+      }
+      html += '</div>';
+
       html += '<div class="day-panel"><div style="display:flex;justify-content:space-between;align-items:center;"><h3 style="margin:0;">'+formatDateLabel(dateStr)+'</h3><button class="crew-code-btn" data-openownersales="'+dateStr+'">'+(report?'수정하기':'작성하기')+'</button></div>';
       if(!report){
         html += '<div class="empty-note" style="padding:8px 0;">이 날은 제출된 매출보고가 없어요.</div>';
@@ -5967,6 +5997,7 @@
         const dt = el.getAttribute("data-salesdate");
         state.selectedSalesDate = (state.selectedSalesDate===dt) ? null : dt;
         state.showExpenseSection = false;
+        state.showLaborSection = false;
         render();
       });
     });
@@ -5975,6 +6006,8 @@
     });
     const toggleExpenseBtn = document.getElementById("toggle-expense-section-btn");
     if(toggleExpenseBtn) toggleExpenseBtn.addEventListener("click", ()=>{ state.showExpenseSection = !state.showExpenseSection; render(); });
+    const toggleLaborBtn = document.getElementById("toggle-labor-section-btn");
+    if(toggleLaborBtn) toggleLaborBtn.addEventListener("click", ()=>{ state.showLaborSection = !state.showLaborSection; render(); });
     app.querySelectorAll("[data-delexpense]").forEach(btn=>{
       btn.addEventListener("click", ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense")));
     });
