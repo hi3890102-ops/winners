@@ -422,6 +422,12 @@
     revealedPassword: null,
     infoModalType: null,
     myUsername: null,
+    franchiseId: null,
+    franchiseName: null,
+    franchises: [],
+    storeFranchiseMap: {},
+    editingFranchiseId: null,
+    revealedFranchisePassword: null,
     myStores: [],
     showAddStoreForm: false,
     myRequestId: null,
@@ -573,16 +579,17 @@
   }
 
   // ---------- store list ----------
-  async function loadStoreList(ownerUsername){
+  async function loadStoreList(ownerUsername, franchiseId){
     let rows = [];
     try{
       let q = db.from('stores').select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour').order('created_at');
       if(ownerUsername) q = q.eq('owner_username', ownerUsername);
+      if(franchiseId) q = q.eq('franchise_id', franchiseId);
       const { data, error } = await q;
       if(error) throw error;
       rows = data || [];
     }catch(e){ rows = []; }
-    if(rows.length === 0 && !ownerUsername){
+    if(rows.length === 0 && !ownerUsername && !franchiseId){
       try{
         const { data, error } = await db.from('stores').insert(DEFAULT_STORES.map(name=>({name}))).select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour');
         if(error) throw error;
@@ -631,7 +638,7 @@
     render();
   }
   function isManagerTier(){
-    if(state.role === "storeOwner" || state.role === "hq") return true;
+    if(state.role === "storeOwner" || state.role === "hq" || state.role === "franchise") return true;
     const me = state.crew.find(c=>c.id===state.myCrewId);
     return !!(me && me.isManager);
   }
@@ -991,12 +998,10 @@
     }catch(e){}
     try{
       const roleR = localGet("my-role");
-      if(roleR && roleR.value === "hq"){
-        state.role = "hq";
-        await loadStoreList();
-        await loadAllForStore(state.store);
-        render();
-        return;
+      if(roleR && (roleR.value === "hq" || roleR.value === "franchise")){
+        // 이 빌드(사용자 앱)는 관리자/프랜차이즈 모드를 지원하지 않아요. 저장된 플래그는 무시해요.
+        localSet("my-role", "");
+        localSet("my-franchise-id", "");
       }
     }catch(e){}
     state.role = "landing";
@@ -1026,6 +1031,11 @@
     render();
   }
 
+  function showAdminEntryChooser(){
+    state.landingMode = "admin-select";
+    render();
+  }
+
   async function startHqFlow(){
     showToast("확인 중이에요…");
     let pinR = null;
@@ -1052,6 +1062,8 @@
     }else if(state.landingMode === "store-login" || state.landingMode === "request-form"){
       state.landingMode = "default";
       state.landingTab = "owner";
+    }else if(state.landingMode === "pin-setup" || state.landingMode === "pin-entry" || state.landingMode === "franchise-login"){
+      state.landingMode = "admin-select";
     }else{
       state.landingMode = "default";
       state.pendingStoreForOwner = null;
@@ -1323,6 +1335,126 @@
     showToast(newPw ? "정보와 비밀번호를 변경했어요" : "정보를 변경했어요");
   }
 
+  async function loadFranchises(){
+    try{
+      const { data, error } = await db.from('franchises').select('id,name,username,created_at').order('created_at');
+      if(error) throw error;
+      state.franchises = (data||[]).map(r=>({ id:r.id, name:r.name, username:r.username }));
+    }catch(e){ state.franchises = []; }
+  }
+  async function createFranchise(){
+    const nameInp = document.getElementById("new-franchise-name-input");
+    const userInp = document.getElementById("new-franchise-username-input");
+    const pwInp = document.getElementById("new-franchise-password-input");
+    const name = (nameInp.value||"").trim();
+    const username = (userInp.value||"").trim();
+    const pw = pwInp.value||"";
+    if(!name || !username || !pw){ showToast("이름·아이디·비밀번호를 모두 입력해 주세요."); return; }
+    if(pw.length < 4){ showToast("비밀번호는 4자 이상으로 만들어 주세요."); return; }
+    if(state.franchises.some(f=>f.username.toLowerCase()===username.toLowerCase())){ showToast("이미 사용 중인 아이디예요."); return; }
+    showToast("만드는 중이에요…");
+    try{
+      const passwordHash = await hashPassword(pw);
+      const { data, error } = await db.from('franchises').insert({ name, username, password_hash: passwordHash }).select('id,name,username').single();
+      if(error) throw error;
+      state.franchises.push({ id:data.id, name:data.name, username:data.username });
+      nameInp.value = ""; userInp.value = ""; pwInp.value = "";
+      render();
+      showToast(name+" 계정을 만들었어요");
+    }catch(e){ showToast("만들기에 실패했어요."); }
+  }
+  function startEditFranchise(id){
+    state.editingFranchiseId = id;
+    render();
+  }
+  function cancelEditFranchise(){
+    state.editingFranchiseId = null;
+    render();
+  }
+  async function submitEditFranchise(id){
+    const nameInp = document.getElementById("edit-franchise-name-input");
+    const userInp = document.getElementById("edit-franchise-username-input");
+    const pwInp = document.getElementById("edit-franchise-password-input");
+    const name = (nameInp.value||"").trim();
+    const username = (userInp.value||"").trim();
+    const newPw = pwInp.value||"";
+    if(!name || !username){ showToast("이름과 아이디를 입력해 주세요."); return; }
+    const rec = state.franchises.find(f=>f.id===id);
+    if(!rec) return;
+    if(username.toLowerCase() !== rec.username.toLowerCase() && state.franchises.some(f=>f.id!==id && f.username.toLowerCase()===username.toLowerCase())){
+      showToast("이미 사용 중인 아이디예요."); return;
+    }
+    if(newPw && newPw.length < 4){ showToast("비밀번호는 4자 이상으로 만들어 주세요."); return; }
+    const patch = { name, username };
+    if(newPw) patch.password_hash = await hashPassword(newPw);
+    try{
+      const { error } = await db.from('franchises').update(patch).eq('id', id);
+      if(error) throw error;
+    }catch(e){ showToast("수정에 실패했어요."); return; }
+    rec.name = name; rec.username = username;
+    state.editingFranchiseId = null;
+    render();
+    showToast(newPw ? "정보와 비밀번호를 변경했어요" : "정보를 변경했어요");
+  }
+  function deleteFranchise(id){
+    const rec = state.franchises.find(f=>f.id===id);
+    if(!rec) return;
+    askConfirm(rec.name+" 계정을 삭제할까요? 소속 매장들은 소속만 해제되고 그대로 남아요.", async ()=>{
+      try{
+        await db.from('stores').update({ franchise_id: null }).eq('franchise_id', id);
+        await db.from('franchises').delete().eq('id', id);
+      }catch(e){ showToast("삭제에 실패했어요."); return; }
+      state.franchises = state.franchises.filter(f=>f.id!==id);
+      state.storeFranchiseMap = state.storeFranchiseMap || {};
+      Object.keys(state.storeFranchiseMap).forEach(s=>{ if(state.storeFranchiseMap[s]===id) delete state.storeFranchiseMap[s]; });
+      render();
+      showToast("삭제했어요");
+    });
+  }
+  async function assignStoreToFranchise(storeName, franchiseId){
+    const storeId = state.storeIdMap[storeName];
+    if(!storeId) return;
+    state.storeFranchiseMap = state.storeFranchiseMap || {};
+    try{
+      await db.from('stores').update({ franchise_id: franchiseId || null }).eq('id', storeId);
+    }catch(e){ showToast("배정에 실패했어요."); return; }
+    if(franchiseId) state.storeFranchiseMap[storeName] = franchiseId;
+    else delete state.storeFranchiseMap[storeName];
+    render();
+    showToast(franchiseId ? "매장을 배정했어요" : "소속을 해제했어요");
+  }
+  async function loadStoreFranchiseMap(){
+    try{
+      const { data, error } = await db.from('stores').select('name,franchise_id');
+      if(error) throw error;
+      const map = {};
+      (data||[]).forEach(r=>{ if(r.franchise_id) map[r.name] = r.franchise_id; });
+      state.storeFranchiseMap = map;
+    }catch(e){ state.storeFranchiseMap = {}; }
+  }
+
+  async function loginFranchise(){
+    const userInput = document.getElementById("franchise-login-username-input");
+    const pwInput = document.getElementById("franchise-login-password-input");
+    const username = (userInput.value||"").trim();
+    const pw = pwInput.value||"";
+    if(!username || !pw){ showToast("아이디와 비밀번호를 입력해 주세요."); return; }
+    showToast("확인 중이에요…");
+    try{
+      const passwordHash = await hashPassword(pw);
+      const { data, error } = await db.from('franchises').select('id,name,username').ilike('username', username).eq('password_hash', passwordHash).maybeSingle();
+      if(error) throw error;
+      if(!data){ showToast("아이디 또는 비밀번호가 올바르지 않아요."); return; }
+      localSet("my-role", "franchise");
+      localSet("my-franchise-id", data.id);
+      state.role = "franchise";
+      state.franchiseId = data.id;
+      state.franchiseName = data.name;
+      await loadStoreList(null, data.id);
+      await loadAllForStore(state.store);
+    }catch(e){ showToast("확인 중 문제가 생겼어요."); }
+  }
+
   async function tryJoinCode(){
     const input = document.getElementById("join-code-input");
     const code = (input.value||"").trim();
@@ -1351,11 +1483,14 @@
       localDelete("my-link");
       localDelete("my-role");
       localDelete("my-request-id");
+      localDelete("my-franchise-id");
       state.role = "landing";
       state.landingMode = "default";
       state.myCrewId = null;
       state.myUsername = null;
       state.myStores = [];
+      state.franchiseId = null;
+      state.franchiseName = null;
       render();
     });
   }
@@ -1985,7 +2120,7 @@
     }
     // 지난 3개월 요약 (월별 총매출/인건비만 가볍게)
     ctx.pastMonthsSummary = [];
-    const storesForHistory = state.role==="hq" ? state.storeList : (state.myStores && state.myStores.length ? state.myStores : [state.store]);
+    const storesForHistory = (state.role==="hq"||state.role==="franchise") ? state.storeList : (state.myStores && state.myStores.length ? state.myStores : [state.store]);
     for(let back=1; back<=3; back++){
       let py = y, pm = m - back;
       while(pm < 1){ pm += 12; py -= 1; }
@@ -2086,7 +2221,7 @@
         state.shifts.push({ id:data.id, crewId: crew.id, date: action.params.date, start: action.params.startTime, end: action.params.endTime });
         showToast("스케줄을 등록했어요.");
       }else if(action.actionType === "add_announcement"){
-        const authorName = state.role==="hq" ? "본사 관리자" : (state.store+" 사장님");
+        const authorName = state.role==="hq" ? "본사 관리자" : (state.role==="franchise" ? (state.franchiseName+" 관리자") : (state.store+" 사장님"));
         const { data, error } = await db.from('announcements').insert({ store_id: storeId, title: action.params.title, body: action.params.body||"", author_name: authorName }).select().single();
         if(error) throw error;
         state.announcements.unshift({ id:data.id, title: action.params.title, body: action.params.body||"", authorName, createdAt: data.created_at ? new Date(data.created_at).getTime() : Date.now(), reads:{} });
@@ -2149,6 +2284,7 @@
     if(!managerName){
       if(state.role === "storeOwner") managerName = state.store+" 사장님";
       else if(state.role === "hq") managerName = "본사 관리자";
+      else if(state.role === "franchise") managerName = state.franchiseName+" 관리자";
     }
     const d = state.salesDraft;
     const num = v => parseInt(String(v||"0").replace(/[^0-9-]/g,""),10) || 0;
@@ -2334,7 +2470,7 @@
     });
   }
   function canEditChecklistItems(){
-    if(state.role === "hq" || state.role === "storeOwner") return true;
+    if(state.role === "hq" || state.role === "storeOwner" || state.role === "franchise") return true;
     if(state.role === "staff"){
       const p = state.crew.find(c=>c.id===state.myCrewId);
       return !!(p && p.isManager);
@@ -2591,7 +2727,7 @@
     state.dashboardLoading = true; render();
     const mKey = monthKey();
     const y = state.monthYear, m = state.monthNum;
-    const storesToLoad = state.role==="hq" ? state.storeList : state.myStores;
+    const storesToLoad = (state.role==="hq"||state.role==="franchise") ? state.storeList : state.myStores;
     const day = now.getDate();
     const showTax = day >= 5;
     let curM = now.getMonth()+1, prevM = curM-1, prevY = now.getFullYear();
@@ -2722,7 +2858,7 @@
   }
 
   async function loadDashboardReservations(){
-    const storesToLoad = state.role==="hq" ? state.storeList : state.myStores;
+    const storesToLoad = (state.role==="hq"||state.role==="franchise") ? state.storeList : state.myStores;
     if(!storesToLoad || storesToLoad.length===0){ state.dashboardReservations = []; return; }
     const idToName = {};
     const storeIds = storesToLoad.map(s=>{ const id = state.storeIdMap[s]; if(id) idToName[id] = s; return id; }).filter(Boolean);
@@ -3509,6 +3645,7 @@
     // owner (hq or storeOwner)
     app.classList.add("has-bottom-nav");
     const isHq = state.role === "hq";
+    const isFranchise = state.role === "franchise";
     let html = "";
     html += '<header>';
     html += '<div class="brand"><span class="mark">'+mascotSymbolSvg()+'</span><h1><span style="color:var(--ink);">우리가게 매니저</span></h1><span class="date">'+todayLabel()+'</span></div>';
@@ -3523,6 +3660,17 @@
         html += '<button class="store-tab'+(!state.showStoreManage?' active':'')+'" id="dashboard-view-all-btn">전체 매장 보는 중</button>';
       }
       html += '<button class="store-tab'+(state.showStoreManage?' active':'')+'" id="manage-store-btn">매장 관리</button>';
+      html += '</div>';
+    }else if(isFranchise){
+      html += '<div class="store-tabs">';
+      html += '<button class="store-tab'+(state.section==="ai"?' active':'')+'" id="open-ai-chat-btn">✨ AI 물어보기</button>';
+      if(state.section === "ai"){
+        html += '<span class="store-tab active" style="cursor:default;">전체 매장 기준으로 답변해요</span>';
+      }else if(state.section !== "dashboard"){
+        state.storeList.forEach(s=>{ html += '<button class="store-tab'+(s===state.store?' active':'')+'" data-store="'+s+'">'+s+'</button>'; });
+      }else{
+        html += '<span class="store-tab active" style="cursor:default;display:inline-flex;align-items:center;gap:6px;">'+escapeHtml(state.franchiseName||"")+' <span class="pos-badge owner-badge">프랜차이즈</span></span>';
+      }
       html += '</div>';
     }else{
       html += '<div class="store-tabs">';
@@ -3561,7 +3709,7 @@
     html += '<button class="switch-link" id="switch-user-btn">다른 사용자로 전환</button>';
     html += '</main>';
     html += '<nav class="bottom-nav">';
-    if(isHq || state.role==="storeOwner"){
+    if(isHq || isFranchise || state.role==="storeOwner"){
       html += '<button class="'+(state.section==="dashboard"?"active":"")+'" data-section="dashboard">'+navIcon('chart')+'<span>대시보드</span></button>';
     }
     html += '<button class="'+(state.section==="checklist"?"active":"")+'" data-section="checklist">'+navIcon('check')+'<span>체크</span></button>';
@@ -3795,11 +3943,38 @@
       }else{
         const hasLoc = state.storeLocationMap && state.storeLocationMap[s];
         html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(s)+'</div><div class="fp-detail">'+(hasLoc?'📍 위치 설정됨':'위치 미설정')+'</div></div><button class="crew-code-btn" data-setloc="'+escapeHtml(s)+'" style="margin-right:6px;">위치 설정</button><button class="crew-code-btn" data-renamestore="'+escapeHtml(s)+'" style="margin-right:6px;">이름수정</button><button class="crew-del" data-delstore="'+escapeHtml(s)+'">삭제</button></div>';
+        const curFid = (state.storeFranchiseMap||{})[s] || "";
+        html += '<div style="display:flex;align-items:center;gap:6px;margin:-4px 0 8px;"><span style="font-size:12px;color:var(--ink-soft);">소속</span><select class="field-input" data-assignfranchise="'+escapeHtml(s)+'" style="flex:1;padding:6px 10px;font-size:12.5px;"><option value="">본사 직영 (미배정)</option>';
+        (state.franchises||[]).forEach(f=>{ html += '<option value="'+f.id+'"'+(curFid===f.id?' selected':'')+'>'+escapeHtml(f.name)+'</option>'; });
+        html += '</select></div>';
       }
     });
     html += '<div class="add-row" style="padding:12px 0 0; background:transparent;"><input id="new-store-input" type="text" placeholder="새 매장 이름"><button id="add-store-btn">추가</button></div>';
     html += '<p class="crew-code-hint">매장을 빼도 저장된 기록은 남아있어요. 같은 이름으로 다시 추가하면 이어서 볼 수 있어요.</p>';
     html += '<button class="switch-link" id="close-store-manage-btn">닫기</button>';
+    html += '</div>';
+
+    html += '<div class="day-panel">';
+    html += '<h3>프랜차이즈 관리</h3>';
+    html += '<p class="crew-code-hint" style="margin-bottom:10px;">프랜차이즈 본사 계정을 만들면, 위 매장 목록에서 각 매장을 그 본사 소속으로 배정할 수 있어요. 배정된 매장은 그 프랜차이즈 계정으로 로그인했을 때만 보여요.</p>';
+    (state.franchises||[]).forEach(f=>{
+      const storeCount = Object.values(state.storeFranchiseMap||{}).filter(fid=>fid===f.id).length;
+      if(state.editingFranchiseId === f.id){
+        html += '<div class="fixed-pattern-row" style="flex-direction:column;align-items:stretch;gap:8px;">';
+        html += '<label class="field-label">이름</label><input class="field-input" id="edit-franchise-name-input" type="text" value="'+escapeHtml(f.name)+'">';
+        html += '<label class="field-label">아이디</label><input class="field-input" id="edit-franchise-username-input" type="text" value="'+escapeHtml(f.username)+'">';
+        html += '<label class="field-label">새 비밀번호 (바꾸실 때만 입력)</label><input class="field-input" id="edit-franchise-password-input" type="text" placeholder="비워두면 비밀번호는 그대로예요">';
+        html += '<div style="display:flex;gap:6px;margin-top:2px;"><button class="crew-code-btn" data-savefranchise="'+f.id+'" style="background:var(--olive);color:#fff;border-color:var(--olive);">저장</button><button class="switch-link" data-canceleditfranchise="1">취소</button></div>';
+        html += '</div>';
+      }else{
+        html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(f.name)+'</div><div class="fp-detail">ID '+escapeHtml(f.username)+' · 매장 '+storeCount+'개</div></div><div style="display:flex;gap:6px;"><button class="crew-code-btn" data-editfranchise="'+f.id+'">수정</button><button class="crew-del" data-delfranchise="'+f.id+'">삭제</button></div></div>';
+      }
+    });
+    html += '<p class="crew-group-label">새 프랜차이즈 계정 만들기</p>';
+    html += '<input class="field-input" id="new-franchise-name-input" type="text" placeholder="프랜차이즈 이름" style="margin-bottom:8px;">';
+    html += '<input class="field-input" id="new-franchise-username-input" type="text" placeholder="아이디" style="margin-bottom:8px;">';
+    html += '<input class="field-input" id="new-franchise-password-input" type="text" placeholder="비밀번호" style="margin-bottom:10px;">';
+    html += '<button class="landing-btn primary" id="create-franchise-btn" style="margin:0;">계정 만들기</button>';
     html += '</div>';
 
     const pending = state.ownerRequests.filter(r=>r.status==="pending").sort((a,b)=>a.requestedAt-b.requestedAt);
@@ -3851,7 +4026,22 @@
     }
     html += renderLandingHero();
 
-    if(state.landingMode === "pin-setup"){
+    if(state.landingMode === "admin-select"){
+      html += '<p>어느 쪽으로 로그인하시겠어요?</p>';
+      html += '<button class="landing-btn primary" id="admin-select-hq-btn">매니 본사 PIN 로그인</button>';
+      html += '<button class="landing-btn secondary" id="admin-select-franchise-btn">프랜차이즈 본사 로그인</button>';
+      html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
+    }else if(state.landingMode === "franchise-login"){
+      html += '<p>프랜차이즈 본사 아이디와 비밀번호로 로그인해 주세요.</p>';
+      html += '<div class="code-box">';
+      html += '<label>아이디</label>';
+      html += '<input id="franchise-login-username-input" type="text" placeholder="아이디">';
+      html += '<label style="margin-top:8px;">비밀번호</label>';
+      html += '<input id="franchise-login-password-input" type="password" placeholder="비밀번호">';
+      html += '<button id="franchise-login-btn">로그인</button>';
+      html += '</div>';
+      html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
+    }else if(state.landingMode === "pin-setup"){
       html += '<p>본사 관리자 PIN을 처음 만드시는군요. 이 PIN을 아는 사람은 전체 매장을 다 볼 수 있어요.</p>';
       html += '<div class="code-box">';
       html += '<label>새 PIN (숫자 4~6자리)</label>';
@@ -4528,9 +4718,12 @@
     const overallExpenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : 0;
     const deltaPct = totalPrevMonth>0 ? ((totalSales-totalPrevMonth)/totalPrevMonth*100) : null;
 
+    let greetName = "사장님";
+    if(state.role === "hq") greetName = "본사 관리자님";
+    else if(state.role === "franchise") greetName = (state.franchiseName||"프랜차이즈")+" 관리자님";
     html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
     html += renderRoleAvatar('owner', 44);
-    html += '<div style="flex:1;"><p style="margin:0;font-size:15px;font-weight:800;">사장님, 오늘도 오셨네요</p><p style="margin:2px 0 0;font-size:12px;color:var(--ink-soft);">'+state.monthYear+'년 '+state.monthNum+'월 · 매장 '+data.length+'개</p></div>';
+    html += '<div style="flex:1;"><p style="margin:0;font-size:15px;font-weight:800;">'+escapeHtml(greetName)+', 오늘도 오셨네요</p><p style="margin:2px 0 0;font-size:12px;color:var(--ink-soft);">'+state.monthYear+'년 '+state.monthNum+'월 · 매장 '+data.length+'개</p></div>';
     html += '<button class="crew-code-btn" id="refresh-dashboard-btn">새로고침</button>';
     html += '</div>';
 
@@ -5318,7 +5511,7 @@
 
   function renderCrewManage(){
     const hasLoc = state.storeLocationMap && state.storeLocationMap[state.store];
-    const isOwnerLevel = (state.role === "storeOwner" || state.role === "hq");
+    const isOwnerLevel = (state.role === "storeOwner" || state.role === "hq" || state.role === "franchise");
     let html = '<div class="day-panel" style="margin-bottom:12px;">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
     html += '<h3 style="margin:0;">매장 위치 설정</h3>';
@@ -5524,20 +5717,8 @@
     const rememberToggleBtn = document.getElementById("remember-me-toggle-btn");
     if(rememberToggleBtn) rememberToggleBtn.addEventListener("click", ()=>{ state.rememberMeChecked = !(state.rememberMeChecked !== false); render(); });
     const hqBtn = document.getElementById("be-hq-btn");
-    if(hqBtn) hqBtn.addEventListener("click", startHqFlow);
-    const logoTapArea = document.getElementById("brand-logo-tap-area");
-    if(logoTapArea){
-      logoTapArea.addEventListener("click", ()=>{
-        const now = Date.now();
-        if(!state.logoTapTimes || now - (state.lastLogoTapTime||0) > 1200) state.logoTapTimes = [];
-        state.logoTapTimes.push(now);
-        state.lastLogoTapTime = now;
-        if(state.logoTapTimes.length >= 5){
-          state.logoTapTimes = [];
-          startHqFlow();
-        }
-      });
-    }
+    if(hqBtn) hqBtn.addEventListener("click", showAdminEntryChooser);
+    // (관리자 진입 경로 없음 — 이 빌드는 사장님/스텝 전용 사용자 앱이에요)
     const storeOwnerBtn = document.getElementById("be-store-owner-btn");
     if(storeOwnerBtn) storeOwnerBtn.addEventListener("click", startStoreOwnerFlow);
     const showCodeBtn = document.getElementById("show-code-btn");
@@ -5577,6 +5758,14 @@
     if(pinEntryBtn) pinEntryBtn.addEventListener("click", confirmPinEntry);
     const pinEntryInput = document.getElementById("pin-entry-input");
     if(pinEntryInput){ pinEntryInput.focus(); pinEntryInput.addEventListener("keydown",(e)=>{ if(e.key==="Enter") confirmPinEntry(); }); }
+    const adminSelectHqBtn = document.getElementById("admin-select-hq-btn");
+    if(adminSelectHqBtn) adminSelectHqBtn.addEventListener("click", startHqFlow);
+    const adminSelectFranchiseBtn = document.getElementById("admin-select-franchise-btn");
+    if(adminSelectFranchiseBtn) adminSelectFranchiseBtn.addEventListener("click", ()=>{ state.landingMode = "franchise-login"; render(); });
+    const franchiseLoginBtn = document.getElementById("franchise-login-btn");
+    if(franchiseLoginBtn) franchiseLoginBtn.addEventListener("click", loginFranchise);
+    const franchiseLoginPwInput = document.getElementById("franchise-login-password-input");
+    if(franchiseLoginPwInput){ franchiseLoginPwInput.addEventListener("keydown",(e)=>{ if(e.key==="Enter") loginFranchise(); }); }
 
     const submitReqBtn = document.getElementById("submit-owner-request-btn");
     if(submitReqBtn) submitReqBtn.addEventListener("click", submitOwnerRequest);
@@ -6084,7 +6273,12 @@
     const manageStoreBtn = document.getElementById("manage-store-btn");
     if(manageStoreBtn) manageStoreBtn.addEventListener("click", async ()=>{
       state.showStoreManage = !state.showStoreManage;
-      if(state.showStoreManage) await loadOwnerRequests();
+      if(state.showStoreManage){
+        await loadOwnerRequests();
+        await loadFranchises();
+        await loadStoreFranchiseMap();
+        render();
+      }
       render();
     });
     const closeStoreManageBtn = document.getElementById("close-store-manage-btn");
@@ -6114,6 +6308,23 @@
     app.querySelectorAll("[data-resetpw]").forEach(btn=>{
       btn.addEventListener("click", ()=> resetOwnerPassword(btn.getAttribute("data-resetpw")));
     });
+    app.querySelectorAll("[data-assignfranchise]").forEach(sel=>{
+      sel.addEventListener("change", ()=> assignStoreToFranchise(sel.getAttribute("data-assignfranchise"), sel.value));
+    });
+    app.querySelectorAll("[data-editfranchise]").forEach(btn=>{
+      btn.addEventListener("click", ()=> startEditFranchise(btn.getAttribute("data-editfranchise")));
+    });
+    app.querySelectorAll("[data-savefranchise]").forEach(btn=>{
+      btn.addEventListener("click", ()=> submitEditFranchise(btn.getAttribute("data-savefranchise")));
+    });
+    app.querySelectorAll("[data-canceleditfranchise]").forEach(btn=>{
+      btn.addEventListener("click", cancelEditFranchise);
+    });
+    app.querySelectorAll("[data-delfranchise]").forEach(btn=>{
+      btn.addEventListener("click", ()=> deleteFranchise(btn.getAttribute("data-delfranchise")));
+    });
+    const createFranchiseBtn = document.getElementById("create-franchise-btn");
+    if(createFranchiseBtn) createFranchiseBtn.addEventListener("click", createFranchise);
     app.querySelectorAll("[data-copypw]").forEach(btn=>{
       btn.addEventListener("click", ()=> copyCode(btn.getAttribute("data-copypw")));
     });
