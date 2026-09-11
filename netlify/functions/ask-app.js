@@ -1,8 +1,11 @@
+const { blockExternalService } = require("./lib/manee-environment.cjs");
 // Netlify Function: 사장님/본사가 물어보는 질문에 답하거나(조회),
 // 스케줄 등록/공지 작성/거래처 추가 같은 가벼운 작업을 "확인 후 실행"할 수 있게 도와줘요.
 // 이 함수 자체는 데이터베이스에 아무것도 쓰지 않아요 — 실행 여부는 클라이언트(앱)에서 사람이 확인 버튼을 눌러야 실제로 반영돼요.
 
 exports.handler = async function(event) {
+  const blocked = blockExternalService();
+  if (blocked) return blocked;
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
@@ -93,3 +96,4 @@ ${JSON.stringify(context)}
     return { statusCode: 500, body: JSON.stringify({ error: "서버 오류가 발생했어요." }) };
   }
 };
+

@@ -1,0 +1,29 @@
+{
+  "project_id": "obpkzecgswnfuyhwvncd",
+  "migration_version": "20260911130759",
+  "migration_name": "enforce_store_scoped_data_permissions",
+  "parent_commit": "55095e3ea297a595185c0262015f2b1a7ebfc3c0",
+  "production_main_unchanged": "ac6440584608752a49d167780ca38407722426d8",
+  "tests_passed": 116,
+  "staging_sql_role_rehearsal_passed": true,
+  "actual_browser_permissions_verified": false,
+  "actual_auth_password_reset_verified": false,
+  "separate_connection_concurrency_verified": false,
+  "unconditional_policies_remaining": 0,
+  "anonymous_public_table_grants": 0,
+  "exposed_authenticated_definer_functions": 0,
+  "public_tables_without_rls": 0,
+  "preserved_counts": {
+    "profiles": 2,
+    "stores": 1,
+    "crew": 1,
+    "attendance": 0,
+    "active_staff_links": 1,
+    "reservations": 0,
+    "checklist_templates": 3
+  },
+  "sha256": {
+    "security/store-permissions.sql": "4d7068d6f0403097496c29389e9c46d041a2be7634b92d4d64a56220b98d9665",
+    "security/store-permissions-live-rollback.sql": "d5128f86e2c72fd240c058faef8176699da9c6c58c33426fe5fe6b506aa47697"
+  }
+}

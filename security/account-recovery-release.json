@@ -1,0 +1,27 @@
+{
+  "project_id": "obpkzecgswnfuyhwvncd",
+  "migration_version": "20260911123418",
+  "migration_name": "enable_account_recovery_keys_and_live_session_checks",
+  "edge_function": "manee-account-recovery",
+  "edge_version": 1,
+  "edge_bundle_sha256": "a2a8a0a0deda93d9288060279fd857cd19f7d47ffc0c539c44df4229c777f812",
+  "parent_commit": "f496792e3d393af7baaf6ba7c2ae0952242a297d",
+  "production_main_unchanged": "ac6440584608752a49d167780ca38407722426d8",
+  "tests_passed": 95,
+  "staging_sql_role_rehearsal_passed": true,
+  "real_auth_password_reset_verified": false,
+  "actual_browser_recovery_verified": false,
+  "separate_connection_concurrency_verified": false,
+  "production_modified": false,
+  "preserved_counts": {
+    "profiles": 2,
+    "crew": 1,
+    "attendance": 0,
+    "active_staff_links": 1
+  },
+  "sha256": {
+    "security/account-recovery.sql": "e5f19293856f81fe3112a08a17574889a1b56e70ede37cdeac56e0062c57e70e",
+    "security/account-recovery-live-rollback.sql": "894e19f95f4105448831dfc3f3f79e1bc6c62f42b5dcbd67cccede4ddde5e61b",
+    "supabase/functions/manee-account-recovery/index.ts": "606aa434fcd4524888fdb156a48a255958b6364cdc133a5e2546e43896e66076"
+  }
+}
