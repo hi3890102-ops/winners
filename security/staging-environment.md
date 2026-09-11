@@ -30,7 +30,8 @@ the remaining legacy permissive policies also still need the later RLS rollout.
 Environment isolation does not mean the authorization redesign is finished.
 
 The current signup/login Edge source was deployed to staging. The staff Auth
-link/owner-approval feature is not implemented by this separation change.
+link/owner-approval pilot is now implemented in security-v2 for the user preview.
+See `staff-auth-pilot.md` and `staff-auth-release.json` for its scope and validation.
 
 Checks:
 

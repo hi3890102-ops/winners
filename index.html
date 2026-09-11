@@ -979,6 +979,236 @@
     }catch(e){}
   }
 
+  // BEGIN MANEE_STAFF_AUTH
+  const MANEE_STAFF_AUTH_ENABLED = MANEE_IS_STAGING;
+  const staffAuthMessages = {
+    invalid_code:'연결 가능한 코드를 찾지 못했어요. 사장님께 확인해 주세요.',
+    already_linked:'이미 연결된 매장이에요.',
+    record_already_linked:'다른 계정에 연결된 직원 기록이에요. 사장님께 확인해 주세요.',
+    store_account_conflict:'이 매장에는 이미 다른 역할이나 직원 기록으로 연결되어 있어요.',
+    connection_conflict:'연결 상태가 변경됐어요. 새로 확인해 주세요.',
+    request_unavailable:'처리할 수 없는 요청이에요. 목록을 새로 확인해 주세요.',
+    request_expired:'요청 기간이 지났어요. 직원이 다시 연결 요청을 보내야 해요.',
+    record_unavailable:'퇴사 여부와 매장의 직원 정보를 확인해 주세요.',
+    account_unavailable:'사용할 수 없는 계정이에요.',
+    rate_limited:'요청이 많아요. 5분 후 다시 시도해 주세요.',
+    too_many_pending:'대기 중인 요청을 먼저 확인하거나 취소해 주세요.'
+  };
+  function clearStaffAuthView(){
+    state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
+    state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
+    state.crew=[]; state.attendance=[]; state.shifts=[]; state.salesReports=[]; state.expenseEntries=[];
+    state.attConfirmPrompt=null; state.onboardingStep=null; state.announcements=[]; state.todayReservations=[]; state.vendors=[];
+    state.role='landing'; state.landingMode='default'; state.loading=false;
+  }
+  function staffErrorMessage(error){
+    if(error && error.code==='42501') return '접근 권한을 다시 확인해 주세요. 로그인이 필요하거나 매장 연결이 해제됐을 수 있어요.';
+    const message=String(error && error.message || '');
+    if(message.includes('Store location')) return '사장님이 매장 위치를 설정한 뒤 출퇴근을 기록할 수 있어요.';
+    if(message.includes('Outside attendance')) return '매장 100m 안에서 다시 시도해 주세요.';
+    if(message.includes('Already clocked in')) return '이미 출근 중이에요. 화면을 새로 확인해 주세요.';
+    if(message.includes('Already clocked out')) return '이미 퇴근 처리됐어요. 화면을 새로 확인해 주세요.';
+    return staffAuthMessages[error && error.code] || (/[가-힣]/.test(message) ? message : '처리하지 못했어요. 연결 상태를 확인하고 다시 시도해 주세요.');
+  }
+  async function staffPortal(action,payload){
+    const {data,error}=await db.rpc('manee_staff_portal',{p_action:action,p_payload:payload||{}});
+    if(error) throw error;
+    if(!data || data.ok!==true){ const e=new Error('Staff request failed'); e.code=data && data.error; throw e; }
+    return data;
+  }
+  async function restoreManeeAuthIdentity(preferredStoreId,showAccount){
+    const {data:sessionData,error:sessionError}=await db.auth.getSession();
+    if(sessionError) throw sessionError;
+    if(!sessionData || !sessionData.session){ clearStaffAuthView(); return false; }
+    const {data:userData,error:userError}=await db.auth.getUser();
+    if(userError || !userData || !userData.user) throw new Error('로그인을 다시 확인해 주세요.');
+    const snapshot=await staffPortal('session');
+    if(!snapshot.profile || snapshot.profile.user_id!==userData.user.id) throw new Error('계정 정보를 확인하지 못했어요.');
+    state.authProfile=snapshot.profile;
+    state.authMemberships=snapshot.memberships||[];
+    state.staffLinkRequests=snapshot.requests||[];
+    state.myUsername=snapshot.profile.username;
+    localDelete('my-link'); localDelete('my-request-id');
+    const saved=localGet('auth-store-id');
+    const selected=state.authMemberships.find(m=>m.store_id===(preferredStoreId || (saved && saved.value))) ||
+      state.authMemberships.find(m=>m.role==='owner') || state.authMemberships[0];
+    if(showAccount || !selected){
+      state.role='landing'; state.landingMode='auth-account'; state.myCrewId=null; state.store=null;
+      state.crew=[]; state.attendance=[]; state.shifts=[]; state.loading=false; render(); return true;
+    }
+    localSet('auth-store-id',selected.store_id);
+    if(selected.role==='owner') return restoreManeeAuthOwner(selected.store_name);
+    if(!['staff','manager'].includes(selected.role) || !selected.crew_id) throw new Error('직원 연결을 확인하지 못했어요.');
+    state.store=selected.store_name; state.storeList=[selected.store_name]; state.myCrewId=selected.crew_id;
+    state.storeIdMap[selected.store_name]=selected.store_id;
+    state.storeLocationMap=state.storeLocationMap||{};
+    state.storeLocationMap[selected.store_name]=selected.lat==null || selected.lng==null ? null : {lat:selected.lat,lng:selected.lng};
+    state.storeCutoffMap=state.storeCutoffMap||{};
+    state.storeCutoffMap[selected.store_name]=selected.cutoff;
+    state.storeManagerDashboardMap=state.storeManagerDashboardMap||{};
+    state.storeManagerDashboardMap[selected.store_name]=!!selected.manager_dashboard_enabled;
+    state.role='staff'; state.staffView='home'; state.myStores=[];
+    await loadStaffHome(selected.store_name,selected.crew_id);
+    return true;
+  }
+  async function loadAuthStaffCrew(store){
+    const sid=state.storeIdMap[store];
+    const mine=await staffPortal('crew',{store_id:sid});
+    const {data:directory,error}=await db.rpc('get_store_crew_directory',{target_store_id:sid});
+    if(error) throw error;
+    if(!mine.crew || mine.crew.id!==state.myCrewId) throw new Error('직원 연결이 변경됐어요. 다시 로그인해 주세요.');
+    const crew=(directory||[]).map(c=>rowToCrew({id:c.crew_id,name:c.crew_name,position:c.crew_position,resign_date:c.resign_date,wage:0,wage_type:'hourly'}));
+    return [...crew.filter(c=>c.id!==mine.crew.id),rowToCrew(mine.crew)];
+  }
+  async function loadAuthStaffHome(store){
+    state.loading=true; render();
+    try{
+      state.crew=await loadAuthStaffCrew(store);
+      const me=state.crew.find(c=>c.id===state.myCrewId);
+      const tasks=[loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store)];
+      if(me && (me.salesAccess || me.isManager)) tasks.push(loadSalesReports(store,monthKey()),loadExpenseEntries(store,monthKey()),loadVendors(store));
+      else { state.salesReports=[]; state.expenseEntries=[]; state.vendors=[]; }
+      await Promise.all(tasks);
+      // Keep a shift started in the previous month available for clock-out.
+      const {data:open,error}=await db.from('attendance').select('*').eq('store_id',currentStoreId()).eq('crew_id',state.myCrewId).is('check_out',null).limit(1);
+      if(error) throw error;
+      if(open && open[0]) applyStaffAttendance(open[0]);
+      state.loading=false; render();
+    }catch(e){ clearStaffAuthView(); render(); throw e; }
+  }
+  function applyStaffAttendance(r){
+    const value={id:r.id,date:r.date,crewId:r.crew_id,checkIn:(r.check_in||'').slice(0,5),checkOut:r.check_out?r.check_out.slice(0,5):null,
+      confirmed:!!r.confirmed,staffConfirmed:!!r.staff_confirmed,timeEdited:!!r.time_edited,staffAckEdit:!!r.staff_ack_edit};
+    const pos=state.attendance.findIndex(a=>a.id===r.id);
+    if(pos<0) state.attendance.push(value); else state.attendance[pos]=value;
+    return value;
+  }
+  function staffCoordinates(){
+    return new Promise((resolve,reject)=>{
+      if(!navigator.geolocation){ reject(new Error('이 기기는 위치 확인을 지원하지 않아요.')); return; }
+      navigator.geolocation.getCurrentPosition(p=>resolve({current_lat:p.coords.latitude,current_lng:p.coords.longitude}),
+        ()=>reject(new Error('출퇴근 기록을 위해 위치 접근을 허용해 주세요.')),{enableHighAccuracy:true,timeout:10000});
+    });
+  }
+  async function clockAuthStaff(direction){
+    if(state.staffClockBusy) return;
+    state.staffClockBusy=true;
+    try{
+      const rec=direction==='out'?findOpenAttendance(state.myCrewId):null;
+      if(direction==='out' && !rec) throw new Error('출근 중인 기록을 찾지 못했어요. 새로 확인해 주세요.');
+      const coordinates=await staffCoordinates();
+      const args=direction==='in'?{target_store_id:currentStoreId(),...coordinates}:{target_attendance_id:rec.id,...coordinates};
+      const {data,error}=await db.rpc(direction==='in'?'clock_in':'clock_out',args);
+      if(error) throw error;
+      const saved=Array.isArray(data)?data[0]:data;
+      if(!saved || saved.crew_id!==state.myCrewId) throw new Error('출퇴근 결과를 확인하지 못했어요.');
+      const record=applyStaffAttendance(saved);
+      if(direction==='out') state.attConfirmPrompt={attId:record.id,checkIn:record.checkIn,checkOut:record.checkOut,editing:false};
+      render(); showToast(direction==='in'?'출근 처리됐어요':'퇴근 처리됐어요');
+    }catch(e){ if(e.code==='42501'){ clearStaffAuthView(); render(); } showToast(staffErrorMessage(e)); }
+    finally{ state.staffClockBusy=false; }
+  }
+  async function confirmAuthAttendance(attId){
+    try{
+      const {data,error}=await db.rpc('confirm_my_attendance',{target_attendance_id:attId});
+      if(error) throw error;
+      const saved=Array.isArray(data)?data[0]:data;
+      if(!saved || saved.crew_id!==state.myCrewId) throw new Error('확인 결과를 다시 조회해 주세요.');
+      applyStaffAttendance(saved); state.attConfirmPrompt=null; render(); showToast('근무 시간을 확인했어요');
+    }catch(e){ showToast(staffErrorMessage(e)); }
+  }
+  async function requestAuthAttendanceEdit(attId,ci,co){
+    try{
+      const {error}=await db.rpc('request_attendance_edit',{target_attendance_id:attId,new_check_in:ci,new_check_out:co,request_reason:'직원이 근무 시간 확인 후 수정 요청'});
+      if(error) throw error;
+      state.attConfirmPrompt=null; render(); showToast('시간 수정 요청을 보냈어요. 사장님 승인 후 반영돼요.');
+    }catch(e){ showToast(staffErrorMessage(e)); }
+  }
+  function staffAuthButton(action,label,extra){
+    return '<button type="button" class="crew-code-btn" data-staff-auth-action="'+action+'" '+(extra||'')+'>'+label+'</button>';
+  }
+  function renderStaffSignup(){
+    return '<h2>스텝 계정 만들기</h2><p>가입 후 사장님께 받은 코드로 매장 연결을 요청해 주세요.</p><div class="code-box">'+
+      '<label for="staff-signup-name">이름</label><input id="staff-signup-name" maxlength="50" autocomplete="name">'+
+      '<label for="staff-signup-username">아이디</label><input id="staff-signup-username" minlength="4" maxlength="30" autocomplete="username" placeholder="4~30자">'+
+      '<label for="staff-signup-password">비밀번호</label><input id="staff-signup-password" type="password" minlength="8" maxlength="72" autocomplete="new-password" placeholder="8자 이상">'+
+      '<label for="staff-signup-confirm">비밀번호 확인</label><input id="staff-signup-confirm" type="password" maxlength="72" autocomplete="new-password">'+
+      staffAuthButton('signup','가입하기')+'</div>'+staffAuthButton('login-screen','로그인 화면으로');
+  }
+  function renderStaffAuthAccount(){
+    const p=state.authProfile||{};
+    let html='<h2>내 매장 연결</h2><p>'+escapeHtml(p.display_name||p.username||'')+' · '+escapeHtml(p.username||'')+'</p>';
+    for(const m of state.authMemberships||[]) html+='<div class="day-panel"><strong>'+escapeHtml(m.store_name)+'</strong> · '+(m.role==='owner'?'사장님':'스텝')+' '+staffAuthButton('open-store','매장 들어가기','data-store-id="'+escapeHtml(m.store_id)+'"')+'</div>';
+    html+='<div class="code-box"><label for="staff-link-code">사장님께 받은 참여코드</label><input id="staff-link-code" inputmode="numeric" maxlength="6" placeholder="6자리 코드">'+
+      staffAuthButton('request','매장 연결 요청')+'<p>사장님이 확인하고 승인하면 기존 근무 기록이 연결돼요.</p></div>';
+    const statuses={pending:'승인 대기',approved:'승인 완료',rejected:'거절됨',cancelled:'취소됨',expired:'기간 만료'};
+    for(const r of state.staffLinkRequests||[]) html+='<div class="day-panel">'+escapeHtml(r.store_name)+' · '+(statuses[r.status]||'확인 필요')+' '+
+      (r.status==='pending'?staffAuthButton('cancel','요청 취소','data-request-id="'+escapeHtml(r.id)+'"'):'')+'</div>';
+    html+=staffAuthButton('refresh-account','연결 상태 새로 확인')+' '+staffAuthButton('logout','로그아웃');
+    return html;
+  }
+  function renderOwnerStaffAccess(){
+    const access=state.ownerStaffAccess;
+    let html='<div class="day-panel"><h3>스텝 계정 연결</h3><p class="crew-code-hint">직원에게 가입한 아이디를 직접 확인한 뒤 승인해 주세요.</p>'+staffAuthButton('owner-refresh','요청·연결 새로 확인')+' '+staffAuthButton('account','내 계정·매장 연결');
+    if(!access || access.storeId!==currentStoreId()) return html+'<p>새로 확인을 누르면 이 매장의 요청을 불러와요.</p></div>';
+    if(!access.requests.length) html+='<p>대기 중인 연결 요청이 없어요.</p>';
+    for(const r of access.requests) html+='<div class="day-panel"><strong>'+escapeHtml(r.crew_name)+'</strong><p>요청 계정: '+escapeHtml(r.username)+' · '+escapeHtml(r.display_name||'')+'</p>'+staffAuthButton('approve','연결 승인','data-request-id="'+escapeHtml(r.id)+'"')+' '+staffAuthButton('reject','거절','data-request-id="'+escapeHtml(r.id)+'"')+'</div>';
+    for(const m of access.links) html+='<div class="day-panel">'+escapeHtml(m.crew_name)+' · '+escapeHtml(m.username)+' · '+(m.status==='active'?'연결됨':'연결 해제됨')+' '+(m.status==='active'?staffAuthButton('revoke','연결 해제','data-membership-id="'+escapeHtml(m.id)+'"'):'')+'</div>';
+    for(const r of access.attendance_edits||[]) html+='<div class="day-panel"><strong>근무 시간 수정 요청</strong><p>'+escapeHtml(r.crew_name)+' · '+escapeHtml(r.date)+'<br>'+escapeHtml((r.requested_check_in||'').slice(0,5))+' ~ '+escapeHtml((r.requested_check_out||'').slice(0,5))+'</p>'+staffAuthButton('approve-edit','수정 승인','data-request-id="'+escapeHtml(r.id)+'"')+' '+staffAuthButton('reject-edit','거절','data-request-id="'+escapeHtml(r.id)+'"')+'</div>';
+    return html+'</div>';
+  }
+  async function refreshOwnerStaffAccess(){
+    const sid=currentStoreId();
+    const access=await staffPortal('owner_list',{store_id:sid});
+    if(currentStoreId()===sid && state.role==='storeOwner') state.ownerStaffAccess={...access,storeId:sid};
+    render();
+  }
+  async function handleStaffAuthClick(event){
+    const button=event.target.closest && event.target.closest('[data-staff-auth-action]');
+    if(!MANEE_STAFF_AUTH_ENABLED || !button || state.staffAuthBusy) return;
+    const action=button.dataset.staffAuthAction;
+    if(['approve','reject','revoke','approve-edit','reject-edit'].includes(action) && button.dataset.confirmed!=='yes'){
+      const message=action==='revoke'?'이 계정의 매장 접근을 해제할까요? 직원·근무 기록은 보존돼요.':action==='approve'?'직원의 실제 가입 아이디를 확인했나요? 이 계정에 기존 직원 기록을 연결할까요?':'이 요청을 처리할까요?';
+      askConfirm(message,()=>{button.dataset.confirmed='yes';handleStaffAuthClick({target:button});}); return;
+    }
+    state.staffAuthBusy=true; button.disabled=true;
+    try{
+      if(action==='signup-screen'){ state.landingMode='staff-signup'; render(); }
+      else if(action==='login-screen'){ state.landingMode='default'; state.landingTab='staff'; render(); }
+      else if(action==='signup'){
+        const read=id=>(document.getElementById(id)||{}).value||'';
+        const username=read('staff-signup-username').trim(),display_name=read('staff-signup-name').trim(),password=read('staff-signup-password');
+        if(!username || !display_name || password.length<8 || password.length>72) throw new Error('이름·아이디와 8~72자 비밀번호를 입력해 주세요.');
+        if(password!==read('staff-signup-confirm')) throw new Error('비밀번호가 서로 달라요.');
+        const data=await callManeeAuthApi('manee-staff-signup',{username,display_name,password});
+        const session=data.session || (await callManeeAuthApi('manee-login',{username,password})).session;
+        await applyManeeAuthSession(session); await restoreManeeAuthIdentity(null,true); showToast('스텝 계정을 만들었어요. 매장 연결을 요청해 주세요.');
+      }else if(action==='request'){
+        const code=(document.getElementById('staff-link-code').value||'').trim();
+        await staffPortal('request',{code}); await restoreManeeAuthIdentity(null,true); showToast('사장님께 연결 승인을 요청했어요.');
+      }else if(action==='cancel'){
+        await staffPortal('cancel',{request_id:button.dataset.requestId}); await restoreManeeAuthIdentity(null,true);
+      }else if(action==='refresh-account' || action==='account'){
+        if(!await restoreManeeAuthIdentity(null,true)) render();
+      }else if(action==='open-store'){
+        if(!await restoreManeeAuthIdentity(button.dataset.storeId,false)) render();
+      }else if(action==='owner-refresh') await refreshOwnerStaffAccess();
+      else if(['approve','reject','revoke'].includes(action)){
+        await staffPortal(action,{request_id:button.dataset.requestId,membership_id:button.dataset.membershipId});
+        await refreshOwnerStaffAccess(); showToast('처리했어요. 직원 화면에서 연결 상태를 새로 확인해 주세요.');
+      }else if(action==='approve-edit' || action==='reject-edit'){
+        const {error}=await db.rpc(action==='approve-edit'?'approve_attendance_edit_request':'reject_attendance_edit_request',{target_request_id:button.dataset.requestId,note:'사장님이 근무 시간 요청 확인'});
+        if(error) throw error;
+        await loadAttendance(state.store,monthKey()); await refreshOwnerStaffAccess(); showToast('근무 시간 요청을 처리했어요.');
+      }else if(action==='logout') switchUser();
+    }catch(e){
+      if(e.code==='42501'){clearStaffAuthView();render();}
+      showToast(staffErrorMessage(e));
+    }finally{state.staffAuthBusy=false;button.disabled=false;delete button.dataset.confirmed;}
+  }
+  app.addEventListener('click',handleStaffAuthClick);
+  // END MANEE_STAFF_AUTH
+
   // ---------- identity ----------
   // Auth evidence takes precedence over legacy browser identity hints.
   // This is an owner-session prerequisite, not the staff Auth cutover.
@@ -1023,6 +1253,11 @@
 
   async function resolveIdentity(){
     state.loading = true; render();
+    if(MANEE_STAFF_AUTH_ENABLED){
+      try{ if(!await restoreManeeAuthIdentity(null,false)) render(); }
+      catch(e){ clearStaffAuthView(); render(); showToast(staffErrorMessage(e)); }
+      return;
+    }
     try{
       if(await restoreManeeAuthOwner(null)) return;
     }catch(e){
@@ -1167,6 +1402,10 @@
   }
 
   async function enterAuthenticatedOwner(username, preferredStore){
+    if(MANEE_STAFF_AUTH_ENABLED){
+      if(!await restoreManeeAuthIdentity(null,false)) throw new Error("로그인 세션을 확인하지 못했어요.");
+      return;
+    }
     // The API's display username is not an authorization predicate.
     if(!await restoreManeeAuthOwner(preferredStore)){
       throw new Error("로그인 세션을 확인하지 못했어요.");
@@ -1286,6 +1525,7 @@
       authError = e;
     }
 
+    if(MANEE_STAFF_AUTH_ENABLED){ showToast(staffErrorMessage(authError)); return; }
     const passwordHash = await hashPassword(pw);
     const record = await findOwnerRequestByCredentials(username, passwordHash);
     if(!record){ showToast((authError && authError.message) ? authError.message : "아이디 또는 비밀번호가 올바르지 않아요."); return; }
@@ -1631,6 +1871,11 @@
   }
 
   async function tryJoinCode(){
+    if(MANEE_STAFF_AUTH_ENABLED){
+      if(state.authProfile) await restoreManeeAuthIdentity(null,true);
+      else { state.landingMode='default'; state.landingTab='staff'; render(); showToast('먼저 스텝 계정으로 로그인해 주세요.'); }
+      return;
+    }
     const input = document.getElementById("join-code-input");
     const code = (input.value||"").trim();
     if(code.length < 4){ showToast("코드를 정확히 입력해 주세요."); return; }
@@ -1662,6 +1907,7 @@
         showToast("로그아웃하지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
         return;
       }
+      if(MANEE_STAFF_AUTH_ENABLED){ clearStaffAuthView(); localDelete('auth-store-id'); }
       localDelete("my-link");
       localDelete("my-role");
       localDelete("my-request-id");
@@ -1683,6 +1929,10 @@
   }
 
   async function goToStaffTab(tab){
+    if(MANEE_STAFF_AUTH_ENABLED){
+      try{ await staffPortal('crew',{store_id:currentStoreId()}); }
+      catch(e){clearStaffAuthView();render();showToast(staffErrorMessage(e));return;}
+    }
     if(tab === state.staffView) return;
     state.showOwnerSalesForm = false;
     state.loading = true; render();
@@ -1790,6 +2040,7 @@
     };
   }
   async function loadCrewRaw(store){
+    if(MANEE_STAFF_AUTH_ENABLED && state.role==='staff') return loadAuthStaffCrew(store);
     const storeId = state.storeIdMap[store];
     if(!storeId) return [];
     try{
@@ -2589,6 +2840,7 @@
   }
 
   async function loadStaffHome(store, crewId){
+    if(MANEE_STAFF_AUTH_ENABLED) return loadAuthStaffHome(store);
     state.loading = true; render();
     await Promise.all([
       loadCrew(store),
@@ -3649,6 +3901,7 @@
     return open[0];
   }
   async function clockIn(){
+    if(MANEE_STAFF_AUTH_ENABLED) return clockAuthStaff('in');
     if(findOpenAttendance(state.myCrewId)){ showToast("이미 출근 중이에요. 새로고침해서 확인해보세요."); return; }
     showToast("위치를 확인하는 중이에요…");
     const check = await verifyNearStore();
@@ -3665,6 +3918,7 @@
     }catch(e){ showToast("저장에 실패했어요."); }
   }
   async function clockOut(){
+    if(MANEE_STAFF_AUTH_ENABLED) return clockAuthStaff('out');
     showToast("위치를 확인하는 중이에요…");
     const check = await verifyNearStore();
     if(!check.ok){ showToast(check.reason); return; }
@@ -3685,6 +3939,7 @@
     render();
   }
   function confirmMyAttendance(attId){
+    if(MANEE_STAFF_AUTH_ENABLED) return confirmAuthAttendance(attId);
     const rec = state.attendance.find(a=>a.id===attId);
     if(!rec) return;
     rec.staffConfirmed = true;
@@ -3693,6 +3948,7 @@
     showToast("확인해 주셔서 감사해요, 매니저한테 전달됐어요");
   }
   function ackEditedAttendance(attId){
+    if(MANEE_STAFF_AUTH_ENABLED) return confirmAuthAttendance(attId);
     const rec = state.attendance.find(a=>a.id===attId);
     if(!rec) return;
     rec.staffAckEdit = true;
@@ -3735,6 +3991,7 @@
       const ci = (ciInput.value||"").trim(), co = (coInput.value||"").trim();
       if(!isValidTimeStr(ci) || !isValidTimeStr(co)){ showToast("시간은 HH:MM 형식으로 입력해 주세요 (예: 09:30)."); return; }
       const attId = state.attConfirmPrompt.attId;
+      if(MANEE_STAFF_AUTH_ENABLED){ await requestAuthAttendanceEdit(attId,ci,co); return; }
       const rec = state.attendance.find(a=>a.id===attId);
       if(rec){ rec.checkIn = ci; rec.checkOut = co; rec.staffConfirmed = true; }
       state.attConfirmPrompt = null;
@@ -4242,6 +4499,8 @@
 
   function renderLanding(){
     let html = '<div class="landing">';
+    if(MANEE_STAFF_AUTH_ENABLED && state.landingMode==='staff-signup') return html+renderLandingHero()+renderStaffSignup()+'</div>';
+    if(MANEE_STAFF_AUTH_ENABLED && state.landingMode==='auth-account') return html+renderStaffAuthAccount()+'</div>';
     if(!state.landingMode || state.landingMode === "default"){
       html += renderLoginScreen();
       html += '</div>';
@@ -4383,7 +4642,12 @@
     html += '<button type="button" data-landingtab="staff" class="role-button2 '+(state.landingTab==="staff"?"active":"")+'">스텝 로그인</button>';
     html += '</div>';
 
-    if(state.landingTab === "staff"){
+    if(MANEE_STAFF_AUTH_ENABLED && state.landingTab === "staff"){
+      html += '<div class="field-box2"><label class="input-box2"><input id="store-login-username-input" autocomplete="username" placeholder="아이디"></label></div>';
+      html += '<div class="field-box2"><label class="input-box2"><input id="store-login-password-input" type="password" autocomplete="current-password" placeholder="비밀번호"></label></div>';
+      html += '<button type="button" class="login-button2" id="store-login-submit-btn">로그인하기<span class="login-arrow2">›</span></button>';
+      html += '<button type="button" class="signup2" data-staff-auth-action="signup-screen">처음이신가요? <b>스텝 계정 만들기 ›</b></button>';
+    }else if(state.landingTab === "staff"){
       html += '<div class="field-box2"><label class="input-box2">';
       html += '<input id="join-code-input" class="code-input2" type="text" inputmode="numeric" maxlength="6" placeholder="사장님께 받은 6자리 코드" style="padding-left:16px;">';
       html += '</label></div>';
@@ -4421,6 +4685,7 @@
     html += '<div class="brand"><span class="mark">'+mascotSymbolSvg()+'</span><h1><span style="color:var(--ink);">우리가게 매니저</span></h1><span class="date">'+todayLabel()+'</span></div>';
     html += '</header>';
     html += '<main>';
+    if(MANEE_STAFF_AUTH_ENABLED) html += '<div style="margin-bottom:12px;">'+staffAuthButton('account','내 매장·연결 상태')+'</div>';
     if(!person){
       html += '<div class="empty-note">연결된 스텝 정보를 찾을 수 없어요. 사장님께 다시 코드를 요청해 주세요.</div>';
       html += '<button class="switch-link" id="switch-user-btn">다른 사용자로 전환</button>';
@@ -5752,7 +6017,7 @@
       ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:800;color:#fff;background:var(--olive);padding:4px 10px;border-radius:999px;">✓ 설정됨</span>'
       : '<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:800;color:#fff;background:var(--danger);padding:4px 10px;border-radius:999px;">✕ 미설정</span>';
     html += '</div>';
-    html += '<p class="crew-code-hint" style="margin-bottom:8px;">'+(hasLoc?'스텝 출퇴근이 매장 100m 이내에서만 찍혀요.':'설정 전까지는 출퇴근 위치 제한이 없어요.')+'</p>';
+    html += '<p class="crew-code-hint" style="margin-bottom:8px;">'+(hasLoc?'스텝 출퇴근이 매장 100m 이내에서만 찍혀요.':(MANEE_STAFF_AUTH_ENABLED?'위치 설정 후 스텝이 출퇴근을 기록할 수 있어요.':'설정 전까지는 출퇴근 위치 제한이 없어요.'))+'</p>';
     html += '<button class="crew-code-btn" id="set-store-location-btn" style="'+(hasLoc?'':'background:var(--brick);color:#fff;')+'">'+(hasLoc?'위치 재설정':'지금 이 위치를 매장 위치로 설정')+'</button>';
     html += '<p class="crew-code-hint" style="margin-top:6px;">매장 안에서 눌러야 정확해요.</p>';
     html += '</div>';
@@ -5863,6 +6128,7 @@
       html += '</div>';
     }
     html += '</div>';
+    if(MANEE_STAFF_AUTH_ENABLED && state.role==='storeOwner') html=renderOwnerStaffAccess()+html;
     return html;
   }
 

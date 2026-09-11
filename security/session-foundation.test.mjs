@@ -82,7 +82,7 @@ function harness(options = {}) {
     },
   };
   const ctx = createContext({
-    db, state, Set, JSON, DEFAULT_STORES: ['sample'], DEFAULT_BUSINESS_DAY_CUTOFF_HOUR: 6,
+    db, state, Set, JSON, MANEE_STAFF_AUTH_ENABLED: false, DEFAULT_STORES: ['sample'], DEFAULT_BUSINESS_DAY_CUTOFF_HOUR: 6,
     localGet(key) { calls.push(['localGet', key]); return storage.has(key) ? { value: storage.get(key) } : null; },
     localSet(key, value) { storage.set(key, value); },
     localDelete(key) { storage.delete(key); },
