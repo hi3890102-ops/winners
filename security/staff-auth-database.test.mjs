@@ -5,17 +5,20 @@ import test, {after} from 'node:test';
 
 const db=new PGlite();
 await db.exec(`create role anon nologin;create role authenticated nologin;create role service_role nologin bypassrls;
-create schema auth;create table auth.users(id uuid primary key);
+create schema auth;create table auth.users(id uuid primary key,email text,banned_until timestamptz);
+create table auth.sessions(id uuid primary key,user_id uuid references auth.users(id),created_at timestamptz default clock_timestamp(),updated_at timestamptz,not_after timestamptz);
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
 create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb $$;
 create function auth.role() returns text language sql stable as $$ select nullif(current_setting('request.jwt.claim.role',true),'') $$;
 grant usage on schema auth to anon,authenticated,service_role;`);
 await db.exec(readFileSync(new URL('./fixtures/staging-baseline.sql',import.meta.url),'utf8'));
 await db.exec(readFileSync(new URL('./staff-auth.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('./account-recovery.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),otherOwner=id(2),worker=id(3),otherWorker=id(4),newWorker=id(5);
 const store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202),secondCrew=id(203),historic=id(301),otherAttendance=id(302);
 await db.query('insert into auth.users(id) select x::uuid from unnest($1::text[]) x',[[owner,otherOwner,worker,otherWorker,newWorker]]);
+await db.exec('insert into auth.sessions(id,user_id) select id,id from auth.users');
 await db.exec(`insert into public.profiles(user_id,username,display_name) values
 ('${owner}','owner_a','Owner A'),('${otherOwner}','owner_b','Owner B'),('${worker}','worker_a','Worker A'),('${otherWorker}','worker_b','Worker B');
 insert into public.stores(id,name,lat,lng,owner_username) values('${store}','Synthetic A',37.5,127,'owner_a'),('${otherStore}','Synthetic B',37.6,127.1,'owner_b');
@@ -30,6 +33,7 @@ insert into public.attendance(id,store_id,crew_id,date,check_in,check_out) value
 async function role(user,dbRole='authenticated'){
   await db.exec('reset role');
   await db.query("select set_config('request.jwt.claim.sub',$1,true),set_config('request.jwt.claim.role',$2,true)",[user||'',dbRole]);
+  await db.query("select set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub:user||'',role:dbRole,session_id:user||null})]);
   await db.exec('set local role '+dbRole);
 }
 async function postgres(){await db.exec('reset role');}
@@ -215,4 +219,82 @@ scenario('Employee time corrections remain requests until an authorized manager 
   await denied(()=>db.query("select public.approve_attendance_edit_request($1,'forged')",[change.id]),'42501');
   await role(owner);await db.query("select public.approve_attendance_edit_request($1,'Owner checked')",[change.id]);
   assert.equal(await scalar('select check_in::text from public.attendance where id=$1',[historic]),'09:30:00');
+});
+
+async function recovery(action,payload={}){return scalar('select public.manee_recovery_service($1,$2::jsonb)',[action,JSON.stringify(payload)]);}
+const keyHash='a'.repeat(64),replacementHash='b'.repeat(64);
+async function issue(user=worker,hash=keyHash){await role(null,'service_role');return recovery('issue',{user_id:user,session_id:user,key_hash:hash});}
+scenario('Recovery secrets and service RPC are inaccessible to anonymous and authenticated callers',async()=>{
+  await issue();
+  for(const [who,dbRole] of [[null,'anon'],[worker,'authenticated'],[owner,'authenticated']]){
+    await role(who,dbRole);
+    await denied(()=>db.query('select * from private.account_recovery_keys'),'42501');
+    await denied(()=>recovery('issue',{user_id:worker,session_id:worker,key_hash:replacementHash}),'42501');
+    await denied(()=>recovery('consume',{username:'worker_a',key_hash:keyHash}),'42501');
+  }
+});
+scenario('Recovery issue requires an active profile and a fresh session owned by that user',async()=>{
+  await role(null,'service_role');
+  assert.equal((await recovery('issue',{user_id:worker,session_id:owner,key_hash:keyHash})).ok,false);
+  await postgres();await db.query("update auth.sessions set created_at=now()-interval '10 minutes' where user_id=$1",[worker]);
+  assert.equal((await issue()).ok,false);
+  await postgres();await db.query("update public.profiles set status='suspended' where user_id=$1",[owner]);
+  assert.equal((await issue(owner)).ok,false);
+});
+scenario('Recovery reissue replaces the old hash and atomic consume prevents replay',async()=>{
+  assert.equal((await issue()).ok,true);assert.equal((await issue(worker,replacementHash)).ok,true);
+  assert.equal((await recovery('consume',{username:'worker_a',key_hash:keyHash})).error,'invalid_recovery');
+  const r=await recovery('consume',{username:'  ＷＯＲＫＥＲ＿Ａ  ',key_hash:replacementHash});
+  assert.equal(r.user_id,worker);assert.ok(r.operation_id);
+  assert.equal((await recovery('consume',{username:'worker_a',key_hash:replacementHash})).error,'invalid_recovery');
+  await postgres();assert.equal(await scalar('select key_hash from private.account_recovery_keys where user_id=$1',[worker]),null);
+  assert.equal(await scalar("select count(*) from private.account_recovery_events where action='reset_started'"),1);
+});
+scenario('Recovery unknown username, wrong key, missing key and suspended account fail uniformly',async()=>{
+  await issue();
+  for(const payload of [{username:'worker_a',key_hash:replacementHash},{username:'missing',key_hash:keyHash},{username:'worker_a'}])assert.equal((await recovery('consume',payload)).error,'invalid_recovery');
+  await postgres();await db.query("update public.profiles set status='suspended' where user_id=$1",[worker]);
+  await role(null,'service_role');assert.equal((await recovery('consume',{username:'worker_a',key_hash:keyHash})).error,'invalid_recovery');
+});
+scenario('Recovery preserves original profile, memberships and attendance, including revoked links',async()=>{
+  const c=await connect();await role(owner);await portal('revoke',{membership_id:c.membership});
+  await issue();const r=await recovery('consume',{username:'worker_a',key_hash:keyHash});
+  assert.equal((await recovery('complete',r)).ok,true);
+  await postgres();
+  assert.equal(await scalar('select status from public.store_memberships where id=$1',[c.membership]),'revoked');
+  assert.equal(await scalar('select count(*) from public.profiles where user_id=$1',[worker]),1);
+  assert.equal(await scalar('select count(*) from public.attendance where id=$1',[historic]),1);
+  assert.equal(await scalar('select count(*) from public.crew where id=$1',[crew]),1);
+});
+scenario('Recovery uncertain result never restores a key or permits immediate reissuance',async()=>{
+  await issue();const r=await recovery('consume',{username:'worker_a',key_hash:keyHash});
+  assert.equal((await recovery('uncertain',r)).ok,true);
+  assert.equal((await recovery('consume',{username:'worker_a',key_hash:keyHash})).ok,false);
+  assert.equal((await issue(worker,replacementHash)).error,'recovery_in_progress');
+  await postgres();await db.query("update private.account_recovery_keys set consumed_at=now()-interval '11 minutes' where user_id=$1",[worker]);
+  assert.equal((await issue(worker,replacementHash)).ok,true);
+});
+scenario('Signed JWT with a missing, expired or foreign session cannot restore, read or clock',async()=>{
+  await connect();await postgres();await db.query('delete from auth.sessions where user_id=$1',[worker]);
+  await role(worker);await denied(()=>portal('session'),'42501');
+  assert.equal(await scalar('select count(*) from public.attendance'),0);
+  await denied(()=>db.query('select public.clock_in($1,37.5,127)',[store]),'42501');
+  await postgres();await db.query("insert into auth.sessions(id,user_id,not_after) values($1,$1,now()-interval '1 second')",[worker]);
+  await role(worker);await denied(()=>portal('session'),'42501');
+  await db.query("select set_config('request.jwt.claims',$1,true)",[JSON.stringify({session_id:owner})]);
+  await denied(()=>portal('session'),'42501');
+});
+scenario('A new valid session restores the same employee after global session removal',async()=>{
+  const c=await connect();await postgres();await db.query('delete from auth.sessions where user_id=$1',[worker]);
+  await role(worker);await denied(()=>portal('session'),'42501');
+  await postgres();await db.query('insert into auth.sessions(id,user_id) values($1,$2)',[id(999),worker]);
+  await role(worker);await db.query("select set_config('request.jwt.claims',$1,true)",[JSON.stringify({session_id:id(999)})]);
+  const s=await portal('session');assert.equal(s.profile.user_id,worker);assert.equal(s.memberships[0].id,c.membership);
+});
+
+test('The exact live SQL-role recovery and clock/revoke rehearsal rolls back all fixtures',async()=>{
+  const before=await scalar('select count(*) from auth.users');
+  const result=await db.exec(readFileSync(new URL('./account-recovery-live-rollback.sql',import.meta.url),'utf8'));
+  assert.equal(result.find(r=>r.rows?.[0]?.validation)?.rows[0].validation.passed,true);
+  assert.equal(await scalar('select count(*) from auth.users'),before);
 });

@@ -11,7 +11,8 @@ function harness(options={}){
   const state={storeIdMap:{},attendance:[],...options.state};
   const snapshot={ok:true,profile:{user_id:'verified-user',username:'worker',display_name:'Worker'},memberships:options.memberships||[],requests:options.requests||[]};
   const db={
-    auth:{getSession:async()=>{calls.push('getSession');return {data:{session:options.noSession?null:{user:{id:'untrusted-cache'}}},error:options.sessionError||null};},
+    auth:{getSession:async()=>{calls.push('getSession');return {data:{session:options.noSession?null:{access_token:'verified-token',user:{id:'untrusted-cache'}}},error:options.sessionError||null};},
+      signOut:async args=>{calls.push({signOut:args});return {};},
       getUser:async()=>{calls.push('getUser');return options.invalidUser?{error:{code:'invalid'},data:null}:{data:{user:{id:'verified-user'}}};}},
     rpc:async(name,args)=>{calls.push({name,args});
       if(options.rpcError)return {error:options.rpcError,data:null};
@@ -19,7 +20,8 @@ function harness(options={}){
       return {data:options.attendanceResult||null};}
   };
   const context=createContext({
-    MANEE_IS_STAGING:true,state,db,console,app:{addEventListener(){}},document:{getElementById(id){return {value:options.inputs?.[id]||''};}},
+    MANEE_IS_STAGING:true,SUPABASE_URL:'https://offline.invalid',SUPABASE_ANON_KEY:'test-public',state,db,console,
+    fetch:async(url,args)=>{calls.push({recoveryUrl:url,request:args});return {ok:!options.recoveryError,json:async()=>options.recoveryError?{message:'처리 실패'}:options.recoveryResponse||{ok:true}};},app:{addEventListener(){}},document:{getElementById(id){return {value:options.inputs?.[id]||''};}},
     navigator:{geolocation:{getCurrentPosition(resolve){resolve({coords:{latitude:37.5,longitude:127}});}}},
     localGet:k=>storage.has(k)?{value:storage.get(k)}:null,localSet:(k,v)=>storage.set(k,v),localDelete:k=>storage.delete(k),
     render(){calls.push('render');},showToast(message){calls.push({toast:message});},
@@ -86,4 +88,31 @@ test('Staff signup calls only the employee endpoint and then opens connection po
 test('Owner review requires confirmation before any mutation RPC',async()=>{
   const h=harness();const button={dataset:{staffAuthAction:'approve',requestId:'request'},disabled:false};button.closest=()=>button;
   await h.context.handleStaffAuthClick({target:button});assert.ok(h.calls.some(c=>c.confirmation));assert.equal(h.calls.some(c=>c.name),false);
+});
+
+test('Recovery issue sends current password with session proof and keeps the returned key out of storage',async()=>{
+  const key='0123-4567-89AB-CDEF-0123-4567-89AB-CDEF';
+  const h=harness({inputs:{'recovery-current-password':'old-password'},recoveryResponse:{ok:true,recovery_key:key}});
+  await h.context.handleAccountRecoveryAction('recovery-issue');
+  const call=h.calls.find(c=>c.recoveryUrl);assert.equal(call.request.headers.Authorization,'Bearer verified-token');
+  assert.deepEqual(JSON.parse(call.request.body),{action:'issue',current_password:'old-password'});
+  assert.equal(h.state.accountRecoveryKey,key);assert.equal(h.storage.size,0);
+  await h.context.handleAccountRecoveryAction('recovery-done');assert.equal(h.state.accountRecoveryKey,null);
+});
+test('Recovery form rejects mismatched passwords without sending the key',async()=>{
+  const h=harness({inputs:{'recovery-username':'worker','recovery-key-input':'key','recovery-new-password':'password-a','recovery-confirm-password':'password-b'}});
+  await assert.rejects(()=>h.context.handleAccountRecoveryAction('recovery-reset'));
+  assert.equal(h.calls.some(c=>c.recoveryUrl),false);
+});
+test('Successful recovery clears cached identity and requires normal login without automatic access',async()=>{
+  const h=harness({state:{role:'staff',myCrewId:'old',accountRecoveryKey:'old-key'},storage:{'my-link':'old','auth-store-id':'old'},inputs:{'recovery-username':'worker','recovery-key-input':'stored-key','recovery-new-password':'password-a','recovery-confirm-password':'password-a'}});
+  await h.context.handleAccountRecoveryAction('recovery-reset');
+  const call=h.calls.find(c=>c.recoveryUrl);assert.equal(call.request.headers.Authorization,undefined);
+  assert.equal(h.state.role,'landing');assert.equal(h.state.myCrewId,null);assert.equal(h.state.accountRecoveryKey,null);assert.equal(h.storage.size,0);
+  assert.equal(h.calls.includes('setSession'),false);
+});
+test('Recovery failure does not display success or discard the form',async()=>{
+  const h=harness({recoveryError:true,state:{landingMode:'account-recovery'},inputs:{'recovery-username':'worker','recovery-key-input':'stored-key','recovery-new-password':'password-a','recovery-confirm-password':'password-a'}});
+  await assert.rejects(()=>h.context.handleAccountRecoveryAction('recovery-reset'));
+  assert.equal(h.state.landingMode,'account-recovery');assert.equal(h.calls.some(c=>c.toast),false);
 });

@@ -31,9 +31,11 @@ The `crew`, `attendance` and `stores` allow-all policies were replaced in stagin
 
 Actual browser signup/login with Supabase-issued user JWTs and separate-connection concurrency have not been verified here. The existing Netlify team-access protection was preserved. Do not describe the SQL-role checks as an end-to-end Auth test.
 
+A later staging release adds pre-issued recovery keys and live-session checks; see `account-recovery-pilot.md` for the current 95-check result and limits. The user also confirmed actual enrollment/approval, matched by one active staff link. The counts and SQL-only verification above describe the original pilot release.
+
 Remaining work before production or forced employee migration:
 
-- Password recovery and record transfer require a separate verified recovery process. Do not force existing employees to migrate before it is available.
+- Pre-issued-key recovery is now available in staging. Recovery without a saved key and record transfer still require a separate verified process. Do not force existing employees to migrate before these paths are ready.
 - Manager promotion/recovery UI and administrator/franchise Auth migration are separate work.
 - Remaining legacy permissive policies and authorization paths still need the full RLS rollout. This pilot does not establish system-wide security completion.
 - Test AI/receipt processing and push/notification integrations remain disabled until separate staging integration settings exist.

@@ -995,6 +995,7 @@
     too_many_pending:'대기 중인 요청을 먼저 확인하거나 취소해 주세요.'
   };
   function clearStaffAuthView(){
+    state.accountRecoveryKey=null;
     state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
     state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
     state.crew=[]; state.attendance=[]; state.shifts=[]; state.salesReports=[]; state.expenseEntries=[];
@@ -1144,6 +1145,7 @@
     const statuses={pending:'승인 대기',approved:'승인 완료',rejected:'거절됨',cancelled:'취소됨',expired:'기간 만료'};
     for(const r of state.staffLinkRequests||[]) html+='<div class="day-panel">'+escapeHtml(r.store_name)+' · '+(statuses[r.status]||'확인 필요')+' '+
       (r.status==='pending'?staffAuthButton('cancel','요청 취소','data-request-id="'+escapeHtml(r.id)+'"'):'')+'</div>';
+    html+='<div class="day-panel"><h3>계정 보안</h3><p>비밀번호를 잊었을 때를 대비해 복구키를 발급하고 보관해 주세요.</p>'+staffAuthButton('recovery-key','비밀번호 복구키')+'</div>';
     html+=staffAuthButton('refresh-account','연결 상태 새로 확인')+' '+staffAuthButton('logout','로그아웃');
     return html;
   }
@@ -1173,7 +1175,8 @@
     }
     state.staffAuthBusy=true; button.disabled=true;
     try{
-      if(action==='signup-screen'){ state.landingMode='staff-signup'; render(); }
+      if(action.startsWith('recovery-')) await handleAccountRecoveryAction(action);
+      else if(action==='signup-screen'){ state.landingMode='staff-signup'; render(); }
       else if(action==='login-screen'){ state.landingMode='default'; state.landingTab='staff'; render(); }
       else if(action==='signup'){
         const read=id=>(document.getElementById(id)||{}).value||'';
@@ -1207,6 +1210,71 @@
     }finally{state.staffAuthBusy=false;button.disabled=false;delete button.dataset.confirmed;}
   }
   app.addEventListener('click',handleStaffAuthClick);
+
+  // BEGIN MANEE_ACCOUNT_RECOVERY
+  function renderAccountRecovery(){
+    if(state.landingMode==='recovery-key'){
+      const code=state.accountRecoveryKey;
+      let html='<h2>비밀번호 복구키</h2><p>비밀번호를 잊었을 때 계정을 찾는 1회용 열쇠예요. 나만 볼 수 있는 안전한 곳에 보관해 주세요.</p>';
+      if(code) return html+'<div class="day-panel"><p>이 화면을 닫으면 다시 볼 수 없어요. 새로 발급하면 이전 복구키는 사용할 수 없어요.</p><code style="display:block;overflow-wrap:anywhere;user-select:all;font-size:18px;line-height:1.8">'+escapeHtml(code)+'</code></div>'+staffAuthButton('recovery-copy','복구키 복사')+' '+staffAuthButton('recovery-done','보관했어요');
+      return html+'<div class="code-box"><label for="recovery-current-password">현재 비밀번호</label><input id="recovery-current-password" type="password" autocomplete="current-password" maxlength="72">'+staffAuthButton('recovery-issue','복구키 발급·재발급')+'</div><p>재발급하면 이전 복구키는 사용할 수 없어요.</p>'+staffAuthButton('recovery-done','내 계정으로');
+    }
+    return '<h2>비밀번호 다시 설정</h2><p>미리 보관한 복구키로 새 비밀번호를 정해 주세요.</p><div class="code-box">'+
+      '<label for="recovery-username">아이디</label><input id="recovery-username" autocomplete="username" maxlength="30">'+
+      '<label for="recovery-key-input">복구키</label><input id="recovery-key-input" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64" placeholder="미리 보관한 32자리 복구키">'+
+      '<label for="recovery-new-password">새 비밀번호</label><input id="recovery-new-password" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="8자 이상">'+
+      '<label for="recovery-confirm-password">새 비밀번호 확인</label><input id="recovery-confirm-password" type="password" autocomplete="new-password" maxlength="72">'+
+      staffAuthButton('recovery-reset','비밀번호 변경')+'</div><p>매장 참여코드로는 비밀번호를 바꿀 수 없어요. 복구키가 없다면 로그인된 기기에서 현재 비밀번호로 먼저 발급해 주세요. 둘 다 없으면 본인 확인을 통한 별도 지원이 필요해요.</p>'+staffAuthButton('recovery-login','로그인으로');
+  }
+  async function accountRecoveryApi(payload,authenticated){
+    const headers={'Content-Type':'application/json','apikey':SUPABASE_ANON_KEY};
+    if(authenticated){
+      const {data,error}=await db.auth.getSession();
+      if(error || !data?.session?.access_token) throw new Error('다시 로그인해 주세요.');
+      headers.Authorization='Bearer '+data.session.access_token;
+    }
+    const response=await fetch(SUPABASE_URL+'/functions/v1/manee-account-recovery',{method:'POST',headers,body:JSON.stringify(payload)});
+    const data=await response.json().catch(()=>null);
+    if(!response.ok || !data || data.ok!==true) throw new Error(data?.message || '처리 결과를 확인하지 못했어요. 새 비밀번호로 먼저 로그인해 주세요.');
+    return data;
+  }
+  async function handleAccountRecoveryAction(action){
+    const read=id=>(document.getElementById(id)||{}).value||'';
+    if(action==='recovery-key'){
+      state.accountRecoveryKey=null;
+      if(!await restoreManeeAuthIdentity(null,true)) throw new Error('다시 로그인해 주세요.');
+      state.landingMode='recovery-key';render();
+    }else if(action==='recovery-forgot'){
+      state.accountRecoveryKey=null;state.role='landing';state.landingMode='account-recovery';render();
+    }else if(action==='recovery-issue'){
+      const current_password=read('recovery-current-password');
+      if(!current_password) throw new Error('현재 비밀번호를 입력해 주세요.');
+      try{
+        const data=await accountRecoveryApi({action:'issue',current_password},true);
+        if(!/^[A-F0-9]{4}(?:-[A-F0-9]{4}){7}$/.test(data.recovery_key||'')) throw new Error('복구키 발급 결과를 확인하지 못했어요. 다시 발급해 주세요.');
+        state.accountRecoveryKey=data.recovery_key;render();
+      }finally{const input=document.getElementById('recovery-current-password');if(input) input.value='';}
+    }else if(action==='recovery-copy'){
+      if(!state.accountRecoveryKey) return;
+      if(!navigator.clipboard?.writeText) throw new Error('복구키를 길게 눌러 직접 복사해 주세요.');
+      await navigator.clipboard.writeText(state.accountRecoveryKey);showToast('복사했어요. 안전한 곳에 보관해 주세요.');
+    }else if(action==='recovery-done'){
+      state.accountRecoveryKey=null;await restoreManeeAuthIdentity(null,true);
+    }else if(action==='recovery-login'){
+      state.accountRecoveryKey=null;state.landingMode='default';render();
+    }else if(action==='recovery-reset'){
+      const username=read('recovery-username').trim(),recovery_key=read('recovery-key-input'),new_password=read('recovery-new-password');
+      if(!username || !recovery_key) throw new Error('아이디와 복구키를 입력해 주세요.');
+      if(new_password.length<8 || new_password.length>72) throw new Error('새 비밀번호는 8자 이상으로 입력해 주세요.');
+      if(new_password!==read('recovery-confirm-password')) throw new Error('비밀번호가 서로 달라요.');
+      await accountRecoveryApi({action:'reset',username,recovery_key,new_password},false);
+      // Clear this device's expired cache; the server already revoked all sessions.
+      try{await db.auth.signOut({scope:'local'});}catch(e){}
+      clearStaffAuthView();localDelete('auth-store-id');localDelete('my-link');localDelete('my-role');localDelete('my-request-id');
+      state.landingMode='default';render();showToast('비밀번호를 변경했어요. 새 비밀번호로 로그인한 뒤 새 복구키를 발급해 주세요.');
+    }
+  }
+  // END MANEE_ACCOUNT_RECOVERY
   // END MANEE_STAFF_AUTH
 
   // ---------- identity ----------
@@ -4499,6 +4567,7 @@
 
   function renderLanding(){
     let html = '<div class="landing">';
+    if(MANEE_STAFF_AUTH_ENABLED && ['recovery-key','account-recovery'].includes(state.landingMode)) return html+renderAccountRecovery()+'</div>';
     if(MANEE_STAFF_AUTH_ENABLED && state.landingMode==='staff-signup') return html+renderLandingHero()+renderStaffSignup()+'</div>';
     if(MANEE_STAFF_AUTH_ENABLED && state.landingMode==='auth-account') return html+renderStaffAuthAccount()+'</div>';
     if(!state.landingMode || state.landingMode === "default"){
@@ -4646,6 +4715,7 @@
       html += '<div class="field-box2"><label class="input-box2"><input id="store-login-username-input" autocomplete="username" placeholder="아이디"></label></div>';
       html += '<div class="field-box2"><label class="input-box2"><input id="store-login-password-input" type="password" autocomplete="current-password" placeholder="비밀번호"></label></div>';
       html += '<button type="button" class="login-button2" id="store-login-submit-btn">로그인하기<span class="login-arrow2">›</span></button>';
+      html += '<button type="button" class="forgot-password2" data-staff-auth-action="recovery-forgot">비밀번호 찾기</button>';
       html += '<button type="button" class="signup2" data-staff-auth-action="signup-screen">처음이신가요? <b>스텝 계정 만들기 ›</b></button>';
     }else if(state.landingTab === "staff"){
       html += '<div class="field-box2"><label class="input-box2">';
@@ -6236,7 +6306,7 @@
     const storeLoginPwInput = document.getElementById("store-login-password-input");
     if(storeLoginPwInput) storeLoginPwInput.addEventListener("keydown",(e)=>{ if(e.key==="Enter") loginStoreOwner(); });
     const forgotPwBtn = document.getElementById("forgot-password-btn");
-    if(forgotPwBtn) forgotPwBtn.addEventListener("click", ()=>{ state.landingMode = "password-reset-request"; render(); });
+    if(forgotPwBtn) forgotPwBtn.addEventListener("click", ()=>{ state.landingMode = MANEE_STAFF_AUTH_ENABLED ? "account-recovery" : "password-reset-request"; render(); });
     const submitResetBtn = document.getElementById("submit-reset-request-btn");
     if(submitResetBtn) submitResetBtn.addEventListener("click", submitPasswordResetRequest);
     const resetUserInput = document.getElementById("reset-username-input");
