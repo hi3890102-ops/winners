@@ -14,6 +14,7 @@ grant usage on schema auth to anon,authenticated,service_role;`);
 await db.exec(readFileSync(new URL('./fixtures/staging-baseline.sql',import.meta.url),'utf8'));
 await db.exec(readFileSync(new URL('./staff-auth.sql',import.meta.url),'utf8'));
 await db.exec(readFileSync(new URL('./account-recovery.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('./store-permissions.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),otherOwner=id(2),worker=id(3),otherWorker=id(4),newWorker=id(5);
 const store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202),secondCrew=id(203),historic=id(301),otherAttendance=id(302);
@@ -296,5 +297,109 @@ test('The exact live SQL-role recovery and clock/revoke rehearsal rolls back all
   const before=await scalar('select count(*) from auth.users');
   const result=await db.exec(readFileSync(new URL('./account-recovery-live-rollback.sql',import.meta.url),'utf8'));
   assert.equal(result.find(r=>r.rows?.[0]?.validation)?.rows[0].validation.passed,true);
+  assert.equal(await scalar('select count(*) from auth.users'),before);
+});
+
+async function checklist(action,payload={},sid=store,date='2026-01-15'){return scalar('select public.manee_checklist($1,$2,$3,$4::jsonb)',[action,sid,date,JSON.stringify(payload)]);}
+const template={morning:[{id:'opening',name:'Opening',items:[{id:'clean',label:'Clean'},{id:'lights',label:'Lights'}]}],afternoon:[],routine:[]};
+async function today(){return scalar("select ((now() at time zone 'Asia/Seoul')-interval '6 hours')::date");}
+scenario('No public table retains direct anonymous privileges or unconditional access policies',async()=>{
+  assert.equal(await scalar("select count(*) from information_schema.role_table_grants where table_schema='public' and grantee in ('anon','PUBLIC')"),0);
+  assert.equal(await scalar("select count(*) from pg_policies where schemaname='public' and (qual='true' or with_check='true' or policyname='hide archived stores')"),0);
+  for(const t of ['stores','shifts','reservations','sales_reports','owner_requests','app_settings','franchises','push_subscriptions']){
+    await role(null,'anon');await denied(()=>db.query('select * from public.'+t),'42501');
+  }
+});
+scenario('Connected and pending users see only stores backed by active authority',async()=>{
+  await role(worker);assert.equal(await scalar('select count(*) from public.stores'),0);
+  await connect();await role(worker);assert.deepEqual((await db.query('select id from public.stores')).rows.map(r=>r.id),[store]);
+  await role(owner);assert.deepEqual((await db.query('select id from public.stores')).rows.map(r=>r.id),[store]);
+});
+scenario('Legacy credentials and notifications remain inaccessible even to a store owner',async()=>{
+  await role(owner);
+  for(const t of ['app_settings','owner_requests','push_subscriptions'])await denied(()=>db.query('select * from public.'+t),'42501');
+  await denied(()=>db.query('select password_hash from public.franchises'),'42501');
+  await denied(()=>db.query("update public.stores set owner_username='intruder' where id=$1",[store]),'42501');
+  await denied(()=>db.query('update public.stores set franchise_id=null where id=$1',[store]),'42501');
+});
+scenario('Owners can manage a schedule but cannot pair another store with its employee ID',async()=>{
+  await role(owner);
+  await db.query("insert into public.shifts(store_id,crew_id,date,start_time,end_time) values($1,$2,'2026-01-15','10:00','18:00')",[store,crew]);
+  await denied(()=>db.query("insert into public.shifts(store_id,crew_id,date) values($1,$2,'2026-01-15')",[store,otherCrew]),'42501');
+  await connect();await role(worker);assert.equal(await scalar('select count(*) from public.shifts'),1);
+  await denied(()=>db.query("insert into public.shifts(store_id,crew_id,date) values($1,$2,'2026-01-16')",[store,crew]),'42501');
+});
+scenario('Owning two stores still cannot move an existing crew or its schedule history',async()=>{
+  await db.query("insert into public.store_memberships(user_id,store_id,role) values($1,$2,'owner')",[owner,otherStore]);
+  await role(owner);await denied(()=>db.query('update public.crew set store_id=$1 where id=$2',[otherStore,crew]),'42501');
+  await denied(()=>db.query('update public.attendance set crew_id=$1 where id=$2',[secondCrew,historic]),'42501');
+});
+scenario('Financial data is private by default and sales-entry permission does not grant payroll management',async()=>{
+  await db.query("insert into public.sales_reports(store_id,date,total_sales) values($1,'2026-01-15',100),($2,'2026-01-15',200)",[store,otherStore]);
+  await connect();await role(worker);assert.equal(await scalar('select count(*) from public.sales_reports'),0);
+  await postgres();await db.query('update public.crew set sales_access=true where id=$1',[crew]);
+  await role(worker);assert.equal(await scalar('select count(*) from public.sales_reports'),1);
+  const r=(await db.query("insert into public.sales_reports(store_id,date,total_sales,manager_name,crew_id) values($1,'2026-01-16',300,'Forged boss',$2) returning manager_name,crew_id",[store,secondCrew])).rows[0];
+  assert.equal(r.crew_id,crew);assert.notEqual(r.manager_name,'Forged boss');
+  await denied(()=>db.query("insert into public.sales_reports(store_id,date,crew_id) values($1,'2026-01-17',$2)",[store,otherCrew]),'42501');
+  await denied(()=>db.query("insert into public.vendors(store_id,name) values($1,'Unauthorized vendor')",[store]),'42501');
+  assert.equal((await db.query('update public.crew set wage=1 where id=$1 returning id',[crew])).rows.length,0);
+  assert.equal((await db.query('delete from public.sales_reports where store_id=$1 returning id',[store])).rows.length,0);
+});
+scenario('Shared reservations stay within the employee store and server supplies the author',async()=>{
+  await connect();await role(worker);
+  const r=(await db.query("insert into public.reservations(store_id,date,customer_name,created_by) values($1,'2026-01-15','Synthetic customer','Forged boss') returning id,created_by",[store])).rows[0];
+  assert.notEqual(r.created_by,'Forged boss');assert.ok(r.created_by.includes('worker_a'));
+  await denied(()=>db.query("insert into public.reservations(store_id,date) values($1,'2026-01-15')",[otherStore]),'42501');
+  await role(otherOwner);assert.equal(await scalar('select count(*) from public.reservations'),0);
+  await role(worker);assert.equal((await db.query('delete from public.reservations where id=$1 returning id',[r.id])).rows.length,1);
+});
+scenario('Only managers publish announcements and employees acknowledge only their own identity',async()=>{
+  await connect();await role(owner);
+  const aid=await scalar("insert into public.announcements(store_id,title,author_name) values($1,'Synthetic notice','Fake') returning id",[store]);
+  await role(worker);await denied(()=>db.query("insert into public.announcements(store_id,title) values($1,'Unauthorized')",[store]),'42501');
+  await db.query('insert into public.announcement_reads(announcement_id,crew_id) values($1,$2)',[aid,crew]);
+  await denied(()=>db.query('insert into public.announcement_reads(announcement_id,crew_id) values($1,$2)',[aid,secondCrew]),'42501');
+  await role(otherOwner);assert.equal(await scalar('select count(*) from public.announcements'),0);
+});
+scenario('Checklist initialization is manager-only and never overwrites a concurrent existing template',async()=>{
+  await role(owner);await checklist('initialize',{items:template});
+  await checklist('initialize',{items:{morning:[]}});
+  assert.equal(await scalar("select jsonb_array_length(data) from public.checklist_templates where store_id=$1 and tab='morning'",[store]),1);
+  await connect();await role(worker);const date=await today();await denied(()=>checklist('templates',{items:template},store,date),'42501');
+  await denied(()=>db.query("update public.checklist_templates set data='[]' where store_id=$1",[store]),'42501');
+});
+scenario('Independent checkbox writes preserve other checks; staff cannot alter a closed or past day',async()=>{
+  await role(owner);await checklist('initialize',{items:template});
+  await connect();await role(worker);const d=await today();
+  await checklist('check',{item_id:'clean',checked:true},store,d);
+  const r=await checklist('check',{item_id:'lights',checked:true},store,d);assert.deepEqual(r.checks,{clean:true,lights:true});
+  await denied(()=>checklist('check',{item_id:'unknown',checked:true},store,d),'22023');
+  await denied(()=>checklist('check',{item_id:'clean',checked:true},store,'2020-01-01'),'42501');
+  const closed=await checklist('close',{done:900,total:900},store,d);assert.equal(closed.log.done,2);assert.equal(closed.log.total,2);
+  await denied(()=>checklist('check',{item_id:'clean',checked:false},store,d),'55000');
+  await denied(()=>checklist('reopen',{},store,d),'42501');
+  await role(owner);await checklist('reopen',{},store,d);assert.deepEqual((await checklist('reset',{},store,d)).checks,{});
+});
+scenario('Seven existing attendance/directory RPCs expose invoker wrappers and preserve role checks',async()=>{
+  assert.equal(await scalar("select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prosecdef and has_function_privilege('authenticated',p.oid,'execute') and p.proname not like 'pg_%'"),0);
+  await connect();await role(worker);assert.equal((await db.query('select * from public.get_store_crew_directory($1)',[store])).rows.length,2);
+  await denied(()=>db.query('select * from public.get_store_crew_directory($1)',[otherStore]),'42501');
+});
+scenario('Suspending or revoking an account blocks business data even while its session row survives',async()=>{
+  await role(owner);await db.query("insert into public.announcements(store_id,title) values($1,'Synthetic')",[store]);
+  const connected=await connect();await role(worker);assert.equal(await scalar('select count(*) from public.announcements'),1);
+  await postgres();await db.query("update public.profiles set status='suspended' where user_id=$1",[worker]);
+  await role(worker);assert.equal(await scalar('select count(*) from public.announcements'),0);
+  await postgres();await db.query("update public.profiles set status='active' where user_id=$1",[worker]);
+  await role(owner);await portal('revoke',{membership_id:connected.membership});
+  await role(worker);assert.equal(await scalar('select count(*) from public.announcements'),0);assert.equal(await scalar('select count(*) from public.stores'),0);
+});
+
+
+test('The exact store-permissions live rehearsal runs and rolls back without changing user fixtures',async()=>{
+  const before=await scalar('select count(*) from auth.users');
+  const result=await db.exec(readFileSync(new URL('./store-permissions-live-rollback.sql',import.meta.url),'utf8'));
+  assert.equal(result.find(r=>r.rows?.[0]?.validation)?.rows[0].validation.checklist_server_totals,true);
   assert.equal(await scalar('select count(*) from auth.users'),before);
 });

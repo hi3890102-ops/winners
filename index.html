@@ -883,7 +883,7 @@
       const { error } = await db.from('stores').update({ name: newName }).eq('id', storeId);
       if(error) throw error;
       // 사장님 계정이 연결된 매장명도 같이 바꿔줘야, 다시 로그인했을 때 새 매장이 잘못 생기지 않아요.
-      await db.from('owner_requests').update({ store_name: newName }).eq('store_name', oldName);
+      if(!MANEE_STAFF_AUTH_ENABLED) await db.from('owner_requests').update({ store_name: newName }).eq('store_name', oldName);
     }catch(e){ showToast("이름 변경에 실패했어요."); return; }
     const idx = state.storeList.indexOf(oldName);
     if(idx>=0) state.storeList[idx] = newName;
@@ -996,6 +996,8 @@
   };
   function clearStaffAuthView(){
     state.accountRecoveryKey=null;
+    state.items={};state.checks={};state.checklistLog={};state.homeChecklistItems={};state.homeChecklistChecks={};
+    state.fixedExpenses=[];state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
     state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
     state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
     state.crew=[]; state.attendance=[]; state.shifts=[]; state.salesReports=[]; state.expenseEntries=[];
@@ -1276,6 +1278,89 @@
   }
   // END MANEE_ACCOUNT_RECOVERY
   // END MANEE_STAFF_AUTH
+
+  // BEGIN MANEE_STORE_PERMISSIONS
+  function canManageBusinessData(){
+    if(!MANEE_STAFF_AUTH_ENABLED) return ['storeOwner','hq','franchise'].includes(state.role) || !!state.crew.find(c=>c.id===state.myCrewId && c.isManager);
+    return (state.authMemberships||[]).some(m=>m.store_id===currentStoreId() && ['owner','manager'].includes(m.role));
+  }
+  function canDeleteFinancialData(){
+    if(!MANEE_STAFF_AUTH_ENABLED) return canManageBusinessData();
+    return (state.authMemberships||[]).some(m=>m.store_id===currentStoreId() && m.role==='owner');
+  }
+  function businessError(error){
+    if(error && error.code==='42501'){clearStaffAuthView();render();}
+    const msg=String(error?.message||'');
+    showToast(error?.code==='55000'?'이미 마감된 체크리스트예요. 사장님께 다시 열기를 요청해 주세요.':
+      msg.includes('Only today')?'지난 날짜의 변경은 사장님께 요청해 주세요.':staffErrorMessage(error));
+  }
+  async function checkedBusinessMutation(query){
+    const {data,error}=await query;
+    if(error) throw error;
+    if(!Array.isArray(data) || data.length!==1) throw new Error('저장 결과를 확인하지 못했어요. 권한이나 변경된 내용을 새로 확인해 주세요.');
+    return data[0];
+  }
+  async function deleteAuthBusinessRow(table,id,after){
+    try{
+      await checkedBusinessMutation(db.from(table).delete().eq('id',id).select('id'));
+      after();render();return true;
+    }catch(e){businessError(e);return false;}
+  }
+  async function callAuthChecklist(action,storeId,date,payload){
+    const {data,error}=await db.rpc('manee_checklist',{p_action:action,p_store_id:storeId,p_date:date,p_payload:payload||{}});
+    if(error) throw error;
+    if(!data || !data.ok) throw new Error('체크리스트 저장 결과를 확인하지 못했어요.');
+    return data;
+  }
+  async function changeAuthChecklist(action,payload,dateOverride,storeOverride){
+    if(state.checklistSaving) return false;
+    const sid=storeOverride||currentStoreId(),date=dateOverride||state.checklistViewDate||bizToday();
+    state.checklistSaving=true;
+    try{
+      const result=await callAuthChecklist(action,sid,date,payload);
+      if(currentStoreId()===sid && (state.checklistViewDate||bizToday())===date){
+        state.checks=result.checks||{};
+        state.checklistLog=state.checklistLog||{};
+        if(result.log) state.checklistLog[date]=result.log;else delete state.checklistLog[date];
+        if(action==='templates'){await loadChecklist(state.store,date);}
+        render();
+      }
+      if(action==='close')showToast('체크리스트를 마감했어요.');
+      if(action==='reopen')showToast('다시 열었어요.');
+      if(action==='reset')showToast('체크를 초기화했어요.');
+      return true;
+    }catch(e){businessError(e);return false;}
+    finally{state.checklistSaving=false;}
+  }
+  async function editAuthChecklistItem(categoryId,itemId){
+    const items=JSON.parse(JSON.stringify(state.items));
+    const cat=(items[state.tab]||[]).find(c=>c.id===categoryId);
+    if(!cat) return;
+    if(itemId)cat.items=cat.items.filter(i=>i.id!==itemId);
+    else{
+      const input=document.getElementById('add-input-'+categoryId),value=(input?.value||'').trim();
+      if(!value) return;
+      cat.items.push({id:categoryId+'_'+Date.now().toString(36),label:value});
+    }
+    await changeAuthChecklist('templates',{items});
+  }
+  async function confirmAuthAnnouncement(id){
+    if(!state.myCrewId) return;
+    try{
+      const r=await checkedBusinessMutation(db.from('announcement_reads').upsert({announcement_id:id,crew_id:state.myCrewId}).select('announcement_id,crew_id,read_at'));
+      const a=state.announcements.find(a=>a.id===id);
+      if(a){a.reads=a.reads||{};a.reads[state.myCrewId]=new Date(r.read_at).getTime();render();showToast('확인했어요.');}
+    }catch(e){businessError(e);}
+  }
+  async function updateAuthFixedExpense(id,value){
+    try{
+      const amount=parseInt(value,10)||0;
+      const r=await checkedBusinessMutation(db.from('fixed_expenses').update({amount}).eq('id',id).select('id,amount'));
+      const row=state.fixedExpenses.find(f=>f.id===id);if(row)row.amount=r.amount;render();
+    }catch(e){businessError(e);render();}
+  }
+  // END MANEE_STORE_PERMISSIONS
+
 
   // ---------- identity ----------
   // Auth evidence takes precedence over legacy browser identity hints.
@@ -1685,6 +1770,7 @@
   function openAddStoreForm(){ state.showAddStoreForm = true; render(); }
   function closeAddStoreForm(){ state.showAddStoreForm = false; render(); }
   async function submitAdditionalStoreRequest(){
+    if(MANEE_STAFF_AUTH_ENABLED){showToast('추가 매장 신청은 관리자 연결 기능을 준비한 뒤 이용할 수 있어요.');return;}
     const input = document.getElementById("add-store-request-input");
     const storeName = (input.value||"").trim();
     if(!storeName){ showToast("매장명을 입력해 주세요."); return; }
@@ -2039,7 +2125,12 @@
     if(!items.morning && !items.afternoon && !items.routine){
       items = JSON.parse(JSON.stringify(DEFAULT_ITEMS));
       if(storeId){
-        try{ await db.from('checklist_templates').upsert(Object.keys(items).map(tab=>({ store_id:storeId, tab, data: items[tab] }))); }catch(e){}
+        if(MANEE_STAFF_AUTH_ENABLED){
+          if(canManageBusinessData()){
+            try{await callAuthChecklist('initialize',storeId,d,{items});const {data,error}=await db.from('checklist_templates').select('tab,data').eq('store_id',storeId);if(error)throw error;items={};(data||[]).forEach(r=>{items[r.tab]=r.data;});}
+            catch(e){items={};businessError(e);}
+          }else items={};
+        }else{try{ await db.from('checklist_templates').upsert(Object.keys(items).map(tab=>({ store_id:storeId, tab, data: items[tab] }))); }catch(e){}}
       }
     }
     let checks = {};
@@ -2069,6 +2160,7 @@
     }catch(e){}
   }
   function closeChecklistDay(){
+    if(MANEE_STAFF_AUTH_ENABLED) return changeAuthChecklist('close');
     const dateStr = state.checklistViewDate || bizToday();
     const stats = countAll();
     if(!state.checklistLog) state.checklistLog = {};
@@ -2085,6 +2177,7 @@
     showToast("마감했어요. 오늘 체크리스트가 기록으로 남았어요.");
   }
   function reopenChecklistDay(){
+    if(MANEE_STAFF_AUTH_ENABLED) return changeAuthChecklist('reopen');
     const dateStr = state.checklistViewDate || bizToday();
     if(state.checklistLog && state.checklistLog[dateStr]){
       delete state.checklistLog[dateStr];
@@ -2301,6 +2394,7 @@
     })();
   }
   function deleteVendor(id){
+    if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('vendors',id,()=>{state.vendors=state.vendors.filter(v=>v.id!==id);});
     askConfirm("이 거래처를 삭제할까요? 이미 등록된 지출 기록은 남아있어요.", ()=>{
       (async ()=>{ try{ await db.from('vendors').delete().eq('id', id); }catch(e){} })();
       state.vendors = state.vendors.filter(v=>v.id!==id);
@@ -2321,7 +2415,7 @@
       const { data, error } = await db.from('fixed_expenses').select('*').eq('store_id', storeId).eq('month_key', mKey).order('created_at');
       if(error) throw error;
       let rows = data || [];
-      if(rows.length === 0){
+      if(rows.length === 0 && (!MANEE_STAFF_AUTH_ENABLED || canManageBusinessData())){
         const pKey = prevMonthKey(mKey);
         const { data: prevData } = await db.from('fixed_expenses').select('*').eq('store_id', storeId).eq('month_key', pKey).order('created_at');
         if(prevData && prevData.length > 0){
@@ -2352,11 +2446,13 @@
     })();
   }
   function deleteFixedExpense(id){
+    if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('fixed_expenses',id,()=>{state.fixedExpenses=state.fixedExpenses.filter(f=>f.id!==id);});
     state.fixedExpenses = state.fixedExpenses.filter(f=>f.id!==id);
     render();
     (async ()=>{ try{ await db.from('fixed_expenses').delete().eq('id', id); }catch(e){} })();
   }
   function updateFixedExpenseAmount(id, value){
+    if(MANEE_STAFF_AUTH_ENABLED) return updateAuthFixedExpense(id,value);
     const f = state.fixedExpenses.find(f=>f.id===id);
     if(!f) return;
     const amount = parseInt(value||"0",10) || 0;
@@ -2457,6 +2553,10 @@
     let res = (state.reservations||[]).find(r=>String(r.id)===String(id));
     if(!res) res = (state.dashboardReservations||[]).find(r=>String(r.id)===String(id));
     if(!res) return;
+    if(MANEE_STAFF_AUTH_ENABLED) return askConfirm('이 예약을 취소할까요?',async()=>{
+      const ok=await deleteAuthBusinessRow('reservations',id,()=>{state.reservations=(state.reservations||[]).filter(r=>String(r.id)!==String(id));state.dashboardReservations=(state.dashboardReservations||[]).filter(r=>String(r.id)!==String(id));});
+      if(ok)showToast('예약을 취소했어요.');
+    });
     const storeIdForPush = res.storeName ? state.storeIdMap[res.storeName] : currentStoreId();
     askConfirm((res.customerName||'예약')+' 예약을 취소할까요?', async ()=>{
       state.reservations = (state.reservations||[]).filter(r=>String(r.id)!==String(id));
@@ -2468,6 +2568,7 @@
     });
   }
   function deleteExpenseEntry(id){
+    if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('expense_entries',id,()=>{state.expenseEntries=state.expenseEntries.filter(e=>e.id!==id);});
     state.expenseEntries = state.expenseEntries.filter(e=>e.id!==id);
     render();
     (async ()=>{ try{ await db.from('expense_entries').delete().eq('id', id); }catch(e){} })();
@@ -2513,6 +2614,7 @@
     }catch(e){ showToast("공지사항 저장에 실패했어요."); }
   }
   function deleteAnnouncement(id){
+    if(MANEE_STAFF_AUTH_ENABLED) return askConfirm('이 공지사항을 삭제할까요?',()=>deleteAuthBusinessRow('announcements',id,()=>{state.announcements=state.announcements.filter(a=>a.id!==id);}));
     askConfirm("이 공지사항을 삭제할까요?", async ()=>{
       try{ await db.from('announcements').delete().eq('id', id); }catch(e){}
       state.announcements = state.announcements.filter(a=>a.id!==id);
@@ -2520,6 +2622,7 @@
     });
   }
   function confirmAnnouncement(id){
+    if(MANEE_STAFF_AUTH_ENABLED) return confirmAuthAnnouncement(id);
     if(!state.myCrewId) return;
     const a = state.announcements.find(a=>a.id===id);
     if(!a) return;
@@ -2839,12 +2942,13 @@
     if(!wasEditing && isLastDay){
       showToast("매출보고를 제출했어요 · 이번 달 월말 리포트가 준비됐어요! (매출 탭 → 월말리포트)");
     }else{
-      showToast(wasEditing ? "매출보고를 수정했어요" : "매출보고를 제출했어요 · 오늘 체크리스트도 자동으로 마감했어요");
+      showToast(wasEditing ? "매출보고를 수정했어요" : (MANEE_STAFF_AUTH_ENABLED?"매출보고를 제출했어요":"매출보고를 제출했어요 · 오늘 체크리스트도 자동으로 마감했어요"));
     }
     autoCloseChecklistForDate(state.store, dateStr);
   }
 
   async function autoCloseChecklistForDate(store, dateStr){
+    if(MANEE_STAFF_AUTH_ENABLED) return changeAuthChecklist('close',{},dateStr,state.storeIdMap[store]);
     const storeId = state.storeIdMap[store];
     if(!storeId) return;
     try{
@@ -2902,7 +3006,7 @@
         (data||[]).forEach(r=>{ checks[r.item_id] = true; });
       }catch(e){}
     }
-    if(!items.morning && !items.afternoon && !items.routine) items = DEFAULT_ITEMS;
+    if(!items.morning && !items.afternoon && !items.routine) items = MANEE_STAFF_AUTH_ENABLED ? {} : DEFAULT_ITEMS;
     state.homeChecklistItems = items;
     state.homeChecklistChecks = checks;
   }
@@ -2927,6 +3031,7 @@
   }
 
   async function saveChecks(){
+    if(MANEE_STAFF_AUTH_ENABLED) return; // Staging uses one-item RPCs, never bulk replacement.
     const d = state.checklistViewDate || bizToday();
     const storeId = currentStoreId();
     if(!storeId) return;
@@ -2940,6 +3045,7 @@
     }catch(e){ showToast("저장에 실패했어요."); }
   }
   async function saveItems(){
+    if(MANEE_STAFF_AUTH_ENABLED) return changeAuthChecklist('templates',{items:state.items});
     const storeId = currentStoreId();
     if(!storeId) return;
     try{
@@ -2950,12 +3056,14 @@
 
   // ---------- checklist logic ----------
   function toggleItem(itemId){
+    if(MANEE_STAFF_AUTH_ENABLED) return changeAuthChecklist('check',{item_id:itemId,checked:!state.checks[itemId]});
     if(state.checks[itemId]) delete state.checks[itemId];
     else state.checks[itemId] = true;
     render();
     saveChecks();
   }
   function addItem(catId){
+    if(MANEE_STAFF_AUTH_ENABLED) return editAuthChecklistItem(catId,null);
     const input = document.getElementById("add-input-"+catId);
     const val = (input.value||"").trim();
     if(!val) return;
@@ -2966,6 +3074,7 @@
     saveItems();
   }
   function deleteChecklistItem(catId, itemId){
+    if(MANEE_STAFF_AUTH_ENABLED) return askConfirm('이 항목을 삭제할까요?',()=>editAuthChecklistItem(catId,itemId));
     askConfirm("이 항목을 삭제할까요?", ()=>{
       const cat = state.items[state.tab].find(c=>c.id===catId);
       if(!cat) return;
@@ -2977,6 +3086,7 @@
     });
   }
   function canEditChecklistItems(){
+    if(MANEE_STAFF_AUTH_ENABLED) return canManageBusinessData();
     if(state.role === "hq" || state.role === "storeOwner" || state.role === "franchise") return true;
     if(state.role === "staff"){
       const p = state.crew.find(c=>c.id===state.myCrewId);
@@ -5106,7 +5216,7 @@
       html += '<p class="empty-note" style="padding:8px 0;">등록된 지출이 없어요.</p>';
     }else{
       dayExpensesForm.forEach(e=>{
-        html += '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'</span><span>'+Number(e.amount).toLocaleString()+'원 <button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button></span></div>';
+        html += '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'</span><span>'+Number(e.amount).toLocaleString()+'원 '+((!MANEE_STAFF_AUTH_ENABLED || canDeleteFinancialData())?'<button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button>':'')+'</span></div>';
       });
       html += '<div class="pay-list-item" style="font-weight:800;"><span class="d">합계</span><span>'+dayExpenseSumForm.toLocaleString()+'원</span></div>';
     }
@@ -5456,28 +5566,28 @@
     cats.forEach(cat=>{
       const done = cat.items.filter(it=>state.checks[it.id]).length;
       html += '<div class="category">';
-      html += '<div class="category-head"><h2>'+cat.name+'</h2><span class="cat-progress">'+done+'/'+cat.items.length+'</span></div>';
+      html += '<div class="category-head"><h2>'+escapeHtml(cat.name)+'</h2><span class="cat-progress">'+done+'/'+cat.items.length+'</span></div>';
       cat.items.forEach((it,idx)=>{
         const checked = !!state.checks[it.id];
         html += '<div class="item-row'+(checked?' done':'')+'">';
         html += '<span class="step-no">'+(idx+1)+'</span>';
-        html += '<div class="checkbox'+(checked?' checked':'')+'" data-item="'+it.id+'"'+(isClosed?' style="opacity:.5;pointer-events:none;"':'')+'>'+checkSvg()+'</div>';
-        html += '<span class="item-label">'+it.label+'</span>';
+        html += '<div class="checkbox'+(checked?' checked':'')+'" data-item="'+escapeHtml(it.id)+'"'+(isClosed?' style="opacity:.5;pointer-events:none;"':'')+'>'+checkSvg()+'</div>';
+        html += '<span class="item-label">'+escapeHtml(it.label)+'</span>';
         if(canEdit && !isClosed){
-          html += '<button class="item-del" data-delitem="'+cat.id+':'+it.id+'">삭제</button>';
+          html += '<button class="item-del" data-delitem="'+escapeHtml(cat.id)+':'+escapeHtml(it.id)+'">삭제</button>';
         }
         html += '</div>';
       });
       if(!isClosed && canEdit){
-        html += '<div class="add-row"><input id="add-input-'+cat.id+'" type="text" placeholder="항목 추가"><button data-addcat="'+cat.id+'">추가</button></div>';
+        html += '<div class="add-row"><input id="add-input-'+escapeHtml(cat.id)+'" type="text" placeholder="항목 추가"><button data-addcat="'+escapeHtml(cat.id)+'">추가</button></div>';
       }
       html += '</div>';
     });
 
-    if(isClosed){
+    if(isClosed && (!MANEE_STAFF_AUTH_ENABLED || canEdit)){
       html += '<div class="reset-bar"><button id="reopen-checklist-btn">다시 열기</button></div>';
-    }else{
-      html += '<div class="reset-bar"><button id="reset-btn">체크 전체 초기화</button></div>';
+    }else if(!isClosed){
+      if(!MANEE_STAFF_AUTH_ENABLED || canEdit) html += '<div class="reset-bar"><button id="reset-btn">체크 전체 초기화</button></div>';
       html += '<button class="landing-btn primary" id="close-checklist-btn" style="margin-top:4px;">마감하기</button>';
     }
     return html;
@@ -5621,6 +5731,7 @@
   }
 
   function renderVendorManage(){
+    if(MANEE_STAFF_AUTH_ENABLED && !canManageBusinessData()) return '<p>거래처 관리는 사장님·매니저가 할 수 있어요.</p>';
     let html = '<div class="day-panel">';
     html += '<h3>거래처 관리</h3>';
     html += '<p class="crew-code-hint" style="margin-bottom:10px;">여기서 등록한 거래처가 매니저의 매출보고 지출 입력 화면에 목록으로 떠요.</p>';
@@ -5637,6 +5748,7 @@
   }
 
   function renderFixedExpenseManage(){
+    if(MANEE_STAFF_AUTH_ENABLED && !canManageBusinessData()) return '<p>고정지출 관리는 사장님·매니저가 할 수 있어요.</p>';
     let html = '<div class="day-panel">';
     html += '<h3>고정지출 관리</h3>';
     html += '<p class="crew-code-hint" style="margin-bottom:10px;">임대료처럼 매달 똑같은 항목은 그대로 두시고, 전기세·수도세처럼 매달 바뀌는 항목은 금액 칸을 눌러 이번 달 금액으로 고쳐주세요. 다음 달엔 이번 달 금액이 기본으로 채워져요.</p>';
@@ -5858,7 +5970,7 @@
           html += '<div class="empty-note" style="padding:8px 0;">이 날 등록된 지출이 없어요.</div>';
         }else{
           dayExpenses.forEach(e=>{
-            html += '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'</span><span>'+Number(e.amount).toLocaleString()+'원 <button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button></span></div>';
+            html += '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'</span><span>'+Number(e.amount).toLocaleString()+'원 '+((!MANEE_STAFF_AUTH_ENABLED || canDeleteFinancialData())?'<button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button>':'')+'</span></div>';
           });
           html += '<div class="pay-list-item" style="font-weight:800;"><span class="d">합계</span><span>'+dayExpenseSum.toLocaleString()+'원'+(dayRatio!==null?(' · 매출대비 '+dayRatio.toFixed(1)+'%'):'')+'</span></div>';
         }
@@ -6712,6 +6824,7 @@
     const resetBtn = document.getElementById("reset-btn");
     if(resetBtn) resetBtn.addEventListener("click", ()=>{
       askConfirm("체크한 항목을 모두 초기화할까요?", ()=>{
+        if(MANEE_STAFF_AUTH_ENABLED){changeAuthChecklist('reset');return;}
         state.checks = {}; render(); saveChecks(); showToast("초기화했어요");
       });
     });

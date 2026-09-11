@@ -48,3 +48,8 @@ Current official references checked before implementation:
 - [Session validation after logout](https://supabase.com/docs/guides/auth/sessions#how-to-ensure-an-access-token-jwt-cannot-be-used-after-a-user-signs-out)
 - [Auth admin update implementation](https://github.com/supabase/auth/blob/master/internal/api/admin.go)
 - [Auth password/session model implementation](https://github.com/supabase/auth/blob/master/internal/models/user.go)
+
+
+## Later staging permissions release
+
+See `store-permissions-pilot.md` for the current public-table permissions and 116-check result. The earlier remaining-permissive-policy and public SECURITY DEFINER notes above describe the previous release: those specific staging findings have now been addressed. Production migration, administrator Auth, and recovery without a saved key are still pending.

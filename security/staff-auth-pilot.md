@@ -50,3 +50,8 @@ The applied SQL snapshot and tool-generated migration version are recorded in `s
 Prefer a forward repair or temporarily unavailable preview if a problem appears. Do not restore old permissive policies, reactivate revoked memberships or delete new Auth/profile/request data to roll back this pilot. Keep the staging backend isolation. User/admin HTML still comes from the same source via `scripts/build-variants.py`.
 
 The pre-auth signup validates the project application key in its body; public application keys do not identify employees or grant store access. User operations require Auth through PostgREST. See [Supabase key migration](https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys) for the Edge key validation model.
+
+
+## Later staging permissions release
+
+See `store-permissions-pilot.md` for the current public-table permissions and 116-check result. The earlier remaining-permissive-policy and public SECURITY DEFINER notes above describe the previous release: those specific staging findings have now been addressed. Production migration, administrator Auth, and recovery without a saved key are still pending.
