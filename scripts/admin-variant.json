@@ -1,0 +1,26 @@
+{
+  "baseline_user_commit": "ac6440584608752a49d167780ca38407722426d8",
+  "baseline_admin_commit": "f05ee02e4f85f216307251cd8c7195ef018a3565",
+  "changes": [
+    {
+      "source": "    const hqBtn = document.getElementById(\"be-hq-btn\");\n    if(hqBtn) hqBtn.addEventListener(\"click\", showAdminEntryChooser);\n    // (관리자 진입 경로 없음 — 이 빌드는 사장님/스텝 전용 사용자 앱이에요)\n    const storeOwnerBtn = document.getElementById(\"be-store-owner-btn\");\n    if(storeOwnerBtn) storeOwnerBtn.addEventListener(\"click\", startStoreOwnerFlow);\n",
+      "admin": "    const hqBtn = document.getElementById(\"be-hq-btn\");\n    if(hqBtn) hqBtn.addEventListener(\"click\", showAdminEntryChooser);\n    const logoTapArea = document.getElementById(\"brand-logo-tap-area\");\n    if(logoTapArea){\n      logoTapArea.addEventListener(\"click\", ()=>{\n        const now = Date.now();\n        if(!state.logoTapTimes || now - (state.lastLogoTapTime||0) > 1200) state.logoTapTimes = [];\n        state.logoTapTimes.push(now);\n        state.lastLogoTapTime = now;\n        if(state.logoTapTimes.length >= 5){\n          state.logoTapTimes = [];\n          showAdminEntryChooser();\n        }\n      });\n    }\n    const storeOwnerBtn = document.getElementById(\"be-store-owner-btn\");\n    if(storeOwnerBtn) storeOwnerBtn.addEventListener(\"click\", startStoreOwnerFlow);\n"
+    },
+    {
+      "source": "    state.role = \"landing\";\n    state.loading = false;\n    render();\n  }\n\n",
+      "admin": "    state.role = \"landing\";\n    state.loading = false;\n    showAdminEntryChooser();\n  }\n\n"
+    },
+    {
+      "source": "      }\n    }catch(e){}\n    state.role = \"landing\";\n    state.loading = false;\n",
+      "admin": "      }\n    }catch(e){}\n    // 이 빌드는 매니/프랜차이즈 관리자 전용이에요 — 사장님/스텝 탭 없이 곧장 로그인 방식 선택 화면으로 들어가요.\n    state.role = \"landing\";\n    state.loading = false;\n"
+    },
+    {
+      "source": "    try{\n      const roleR = localGet(\"my-role\");\n      if(roleR && (roleR.value === \"hq\" || roleR.value === \"franchise\")){\n        // 이 빌드(사용자 앱)는 관리자/프랜차이즈 모드를 지원하지 않아요. 저장된 플래그는 무시해요.\n        localSet(\"my-role\", \"\");\n        localSet(\"my-franchise-id\", \"\");\n      }\n    }catch(e){}\n",
+      "admin": "    try{\n      const roleR = localGet(\"my-role\");\n      if(roleR && roleR.value === \"hq\"){\n        state.role = \"hq\";\n        await loadStoreList();\n        await loadAllForStore(state.store);\n        render();\n        return;\n      }\n      if(roleR && roleR.value === \"franchise\"){\n        const fidR = localGet(\"my-franchise-id\");\n        const fid = fidR ? fidR.value : null;\n        if(fid){\n          try{\n            const { data } = await db.from('franchises').select('id,name,username').eq('id', fid).maybeSingle();\n            if(data){\n              state.role = \"franchise\";\n              state.franchiseId = data.id;\n              state.franchiseName = data.name;\n              await loadStoreList(null, data.id);\n              await loadAllForStore(state.store);\n              render();\n              return;\n            }\n          }catch(e){}\n        }\n      }\n    }catch(e){}\n"
+    },
+    {
+      "source": "<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover\">\n<title>매니</title>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<link rel=\"icon\" href=\"/icons/icon-32.png\" sizes=\"32x32\" type=\"image/png\">\n",
+      "admin": "<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover\">\n<title>매니 관리자</title>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<link rel=\"icon\" href=\"/icons/icon-32.png\" sizes=\"32x32\" type=\"image/png\">\n"
+    }
+  ]
+}

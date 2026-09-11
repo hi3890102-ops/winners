@@ -587,17 +587,18 @@
   }
 
   // ---------- store list ----------
-  async function loadStoreList(ownerUsername, franchiseId){
+  async function loadStoreList(ownerUsername, franchiseId, authorizedStoreIds){
     let rows = [];
     try{
       let q = db.from('stores').select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour').is('archived_at', null).order('created_at');
+      if(Array.isArray(authorizedStoreIds)) q = q.in('id', authorizedStoreIds);
       if(ownerUsername) q = q.eq('owner_username', ownerUsername);
       if(franchiseId) q = q.eq('franchise_id', franchiseId);
       const { data, error } = await q;
       if(error) throw error;
       rows = data || [];
     }catch(e){ rows = []; }
-    if(rows.length === 0 && !ownerUsername && !franchiseId){
+    if(rows.length === 0 && !ownerUsername && !franchiseId && !Array.isArray(authorizedStoreIds)){
       try{
         const { data, error } = await db.from('stores').insert(DEFAULT_STORES.map(name=>({name}))).select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour');
         if(error) throw error;
@@ -889,7 +890,7 @@
   }
   async function findOwnerRequestById(id){
     try{
-      const { data, error } = await db.from('owner_requests').select('*').eq('id', id).maybeSingle();
+      const { data, error } = await db.from('owner_requests').select('*').eq('id', id).is('auth_user_id', null).is('auth_migrated_at', null).maybeSingle();
       if(error) throw error;
       return data ? requestRowToObj(data) : null;
     }catch(e){ return null; }
@@ -903,7 +904,7 @@
   }
   async function findOwnerRequestByCredentials(username, passwordHash){
     try{
-      const { data, error } = await db.from('owner_requests').select('*').ilike('username', username).eq('password_hash', passwordHash).is('auth_migrated_at', null).order('requested_at', { ascending:false }).limit(1);
+      const { data, error } = await db.from('owner_requests').select('*').ilike('username', username).eq('password_hash', passwordHash).is('auth_user_id', null).is('auth_migrated_at', null).order('requested_at', { ascending:false }).limit(1);
       if(error) throw error;
       return (data && data.length) ? requestRowToObj(data[0]) : null;
     }catch(e){ return null; }
@@ -954,8 +955,66 @@
   }
 
   // ---------- identity ----------
+  // Auth evidence takes precedence over legacy browser identity hints.
+  // This is an owner-session prerequisite, not the staff Auth cutover.
+  async function restoreManeeAuthOwner(preferredStore){
+    const { data: authData, error: sessionError } = await db.auth.getSession();
+    if(sessionError) throw sessionError;
+    if(!authData || !authData.session) return false;
+
+    const { data: verified, error: userError } = await db.auth.getUser();
+    if(userError || !verified || !verified.user) throw new Error("로그인을 다시 확인해 주세요.");
+    const userId = verified.user.id;
+    const { data: profile, error: profileError } = await db.from('profiles')
+      .select('user_id,username,status').eq('user_id', userId).maybeSingle();
+    if(profileError) throw profileError;
+    if(!profile || profile.user_id !== userId || profile.status !== 'active'){
+      throw new Error("사용할 수 없는 계정이에요. 계정 상태를 확인해 주세요.");
+    }
+    const { data: memberships, error: membershipError } = await db.from('store_memberships')
+      .select('user_id,store_id,role,status').eq('user_id', userId).eq('status', 'active');
+    if(membershipError) throw membershipError;
+    const allowedStoreIds = new Set((memberships || [])
+      .filter(m=>m.user_id === userId && m.role === 'owner' && m.status === 'active')
+      .map(m=>m.store_id));
+    if(!allowedStoreIds.size) throw new Error("연결된 사장님 매장을 찾지 못했어요.");
+
+    // Query only stores backed by active memberships. owner_username is retained
+    // solely for legacy callers of loadStoreList.
+    await loadStoreList(null, null, [...allowedStoreIds]);
+    state.storeList = state.storeList.filter(name=>allowedStoreIds.has(state.storeIdMap[name]));
+    if(!state.storeList.length) throw new Error("연결된 매장을 찾지 못했어요.");
+    state.myUsername = profile.username;
+    state.myStores = [...state.storeList];
+    state.myRequestId = null;
+    state.myCrewId = null;
+    localDelete("my-link");
+    localDelete("my-request-id");
+    const target = preferredStore && state.storeList.includes(preferredStore)
+      ? preferredStore : state.storeList[0];
+    await becomeStoreOwner(target);
+    return true;
+  }
+
   async function resolveIdentity(){
     state.loading = true; render();
+    try{
+      if(await restoreManeeAuthOwner(null)) return;
+    }catch(e){
+      // A failed Auth check must never become a successful legacy login.
+      state.role = "landing";
+      state.landingMode = "default";
+      state.loading = false;
+      state.myUsername = null;
+      state.myCrewId = null;
+      state.myRequestId = null;
+      state.myStores = [];
+      state.store = null;
+      state.storeList = [];
+      render();
+      showToast("로그인 상태를 확인하지 못했어요. 다시 로그인해 주세요.");
+      return;
+    }
     try{
       const linkR = localGet("my-link");
       if(linkR && linkR.value){
@@ -967,31 +1026,6 @@
         if(link.storeId) state.storeIdMap[link.store] = link.storeId;
         await loadStaffHome(state.store, state.myCrewId);
         return;
-      }
-    }catch(e){}
-    try{
-      const { data: authData } = await db.auth.getSession();
-      const session = authData && authData.session;
-      if(session && session.user){
-        const { data: profile, error: profileError } = await db.from('profiles').select('user_id,username,status').eq('user_id', session.user.id).maybeSingle();
-        if(!profileError && profile && profile.status === 'active'){
-          const { data: memberships } = await db.from('store_memberships').select('store_id,role,status').eq('user_id', session.user.id).eq('status','active');
-          const ownerMembership = (memberships||[]).find(m=>m.role === 'owner');
-          if(ownerMembership){
-            await loadStoreList(profile.username);
-            if(state.storeList.length){
-              state.role = "storeOwner";
-              state.store = state.storeList[0];
-              state.myUsername = profile.username;
-              state.myStores = [...state.storeList];
-              state.myRequestId = null;
-              await loadAllForStore(state.store);
-              state.onboardingStep = (state.storeOnboardingMap && !state.storeOnboardingMap[state.store]) ? "location" : null;
-              render();
-              return;
-            }
-          }
-        }
       }
     }catch(e){}
     try{
@@ -1108,14 +1142,10 @@
   }
 
   async function enterAuthenticatedOwner(username, preferredStore){
-    await loadStoreList(username);
-    if(!state.storeList.length) throw new Error("연결된 매장을 찾지 못했어요.");
-    state.myUsername = username;
-    state.myStores = [...state.storeList];
-    state.myRequestId = null;
-    localDelete("my-request-id");
-    const target = preferredStore && state.storeList.includes(preferredStore) ? preferredStore : state.storeList[0];
-    await becomeStoreOwner(target);
+    // The API's display username is not an authorization predicate.
+    if(!await restoreManeeAuthOwner(preferredStore)){
+      throw new Error("로그인 세션을 확인하지 못했어요.");
+    }
   }
 
   function startStoreOwnerFlow(){
@@ -1600,10 +1630,22 @@
 
   function switchUser(){
     askConfirm("현재 연결을 해제하고 처음 화면으로 돌아갈까요?", async ()=>{
+      try{
+        const { error } = await db.auth.signOut({ scope: 'local' });
+        if(error) throw error;
+      }catch(e){
+        showToast("로그아웃하지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
+        return;
+      }
       localDelete("my-link");
       localDelete("my-role");
       localDelete("my-request-id");
       localDelete("my-franchise-id");
+      state.legacyPasswordUpgrade = null;
+      state.myRequestId = null;
+      state.loading = false;
+      state.store = null;
+      state.storeList = [];
       state.role = "landing";
       state.landingMode = "default";
       state.myCrewId = null;
