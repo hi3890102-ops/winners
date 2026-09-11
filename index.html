@@ -586,7 +586,7 @@
   async function loadStoreList(ownerUsername, franchiseId){
     let rows = [];
     try{
-      let q = db.from('stores').select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour').order('created_at');
+      let q = db.from('stores').select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour').is('archived_at', null).order('created_at');
       if(ownerUsername) q = q.eq('owner_username', ownerUsername);
       if(franchiseId) q = q.eq('franchise_id', franchiseId);
       const { data, error } = await q;
@@ -966,6 +966,31 @@
       }
     }catch(e){}
     try{
+      const { data: authData } = await db.auth.getSession();
+      const session = authData && authData.session;
+      if(session && session.user){
+        const { data: profile, error: profileError } = await db.from('profiles').select('user_id,username,status').eq('user_id', session.user.id).maybeSingle();
+        if(!profileError && profile && profile.status === 'active'){
+          const { data: memberships } = await db.from('store_memberships').select('store_id,role,status').eq('user_id', session.user.id).eq('status','active');
+          const ownerMembership = (memberships||[]).find(m=>m.role === 'owner');
+          if(ownerMembership){
+            await loadStoreList(profile.username);
+            if(state.storeList.length){
+              state.role = "storeOwner";
+              state.store = state.storeList[0];
+              state.myUsername = profile.username;
+              state.myStores = [...state.storeList];
+              state.myRequestId = null;
+              await loadAllForStore(state.store);
+              state.onboardingStep = (state.storeOnboardingMap && !state.storeOnboardingMap[state.store]) ? "location" : null;
+              render();
+              return;
+            }
+          }
+        }
+      }
+    }catch(e){}
+    try{
       const reqIdR = localGet("my-request-id");
       if(reqIdR && reqIdR.value){
         const record = await findOwnerRequestById(reqIdR.value);
@@ -1055,6 +1080,40 @@
     });
   }
 
+  async function callManeeAuthApi(slug, payload){
+    const res = await fetch(SUPABASE_URL+"/functions/v1/"+slug, {
+      method: "POST",
+      headers: { "Content-Type":"application/json", "apikey": SUPABASE_ANON_KEY },
+      body: JSON.stringify(payload||{})
+    });
+    let data = null;
+    try{ data = await res.json(); }catch(e){ data = null; }
+    if(!res.ok || !data || data.ok !== true){
+      const err = new Error((data && data.message) || "처리 중 오류가 발생했어요.");
+      err.code = data && data.error;
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  async function applyManeeAuthSession(session){
+    if(!session || !session.access_token || !session.refresh_token) throw new Error("로그인 세션을 만들지 못했어요.");
+    const { error } = await db.auth.setSession({ access_token:session.access_token, refresh_token:session.refresh_token });
+    if(error) throw error;
+  }
+
+  async function enterAuthenticatedOwner(username, preferredStore){
+    await loadStoreList(username);
+    if(!state.storeList.length) throw new Error("연결된 매장을 찾지 못했어요.");
+    state.myUsername = username;
+    state.myStores = [...state.storeList];
+    state.myRequestId = null;
+    localDelete("my-request-id");
+    const target = preferredStore && state.storeList.includes(preferredStore) ? preferredStore : state.storeList[0];
+    await becomeStoreOwner(target);
+  }
+
   function startStoreOwnerFlow(){
     state.landingMode = "store-entry";
     render();
@@ -1123,21 +1182,22 @@
     const pw = pwInput.value||"";
     const pwConfirm = pwConfirmInput.value||"";
     if(!name || !storeName || !username){ showToast("이름, 매장명, 아이디를 모두 입력해 주세요."); return; }
-    if(pw.length < 4){ showToast("비밀번호는 4자 이상으로 만들어 주세요."); return; }
+    if(pw.length < 8){ showToast("비밀번호는 8자 이상으로 만들어 주세요."); return; }
     if(pw !== pwConfirm){ showToast("비밀번호가 서로 달라요."); return; }
-    showToast("신청 중이에요…");
-    const dup = await findAnyOwnerRequestByUsername(username);
-    if(dup){ showToast("이미 사용 중인 아이디예요."); return; }
-    const passwordHash = await hashPassword(pw);
-    let record;
+    showToast("계정을 만드는 중이에요…");
     try{
-      record = await insertOwnerRequestRow({ name, store: storeName, username, passwordHash, status:"pending" });
-    }catch(e){ showToast("신청 저장에 실패했어요."); return; }
-    localSet("my-request-id", record.id);
-    state.pendingStoreForOwner = storeName;
-    state.landingMode = "request-pending";
-    render();
-    showToast("가입 신청을 보냈어요");
+      const data = await callManeeAuthApi("manee-signup", { username, password:pw, display_name:name, store_name:storeName });
+      let session = data.session;
+      if(!session){
+        const loginData = await callManeeAuthApi("manee-login", { username, password:pw });
+        session = loginData.session;
+      }
+      await applyManeeAuthSession(session);
+      await enterAuthenticatedOwner(data.user.username, data.store.name);
+      showToast("가입이 완료됐어요");
+    }catch(e){
+      showToast((e && e.message) ? e.message : "가입에 실패했어요.");
+    }
   }
 
   async function loginStoreOwner(){
@@ -1147,9 +1207,18 @@
     const pw = pwInput.value||"";
     if(!username || !pw){ showToast("아이디와 비밀번호를 입력해 주세요."); return; }
     showToast("확인 중이에요…");
+
+    let authError = null;
+    try{
+      const authData = await callManeeAuthApi("manee-login", { username, password:pw });
+      await applyManeeAuthSession(authData.session);
+      await enterAuthenticatedOwner(authData.user.username, null);
+      return;
+    }catch(e){ authError = e; }
+
     const passwordHash = await hashPassword(pw);
     const record = await findOwnerRequestByCredentials(username, passwordHash);
-    if(!record){ showToast("아이디 또는 비밀번호가 올바르지 않아요."); return; }
+    if(!record){ showToast((authError && authError.message) ? authError.message : "아이디 또는 비밀번호가 올바르지 않아요."); return; }
     const remember = state.rememberMeChecked !== false;
     if(remember) localSet("my-request-id", record.id);
     if(record.status === "approved"){
@@ -4100,9 +4169,9 @@
       html += '</div>';
       html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
     }else if(state.landingMode === "store-entry"){
-      html += '<p>매장 사장님이시군요. 처음이시면 가입 신청, 이미 승인되셨다면 로그인해 주세요.</p>';
+      html += '<p>매장 사장님이시군요. 처음이시면 회원가입, 기존 계정이 있으시면 로그인해 주세요.</p>';
       html += '<button class="landing-btn primary" id="store-login-btn">로그인</button>';
-      html += '<button class="landing-btn secondary" id="store-signup-btn">가입 신청하기</button>';
+      html += '<button class="landing-btn secondary" id="store-signup-btn">회원가입하기</button>';
       html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
     }else if(state.landingMode === "store-login"){
       html += '<p>아이디와 비밀번호로 로그인해 주세요.</p>';
@@ -4129,7 +4198,7 @@
       html += '<p>재설정 요청을 보냈어요. 본사에서 새 비밀번호를 발급하면 카톡이나 전화로 전달받으실 수 있어요.</p>';
       html += '<button class="landing-btn primary" id="back-to-login-btn">로그인 화면으로</button>';
     }else if(state.landingMode === "request-form"){
-      html += '<p>매장 사장님으로 가입 신청할게요. 승인되면 아이디·비밀번호로 언제든 로그인할 수 있어요.</p>';
+      html += '<p>매장 사장님 계정을 만들게요. 가입하면 바로 매니를 시작할 수 있어요.</p>';
       html += '<div class="code-box">';
       html += '<label>이름</label>';
       html += '<input id="owner-request-name-input" type="text" placeholder="이름" style="text-align:left;letter-spacing:normal;font-weight:500;">';
@@ -4138,10 +4207,10 @@
       html += '<label style="margin-top:8px;">아이디</label>';
       html += '<input id="owner-request-username-input" type="text" placeholder="아이디" style="text-align:left;letter-spacing:normal;font-weight:500;">';
       html += '<label style="margin-top:8px;">비밀번호</label>';
-      html += '<input id="owner-request-password-input" type="password" placeholder="4자 이상" style="text-align:left;letter-spacing:normal;font-weight:500;">';
+      html += '<input id="owner-request-password-input" type="password" placeholder="8자 이상" style="text-align:left;letter-spacing:normal;font-weight:500;">';
       html += '<label style="margin-top:8px;">비밀번호 확인</label>';
       html += '<input id="owner-request-password-confirm-input" type="password" placeholder="비밀번호 확인" style="text-align:left;letter-spacing:normal;font-weight:500;">';
-      html += '<button id="submit-owner-request-btn">가입 신청하기</button>';
+      html += '<button id="submit-owner-request-btn">회원가입하기</button>';
       html += '</div>';
       html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
     }else if(state.landingMode === "request-pending"){
@@ -4198,7 +4267,7 @@
     }else{
       html += '<div class="field-box2"><label class="input-box2">';
       html += '<span class="input-icon2"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.7"/><path d="M5 20C5 16.5 8 14.5 12 14.5C16 14.5 19 16.5 19 20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>';
-      html += '<input id="store-login-username-input" type="text" placeholder="아이디(이메일 또는 휴대폰 번호)">';
+      html += '<input id="store-login-username-input" type="text" placeholder="아이디">';
       html += '</label></div>';
 
       html += '<div class="field-box2"><label class="input-box2">';
@@ -4213,7 +4282,7 @@
       html += '</div>';
 
       html += '<button type="button" class="login-button2" id="store-login-submit-btn">로그인하기<span class="login-arrow2">›</span></button>';
-      html += '<button type="button" class="signup2" id="store-signup-btn">아직 계정이 없으신가요?<b>가입 신청하기 ›</b></button>';
+      html += '<button type="button" class="signup2" id="store-signup-btn">아직 계정이 없으신가요?<b>회원가입하기 ›</b></button>';
     }
     html += '</section>';
 
