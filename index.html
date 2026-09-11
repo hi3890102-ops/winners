@@ -334,28 +334,50 @@
   .lightbox-close{ position:absolute; top:20px; right:20px; width:36px; height:36px; border-radius:50%; border:none; background:rgba(255,255,255,0.15); color:#fff; font-size:20px; line-height:1; cursor:pointer; }
 
   @media (prefers-reduced-motion: reduce){ *{ transition:none !important; } }
+  .environment-banner{max-width:480px;margin:0 auto;padding:8px 12px;text-align:center;background:#fff3cd;color:#674c00;font-size:12px;}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="/app-config.js"></script>
 </head>
 <body>
+<div id="environment-banner" class="environment-banner" hidden>테스트 환경 · 실제 매장 데이터와 분리되어 있어요</div>
 <div class="app" id="app"><div class="loading">불러오는 중이에요…</div></div>
 <div class="toast" id="toast"></div>
 
 <script>
 (function(){
-  // ---------- Supabase 연결 ----------
-  const SUPABASE_URL = "https://bhwuuxcrzxespkjlmqxr.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_Ch-j2871vwK9hgEFTd2xzg_-ara37n0";
-  const db = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+  // BEGIN MANEE_ENVIRONMENT
+  const MANEE_CONFIG = window.MANEE_CONFIG;
+  const previewHost = /^(deploy-preview-\d+--|security-v2--)/.test(location.hostname);
+  if(!MANEE_CONFIG || !["staging","production"].includes(MANEE_CONFIG.environment) ||
+     !/^[a-z]{20}$/.test(MANEE_CONFIG.projectRef || "") ||
+     MANEE_CONFIG.supabaseUrl !== "https://"+MANEE_CONFIG.projectRef+".supabase.co" ||
+     !(MANEE_CONFIG.publishableKey || "").startsWith("sb_publishable_") ||
+     (MANEE_CONFIG.environment === "staging" && MANEE_CONFIG.projectRef === "bhwuuxcrzxespkjlmqxr") ||
+     (previewHost && MANEE_CONFIG.environment !== "staging")){
+    document.getElementById("app").textContent = "서버 연결 설정을 확인하고 있어요. 잠시 후 다시 접속해 주세요.";
+    return;
+  }
+  const MANEE_IS_STAGING = MANEE_CONFIG.environment === "staging";
+  const MANEE_LOCAL_PREFIX = MANEE_IS_STAGING ? "manee:"+MANEE_CONFIG.projectRef+":" : "";
+  if(MANEE_IS_STAGING){
+    document.title = "매니 · 테스트";
+    document.getElementById("environment-banner").hidden = false;
+  }
+  const SUPABASE_URL = MANEE_CONFIG.supabaseUrl;
+  const SUPABASE_ANON_KEY = MANEE_CONFIG.publishableKey;
+  const db = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
+    MANEE_IS_STAGING ? {auth:{storageKey:"manee-"+MANEE_CONFIG.projectRef+"-auth"}} : undefined) : null;
+  // END MANEE_ENVIRONMENT
 
   // ---------- 개인 세션 저장 (이 기기/브라우저 전용, localStorage) ----------
   function localGet(key){
-    const v = localStorage.getItem(key);
+    const v = localStorage.getItem(MANEE_LOCAL_PREFIX+key);
     return v===null ? null : { key, value:v };
   }
-  function localSet(key, value){ localStorage.setItem(key, value); return { key, value }; }
-  function localDelete(key){ localStorage.removeItem(key); return { key, deleted:true }; }
+  function localSet(key, value){ localStorage.setItem(MANEE_LOCAL_PREFIX+key, value); return { key, value }; }
+  function localDelete(key){ localStorage.removeItem(MANEE_LOCAL_PREFIX+key); return { key, deleted:true }; }
 
   const DEFAULT_STORES = ["대전봉명점","전주서신점","광주전남대점"];
   const TABS = [
@@ -638,6 +660,7 @@
     return outputArray;
   }
   async function refreshPushSubStatus(){
+    if(MANEE_IS_STAGING){ state.pushSubscribed=false; return; }
     if(!("serviceWorker" in navigator) || !("PushManager" in window)){ state.pushSubscribed = false; return; }
     try{
       const reg = await navigator.serviceWorker.ready;
@@ -657,6 +680,7 @@
     }catch(e){ return false; }
   }
   async function subscribeToPush(){
+    if(MANEE_IS_STAGING){ state.pushSubscribed=false; showToast("테스트 환경에서는 알림 연결을 준비하고 있어요."); return; }
     if(!("serviceWorker" in navigator) || !("PushManager" in window)){ showToast("이 브라우저는 푸시 알림을 지원하지 않아요."); return; }
     if(typeof Notification !== "undefined" && Notification.permission === "denied"){
       if(isInstalledApp()){
@@ -695,6 +719,7 @@
     }
   }
   async function unsubscribeFromPush(){
+    if(MANEE_IS_STAGING){ state.pushSubscribed=false; showToast("테스트 환경에서는 알림 연결을 준비하고 있어요."); return; }
     try{
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
