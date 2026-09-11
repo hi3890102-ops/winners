@@ -1,0 +1,26 @@
+name: Legacy Migration Negative Check
+
+on:
+  push:
+    branches: [security-v2]
+    paths:
+      - '.github/workflows/legacy-migration-negative-check.yml'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify wrong password cannot migrate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APIKEY=$(grep -o 'sb_publishable_[A-Za-z0-9_-]*' index.html | head -1)
+          BASE='https://bhwuuxcrzxespkjlmqxr.supabase.co'
+          STATUS=$(curl -sS -o /tmp/resp.json -w '%{http_code}' -X POST "$BASE/functions/v1/manee-login" \
+            -H "apikey: $APIKEY" \
+            -H 'Content-Type: application/json' \
+            -d '{"username":"chltyd","password":"__wrong_password_for_negative_test__"}')
+          test "$STATUS" = '401'
+          test "$(jq -r '.error' /tmp/resp.json)" = 'invalid_credentials'
+          echo 'wrong_password_blocked=true'
