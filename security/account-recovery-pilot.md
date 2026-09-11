@@ -1,4 +1,6 @@
-# Account recovery pilot — isolated staging
+# Account recovery-key pilot — superseded
+
+This earlier staging flow was replaced by `support-password-recovery-pilot.md`. Previously issued recovery-key hashes are retired by the new migration and the current staging UI no longer asks users to keep a backup key.
 
 Applied to `obpkzecgswnfuyhwvncd` on 2026-09-11. Migration `20260911123418`; `manee-account-recovery` v1. The existing `security-v2` user preview is the only frontend target. Production `main`, production Supabase, and the administrator deployment are unchanged.
 

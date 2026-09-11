@@ -15,6 +15,7 @@ await db.exec(readFileSync(new URL('./fixtures/staging-baseline.sql',import.meta
 await db.exec(readFileSync(new URL('./staff-auth.sql',import.meta.url),'utf8'));
 await db.exec(readFileSync(new URL('./account-recovery.sql',import.meta.url),'utf8'));
 await db.exec(readFileSync(new URL('./store-permissions.sql',import.meta.url),'utf8'));
+await db.exec(readFileSync(new URL('./support-password-recovery.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),otherOwner=id(2),worker=id(3),otherWorker=id(4),newWorker=id(5);
 const store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202),secondCrew=id(203),historic=id(301),otherAttendance=id(302);
@@ -274,6 +275,42 @@ scenario('Recovery uncertain result never restores a key or permits immediate re
   assert.equal((await issue(worker,replacementHash)).error,'recovery_in_progress');
   await postgres();await db.query("update private.account_recovery_keys set consumed_at=now()-interval '11 minutes' where user_id=$1",[worker]);
   assert.equal((await issue(worker,replacementHash)).ok,true);
+});
+async function support(action,payload={}){
+  await role(null,'service_role');
+  return scalar('select public.manee_support_recovery_service($1,$2::jsonb)',[action,JSON.stringify(payload)]);
+}
+scenario('Support recovery request is generic and only matches an active linked account',async()=>{
+  await connect();
+  assert.equal((await support('request',{username:'worker_a',affiliation:'Synthetic A'})).ok,true);
+  assert.equal((await support('request',{username:'missing',affiliation:'Synthetic A'})).ok,true);
+  await postgres();
+  assert.equal(await scalar('select count(*)::int from private.password_reset_requests'),1);
+  await role(worker);await denied(()=>db.query('select * from private.password_reset_requests'),'42501');
+  await denied(()=>db.query("select public.manee_support_recovery_service('request','{}'::jsonb)"),'42501');
+});
+scenario('A store owner can issue a short-lived code only for linked staff in that store',async()=>{
+  await connect();await support('request',{username:'worker_a',affiliation:'Synthetic A'});
+  await role(owner);const listed=await scalar('select public.manee_recovery_portal()');
+  assert.equal(listed.requests.length,1);const rid=listed.requests[0].id;
+  const deniedIssue=await support('issue',{actor_user_id:otherOwner,session_id:otherOwner,request_id:rid,code_hash:keyHash});
+  assert.equal(deniedIssue.error,'permission_denied');
+  const issued=await support('issue',{actor_user_id:owner,session_id:owner,request_id:rid,code_hash:keyHash});
+  assert.equal(issued.ok,true);
+  await postgres();assert.equal(await scalar('select code_hash from private.password_reset_requests where id=$1',[rid]),keyHash);
+});
+scenario('Support reset code is one-time, attempt-limited and preserves account links',async()=>{
+  const c=await connect();await support('request',{username:'worker_a',affiliation:'Synthetic A'});
+  await postgres();const rid=await scalar('select id from private.password_reset_requests');
+  await support('issue',{actor_user_id:owner,session_id:owner,request_id:rid,code_hash:keyHash});
+  for(let i=0;i<2;i++)assert.equal((await support('consume',{username:'worker_a',code_hash:replacementHash})).error,'invalid_recovery');
+  const consumed=await support('consume',{username:'worker_a',code_hash:keyHash});
+  assert.equal(consumed.user_id,worker);assert.equal((await support('complete',consumed)).ok,true);
+  assert.equal((await support('consume',{username:'worker_a',code_hash:keyHash})).error,'invalid_recovery');
+  await postgres();
+  assert.equal(await scalar('select status from private.password_reset_requests where id=$1',[rid]),'completed');
+  assert.equal(await scalar('select status from public.store_memberships where id=$1',[c.membership]),'active');
+  assert.equal(await scalar('select count(*)::int from public.attendance where id=$1',[historic]),1);
 });
 scenario('Signed JWT with a missing, expired or foreign session cannot restore, read or clock',async()=>{
   await connect();await postgres();await db.query('delete from auth.sessions where user_id=$1',[worker]);

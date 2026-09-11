@@ -90,29 +90,28 @@ test('Owner review requires confirmation before any mutation RPC',async()=>{
   await h.context.handleStaffAuthClick({target:button});assert.ok(h.calls.some(c=>c.confirmation));assert.equal(h.calls.some(c=>c.name),false);
 });
 
-test('Recovery issue sends current password with session proof and keeps the returned key out of storage',async()=>{
-  const key='0123-4567-89AB-CDEF-0123-4567-89AB-CDEF';
-  const h=harness({inputs:{'recovery-current-password':'old-password'},recoveryResponse:{ok:true,recovery_key:key}});
-  await h.context.handleAccountRecoveryAction('recovery-issue');
-  const call=h.calls.find(c=>c.recoveryUrl);assert.equal(call.request.headers.Authorization,'Bearer verified-token');
-  assert.deepEqual(JSON.parse(call.request.body),{action:'issue',current_password:'old-password'});
-  assert.equal(h.state.accountRecoveryKey,key);assert.equal(h.storage.size,0);
-  await h.context.handleAccountRecoveryAction('recovery-done');assert.equal(h.state.accountRecoveryKey,null);
+test('Recovery request sends only username and affiliation and keeps a generic result',async()=>{
+  const h=harness({inputs:{'recovery-request-username':'worker','recovery-affiliation':'Synthetic A'},recoveryResponse:{ok:true,message:'접수'}});
+  await h.context.handleAccountRecoveryAction('recovery-request');
+  const call=h.calls.find(c=>c.recoveryUrl);assert.equal(call.request.headers.Authorization,undefined);
+  assert.deepEqual(JSON.parse(call.request.body),{action:'request',username:'worker',affiliation:'Synthetic A'});
+  assert.equal(h.storage.size,0);
 });
-test('Recovery form rejects mismatched passwords without sending the key',async()=>{
-  const h=harness({inputs:{'recovery-username':'worker','recovery-key-input':'key','recovery-new-password':'password-a','recovery-confirm-password':'password-b'}});
+test('Recovery form rejects mismatched passwords without sending the reset code',async()=>{
+  const h=harness({inputs:{'recovery-username':'worker','recovery-code-input':'123456','recovery-new-password':'password-a','recovery-confirm-password':'password-b'}});
   await assert.rejects(()=>h.context.handleAccountRecoveryAction('recovery-reset'));
   assert.equal(h.calls.some(c=>c.recoveryUrl),false);
 });
 test('Successful recovery clears cached identity and requires normal login without automatic access',async()=>{
-  const h=harness({state:{role:'staff',myCrewId:'old',accountRecoveryKey:'old-key'},storage:{'my-link':'old','auth-store-id':'old'},inputs:{'recovery-username':'worker','recovery-key-input':'stored-key','recovery-new-password':'password-a','recovery-confirm-password':'password-a'}});
+  const h=harness({state:{role:'staff',myCrewId:'old'},storage:{'my-link':'old','auth-store-id':'old'},inputs:{'recovery-username':'worker','recovery-code-input':'123456','recovery-new-password':'password-a','recovery-confirm-password':'password-a'}});
   await h.context.handleAccountRecoveryAction('recovery-reset');
   const call=h.calls.find(c=>c.recoveryUrl);assert.equal(call.request.headers.Authorization,undefined);
-  assert.equal(h.state.role,'landing');assert.equal(h.state.myCrewId,null);assert.equal(h.state.accountRecoveryKey,null);assert.equal(h.storage.size,0);
+  assert.deepEqual(JSON.parse(call.request.body),{action:'reset',username:'worker',reset_code:'123456',new_password:'password-a'});
+  assert.equal(h.state.role,'landing');assert.equal(h.state.myCrewId,null);assert.equal(h.storage.size,0);
   assert.equal(h.calls.includes('setSession'),false);
 });
 test('Recovery failure does not display success or discard the form',async()=>{
-  const h=harness({recoveryError:true,state:{landingMode:'account-recovery'},inputs:{'recovery-username':'worker','recovery-key-input':'stored-key','recovery-new-password':'password-a','recovery-confirm-password':'password-a'}});
+  const h=harness({recoveryError:true,state:{landingMode:'account-recovery'},inputs:{'recovery-username':'worker','recovery-code-input':'123456','recovery-new-password':'password-a','recovery-confirm-password':'password-a'}});
   await assert.rejects(()=>h.context.handleAccountRecoveryAction('recovery-reset'));
   assert.equal(h.state.landingMode,'account-recovery');assert.equal(h.calls.some(c=>c.toast),false);
 });

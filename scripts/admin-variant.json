@@ -24,7 +24,11 @@
     },
     {
       "source": "  const MANEE_STAFF_AUTH_ENABLED = MANEE_IS_STAGING;\n",
-      "admin": "  const MANEE_STAFF_AUTH_ENABLED = false; // Administrator Auth rollout is separate.\n"
+      "admin": "  const MANEE_STAFF_AUTH_ENABLED = false; // Staff sign-in is unavailable in the administrator build.\n"
+    },
+    {
+      "source": "  const MANEE_ADMIN_AUTH_ENABLED = false;\n",
+      "admin": "  const MANEE_ADMIN_AUTH_ENABLED = MANEE_IS_STAGING;\n"
     }
   ]
 }
