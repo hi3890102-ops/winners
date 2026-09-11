@@ -1,0 +1,27 @@
+name: Patch Auth Security V2 Fixed
+
+on:
+  push:
+    branches: [security-v2]
+    paths:
+      - '.github/workflows/patch-auth-security-v2-fixed.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security-v2
+      - name: Patch user app auth flow
+        run: python3 security/patch_auth_v2.py
+      - name: Commit patched user app
+        run: |
+          git config user.name 'manee-security-bot'
+          git config user.email 'manee-security-bot@users.noreply.github.com'
+          git add index.html
+          git commit -m 'Wire security-v2 to Supabase Auth signup and login'
+          git push origin HEAD:security-v2
