@@ -21,9 +21,12 @@ if (all.staging.projectRef === all.production.projectRef || all.staging.publisha
 const output = resolve(root,'dist');
 rmSync(output,{recursive:true,force:true});
 mkdirSync(output,{recursive:true});
-const html = readFileSync(resolve(root,'index.html'),'utf8');
+let html = readFileSync(resolve(root,'index.html'),'utf8');
 if (!html.includes('src="/app-config.js"') || html.includes(all.production.supabaseUrl) ||
     html.includes(all.production.publishableKey)) throw new Error('Canonical HTML still contains a production connection.');
+const staffAuthAnchor = 'const MANEE_STAFF_AUTH_ENABLED = MANEE_IS_STAGING;';
+if (html.split(staffAuthAnchor).length !== 2) throw new Error('Review staff Auth activation anchor before building.');
+if (environment === 'production') html = html.replace(staffAuthAnchor,'const MANEE_STAFF_AUTH_ENABLED = true; // security-v2 production cutover');
 writeFileSync(resolve(output,'index.html'),html);
 writeFileSync(resolve(output,'app-config.js'),'window.MANEE_CONFIG = Object.freeze('+JSON.stringify(config)+');\n');
 const manifest = JSON.parse(readFileSync(resolve(root,'manifest.json'),'utf8'));
