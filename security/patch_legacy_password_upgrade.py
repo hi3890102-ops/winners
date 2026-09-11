@@ -1,24 +1,30 @@
 from pathlib import Path
+import re
 
 p = Path('index.html')
 s = p.read_text(encoding='utf-8')
 
-old = '''  function landingBack(){
+# Back button clears the old password kept only in memory.
+if 'if(state.landingMode === "legacy-password-upgrade")' not in s:
+    old = '''  function landingBack(){
     if(state.landingMode === "password-reset-request"){
       state.landingMode = "store-login";'''
-new = '''  function landingBack(){
+    new = '''  function landingBack(){
     if(state.landingMode === "legacy-password-upgrade"){
       state.legacyPasswordUpgrade = null;
       state.landingMode = "store-login";
     }else if(state.landingMode === "password-reset-request"){
       state.landingMode = "store-login";'''
-assert old in s
-s = s.replace(old, new, 1)
+    assert old in s
+    s = s.replace(old, new, 1)
 
-old = '''    }catch(e){ authError = e; }
-
-    // 기존 승인 계정은 새 Auth 이전이 끝날 때까지 기존 로그인으로도 들어올 수 있게 유지합니다.'''
-new = '''    }catch(e){
+# Patch only loginStoreOwner, avoiding fragile whole-file string matching.
+login_start = s.index('  async function loginStoreOwner(){')
+login_end = s.index('  async function submitPasswordResetRequest(){', login_start)
+login_block = s[login_start:login_end]
+if 'legacy_password_upgrade_required' not in login_block:
+    pattern = re.compile(r'}\s*catch\s*\(e\)\s*\{\s*authError\s*=\s*e;\s*\}')
+    replacement = '''}catch(e){
       if(e && e.code === "legacy_password_upgrade_required"){
         state.legacyPasswordUpgrade = { username, oldPassword: pw };
         state.landingMode = "legacy-password-upgrade";
@@ -26,14 +32,15 @@ new = '''    }catch(e){
         return;
       }
       authError = e;
-    }
+    }'''
+    login_block, n = pattern.subn(replacement, login_block, count=1)
+    assert n == 1, 'login catch block not found'
+    s = s[:login_start] + login_block + s[login_end:]
 
-    // 기존 승인 계정은 새 Auth 이전이 끝날 때까지 기존 로그인으로도 들어올 수 있게 유지합니다.'''
-assert old in s
-s = s.replace(old, new, 1)
-
-marker = '''  async function submitPasswordResetRequest(){'''
-fn = '''  async function submitLegacyPasswordUpgrade(){
+# Submit new password to the server, where the old password is verified again.
+if 'async function submitLegacyPasswordUpgrade()' not in s:
+    marker = '  async function submitPasswordResetRequest(){'
+    fn = '''  async function submitLegacyPasswordUpgrade(){
     const pending = state.legacyPasswordUpgrade;
     if(!pending || !pending.username || !pending.oldPassword){
       state.legacyPasswordUpgrade = null;
@@ -65,13 +72,15 @@ fn = '''  async function submitLegacyPasswordUpgrade(){
     }
   }
 
-''' + marker
-assert marker in s
-s = s.replace(marker, fn, 1)
+'''
+    assert marker in s
+    s = s.replace(marker, fn + marker, 1)
 
-old = '''    }else if(state.landingMode === "password-reset-request"){
+# Upgrade screen.
+if 'id="legacy-new-password-input"' not in s:
+    old = '''    }else if(state.landingMode === "password-reset-request"){
       html += '<p>아이디와 매장명을 입력하면 본사에 재설정 요청을 보내드려요.</p>';'''
-new = '''    }else if(state.landingMode === "legacy-password-upgrade"){
+    new = '''    }else if(state.landingMode === "legacy-password-upgrade"){
       html += '<p>기존 비밀번호를 확인했어요. 앞으로 안전하게 로그인할 새 비밀번호를 만들어 주세요.</p>';
       html += '<div class="code-box">';
       html += '<label>새 비밀번호</label>';
@@ -83,16 +92,29 @@ new = '''    }else if(state.landingMode === "legacy-password-upgrade"){
       html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
     }else if(state.landingMode === "password-reset-request"){
       html += '<p>아이디와 매장명을 입력하면 본사에 재설정 요청을 보내드려요.</p>';'''
-assert old in s
-s = s.replace(old, new, 1)
+    assert old in s
+    s = s.replace(old, new, 1)
 
-old = '''  const toastEl = document.getElementById("toast");'''
-new = '''  const toastEl = document.getElementById("toast");
+# Delegated event survives render() replacing app.innerHTML.
+if '#legacy-password-upgrade-submit-btn' not in s:
+    old = '  const toastEl = document.getElementById("toast");'
+    new = '''  const toastEl = document.getElementById("toast");
   app.addEventListener("click", (e)=>{
     const target = e.target && e.target.closest ? e.target.closest("#legacy-password-upgrade-submit-btn") : null;
     if(target){ e.preventDefault(); submitLegacyPasswordUpgrade(); }
   });'''
-assert old in s
-s = s.replace(old, new, 1)
+    assert old in s
+    s = s.replace(old, new, 1)
+
+# Critical: once migrated, the old SHA-256 fallback must no longer accept the legacy password.
+cred_start = s.index('  async function findOwnerRequestByCredentials(')
+cred_end = s.index('  async function findAnyOwnerRequestByUsername(', cred_start)
+cred_block = s[cred_start:cred_end]
+if ".is('auth_migrated_at', null)" not in cred_block:
+    old_query = ".ilike('username', username).eq('password_hash', passwordHash).order('requested_at', { ascending:false }).limit(1)"
+    new_query = ".ilike('username', username).eq('password_hash', passwordHash).is('auth_migrated_at', null).order('requested_at', { ascending:false }).limit(1)"
+    assert old_query in cred_block, 'legacy credential query not found'
+    cred_block = cred_block.replace(old_query, new_query, 1)
+    s = s[:cred_start] + cred_block + s[cred_end:]
 
 p.write_text(s, encoding='utf-8')
