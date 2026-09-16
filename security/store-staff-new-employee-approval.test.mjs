@@ -28,6 +28,10 @@ async function role(user,dbRole='authenticated'){
   await db.query("select set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub:user||'',role:dbRole,session_id:user||null})]);await db.exec('set local role '+dbRole);
 }
 async function portal(action,payload={}){return scalar('select public.manee_staff_portal($1,$2::jsonb)',[action,JSON.stringify(payload)]);}
+async function denied(fn,code='42501'){
+  await db.exec('savepoint expected_denial');
+  try{await assert.rejects(fn,e=>e.code===code);}finally{await db.exec('rollback to expected_denial;release expected_denial');}
+}
 function scenario(name,fn){test(name,async()=>{await db.exec('begin');try{await fn();}finally{await db.exec('rollback;reset role');}});}
 const code=await scalar('select staff_join_code from public.stores where id=$1',[store]);
 async function request(user){await role(user);const r=await portal('request',{code});assert.equal(r.ok,true);return r.request_id;}
@@ -53,7 +57,7 @@ scenario('Existing employee conversion path still connects the original crew and
   assert.equal(await scalar('select wage from public.crew where id=$1',[legacyCrew]),18000);assert.equal(await scalar('select position from public.crew where id=$1',[legacyCrew]),'주방');
 });
 scenario('Foreign owner cannot approve a new employee into another store',async()=>{
-  const rid=await request(newWorker);await role(otherOwner);await assert.rejects(()=>portal('approve_new',{request_id:rid}),e=>e.code==='42501');
+  const rid=await request(newWorker);await role(otherOwner);await denied(()=>portal('approve_new',{request_id:rid}));
   await postgres();assert.equal(await scalar('select count(*)::int from public.store_memberships where user_id=$1',[newWorker]),0);
 });
 scenario('Revoked or previously linked account cannot create a duplicate new crew record',async()=>{
@@ -65,7 +69,7 @@ scenario('Revoked or previously linked account cannot create a duplicate new cre
 scenario('Suspended account, expired request and rejected request never create a new crew',async()=>{
   let rid=await request(newWorker);await postgres();await db.query("update private.staff_link_requests set expires_at=now()-interval '1 second' where id=$1",[rid]);await role(owner);
   assert.equal((await portal('approve_new',{request_id:rid})).error,'request_expired');
-  rid=await request(newWorker);await portal('reject',{request_id:rid});assert.equal((await portal('approve_new',{request_id:rid})).error,'request_unavailable');
+  rid=await request(newWorker);await role(owner);assert.equal((await portal('reject',{request_id:rid})).ok,true);assert.equal((await portal('approve_new',{request_id:rid})).error,'request_unavailable');
   rid=await request(newWorker);await postgres();await db.query("update public.profiles set status='suspended' where user_id=$1",[newWorker]);await role(owner);
   assert.equal((await portal('approve_new',{request_id:rid})).error,'account_unavailable');
 });
