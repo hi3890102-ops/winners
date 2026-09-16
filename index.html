@@ -1452,7 +1452,7 @@
       if(new_password!==read('recovery-confirm-password')) throw new Error('비밀번호가 서로 달라요.');
       await accountRecoveryApi({action:'change_password',current_password,new_password},true);
       try{await db.auth.signOut({scope:'local'});}catch(e){}
-      clearStaffAuthView();if(MANEE_ADMIN_AUTH_ENABLED) state.landingMode='admin-select';render();showToast('비밀번호를 변경했어요. 새 비밀번호로 다시 로그인해 주세요.');
+      clearStaffAuthView();if(MANEE_ADMIN_AUTH_ENABLED) state.landingMode=adminEntryLandingMode();render();showToast('비밀번호를 변경했어요. 새 비밀번호로 다시 로그인해 주세요.');
     }else if(action==='recovery-done'){
       if(MANEE_ADMIN_AUTH_ENABLED) await restoreManeeAdmin();else await restoreManeeAuthIdentity(null,true);
     }else if(action==='recovery-login'){
@@ -1649,8 +1649,8 @@
   async function resolveIdentity(){
     state.loading = true; render();
     if(typeof MANEE_ADMIN_AUTH_ENABLED!=='undefined' && MANEE_ADMIN_AUTH_ENABLED){
-      try{if(!await restoreManeeAdmin()){state.role='landing';state.landingMode='admin-select';state.loading=false;render();}}
-      catch(e){try{await db.auth.signOut({scope:'local'});}catch(_){} clearStaffAuthView();state.landingMode='admin-select';render();showToast((e&&e.message)||'관리자 로그인을 다시 확인해 주세요.');}
+      try{if(!await restoreManeeAdmin()){state.role='landing';state.landingMode=adminEntryLandingMode();state.loading=false;render();}}
+      catch(e){try{await db.auth.signOut({scope:'local'});}catch(_){} clearStaffAuthView();state.landingMode=adminEntryLandingMode();render();showToast((e&&e.message)||'관리자 로그인을 다시 확인해 주세요.');}
       return;
     }
     if(MANEE_STAFF_AUTH_ENABLED){
@@ -1775,8 +1775,15 @@
     render();
   }
 
+  function adminEntryLandingMode(){
+    if(!MANEE_ADMIN_AUTH_ENABLED) return "admin-select";
+    try{
+      if(new URLSearchParams(window.location.search).has('franchise')) return "franchise-auth-login";
+    }catch(e){}
+    return "hq-auth-login";
+  }
   function showAdminEntryChooser(){
-    state.landingMode = "admin-select";
+    state.landingMode = adminEntryLandingMode();
     render();
   }
 
@@ -1843,8 +1850,10 @@
     }else if(state.landingMode === "store-login" || state.landingMode === "request-form"){
       state.landingMode = "default";
       state.landingTab = "owner";
-    }else if(state.landingMode === "pin-setup" || state.landingMode === "pin-entry" || state.landingMode === "franchise-login" || state.landingMode === "hq-auth-login" || state.landingMode === "franchise-auth-login"){
+    }else if(state.landingMode === "pin-setup" || state.landingMode === "pin-entry" || state.landingMode === "franchise-login"){
       state.landingMode = "admin-select";
+    }else if(state.landingMode === "hq-auth-login" || state.landingMode === "franchise-auth-login"){
+      state.landingMode = "default";
     }else{
       state.landingMode = "default";
       state.pendingStoreForOwner = null;
