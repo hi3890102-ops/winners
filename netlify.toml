@@ -12,3 +12,6 @@
 
 [functions."notify-reservations-cron"]
   schedule = "0 15 * * *"
+
+[functions."notify-reservation-reminders-cron"]
+  schedule = "*/10 * * * *"

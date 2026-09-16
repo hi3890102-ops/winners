@@ -47,7 +47,7 @@
   .bottom-nav button svg{ width:22px; height:22px; }
   .bottom-nav button.active{ color:var(--brick); }
 
-  header{ padding:22px 20px 14px; border-bottom:1px solid var(--line); }
+  header{ padding:22px 20px 14px; border-bottom:1px solid var(--line); -webkit-user-select:none; user-select:none; }
   .brand{ display:flex; align-items:baseline; gap:8px; margin-bottom:16px; }
   .brand .mark{ width:24px;height:24px;border-radius:8px; background:#fff; border:1px solid var(--line); flex:none; display:flex; align-items:center; justify-content:center; overflow:hidden; }
   .brand .mark svg{ width:14px;height:14px; }
@@ -70,11 +70,11 @@
   .splash-sub{ margin-top:30px; font-family:'Gowun Batang',serif; font-weight:700; font-size:18.5px; color:#5B6B67; line-height:1.6; letter-spacing:-0.1px; }
   .app-logo{ width:56px; height:56px; border-radius:16px; background:var(--brick); margin:0 auto 18px; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 14px rgba(181,64,46,0.25); }
   .app-logo svg{ width:28px; height:28px; }
-  .logo-lockup{ display:inline-flex; align-items:center; gap:9px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 18px 6px 6px; box-shadow:0 2px 10px rgba(23,24,28,0.06); }
+  .logo-lockup{ display:inline-flex; align-items:center; gap:9px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 18px 6px 6px; box-shadow:0 2px 10px rgba(23,24,28,0.06); -webkit-user-select:none; user-select:none; }
   .logo-lockup .logo-symbol{ width:34px; height:34px; border-radius:10px; background:#fff; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; flex:none; overflow:hidden; }
   .logo-lockup .logo-symbol svg{ width:19px; height:19px; }
   .logo-lockup .logo-text{ font-size:15.5px; font-weight:800; color:var(--ink); letter-spacing:-0.01em; }
-  .hero-brand{ display:flex; flex-direction:column; align-items:center; margin-bottom:14px; }
+  .hero-brand{ display:flex; flex-direction:column; align-items:center; margin-bottom:14px; -webkit-user-select:none; user-select:none; }
   .hero-symbol{ width:88px; height:88px; border-radius:24px; background:#fff; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; overflow:hidden; box-shadow:0 10px 24px rgba(23,24,28,0.12); margin-bottom:18px; }
   .hero-symbol svg{ width:48px; height:48px; }
   .hero-wordmark{ font-size:34px; font-weight:800; letter-spacing:-0.03em; }
@@ -1077,7 +1077,7 @@
     try{
       state.crew=await loadAuthStaffCrew(store);
       const me=state.crew.find(c=>c.id===state.myCrewId);
-      const tasks=[loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store)];
+      const tasks=[loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
       if(me && (me.salesAccess || me.isManager)) tasks.push(loadSalesReports(store,monthKey()),loadExpenseEntries(store,monthKey()),loadVendors(store));
       else { state.salesReports=[]; state.expenseEntries=[]; state.vendors=[]; }
       await Promise.all(tasks);
@@ -2460,8 +2460,9 @@
       position: r.position||"홀", isManager: !!r.is_manager, salesAccess: !!r.sales_access, joinCode: r.join_code,
       tax33: !!r.tax33, weeklyAllowance: !!r.weekly_allowance, insurance4: !!r.insurance4, insurance2: !!r.insurance2,
       probation: !!r.probation, hireDate: r.hire_date||"", resignDate: r.resign_date||"",
-      workCondition: r.work_condition||"", residentNumber: r.resident_number||"", bankAccount: r.bank_account||"",
-      healthCertExpiry: r.health_cert_expiry||"", contractSigned: !!r.contract_signed, notes: r.notes||""
+      workCondition: r.work_condition||"", weeklyHours: r.weekly_hours!=null?String(r.weekly_hours):"", residentNumber: r.resident_number||"", bankAccount: r.bank_account||"",
+      healthCertExpiry: r.health_cert_expiry||"", contractSigned: !!r.contract_signed, notes: r.notes||"",
+      customFields: Array.isArray(r.custom_fields) ? r.custom_fields : []
     };
   }
   async function loadCrewRaw(store){
@@ -2476,6 +2477,44 @@
   }
   async function loadCrew(store){
     state.crew = await loadCrewRaw(store);
+  }
+  async function loadPayAdjustments(store, monthKeyStr){
+    const storeId = state.storeIdMap[store];
+    if(!storeId){ state.payAdjustments = []; return; }
+    try{
+      const { data, error } = await db.from('crew_pay_adjustments').select('*').eq('store_id', storeId).eq('month_key', monthKeyStr);
+      if(error) throw error;
+      state.payAdjustments = (data||[]).map(r=>({ id:r.id, crewId:r.crew_id, type:r.type, amount:Number(r.amount)||0, note:r.note||"" }));
+    }catch(e){ state.payAdjustments = []; }
+  }
+  async function addPayAdjustment(){
+    const crewId = state.payCrewId;
+    const typeSel = document.getElementById("payadj-type-select");
+    const amtInp = document.getElementById("payadj-amount-input");
+    const noteInp = document.getElementById("payadj-note-input");
+    if(!crewId || !amtInp) return;
+    const amount = parseInt(amtInp.value||"0",10);
+    if(!amount){ showToast("금액을 입력해 주세요."); return; }
+    const storeId = currentStoreId();
+    const monthKeyStr = monthKey();
+    const type = typeSel ? typeSel.value : "기타";
+    const note = (noteInp.value||"").trim();
+    try{
+      const { data, error } = await db.from('crew_pay_adjustments').insert({ store_id: storeId, crew_id: crewId, month_key: monthKeyStr, type, amount, note }).select().single();
+      if(error) throw error;
+      if(!state.payAdjustments) state.payAdjustments = [];
+      state.payAdjustments.push({ id:data.id, crewId:data.crew_id, type:data.type, amount:Number(data.amount)||0, note:data.note||"" });
+      amtInp.value=""; if(noteInp) noteInp.value="";
+      render();
+      showToast("급여 조정 항목을 추가했어요.");
+    }catch(e){ showToast("저장에 실패했어요."); }
+  }
+  function deletePayAdjustment(id){
+    askConfirm("이 급여 조정 항목을 삭제할까요?", async ()=>{
+      state.payAdjustments = (state.payAdjustments||[]).filter(a=>String(a.id)!==String(id));
+      render();
+      try{ await db.from('crew_pay_adjustments').delete().eq('id', id); }catch(e){}
+    });
   }
   async function updateCrewRow(id, patch){
     try{ const { error } = await db.from('crew').update(patch).eq('id', id); if(error) throw error; }
@@ -2727,10 +2766,12 @@
   async function addExpenseEntry(){
     const vendorSel = document.getElementById("expense-vendor-select");
     const amtInp = document.getElementById("expense-amount-input");
+    const signBtn = document.getElementById("expense-sign-btn");
     if(!vendorSel || !amtInp) return;
     const vendorId = vendorSel.value;
     const vendorName = vendorSel.options[vendorSel.selectedIndex] ? vendorSel.options[vendorSel.selectedIndex].text : "";
-    const amount = parseInt(amtInp.value||"0",10);
+    const sign = signBtn && signBtn.getAttribute("data-sign")==="-1" ? -1 : 1;
+    const amount = sign * (parseInt(amtInp.value||"0",10));
     if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
     const storeId = currentStoreId();
     const dateStr = state.salesEditDate || bizToday();
@@ -2745,10 +2786,12 @@
   async function addQuickExpenseEntry(){
     const vendorSel = document.getElementById("quick-expense-vendor-select");
     const amtInp = document.getElementById("quick-expense-amount-input");
+    const signBtn = document.getElementById("quick-expense-sign-btn");
     if(!vendorSel || !amtInp) return;
     const vendorId = vendorSel.value;
     const vendorName = vendorSel.options[vendorSel.selectedIndex] ? vendorSel.options[vendorSel.selectedIndex].text : "";
-    const amount = parseInt(amtInp.value||"0",10);
+    const sign = signBtn && signBtn.getAttribute("data-sign")==="-1" ? -1 : 1;
+    const amount = sign * (parseInt(amtInp.value||"0",10));
     if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
     const storeId = currentStoreId();
     const dateStr = bizToday();
@@ -2769,6 +2812,15 @@
       if(error) throw error;
       state.reservations = (data||[]).map(r=>({ id:r.id, date:r.date, time:r.time||"", customerName:r.customer_name||"", phone:r.phone||"", partySize:r.party_size||0, memo:r.memo||"" }));
     }catch(e){ state.reservations = []; }
+  }
+  async function loadUpcomingReservations(store){
+    const storeId = state.storeIdMap[store];
+    if(!storeId){ state.upcomingReservations = []; return; }
+    try{
+      const { data, error } = await db.from('reservations').select('*').eq('store_id', storeId).gt('date', bizToday()).order('date').order('time');
+      if(error) throw error;
+      state.upcomingReservations = (data||[]).map(r=>({ id:r.id, date:r.date, time:r.time||"", customerName:r.customer_name||"", phone:r.phone||"", partySize:r.party_size||0, memo:r.memo||"" }));
+    }catch(e){ state.upcomingReservations = []; }
   }
   async function addReservation(){
     const dateInp = document.getElementById("res-date-input");
@@ -2798,6 +2850,9 @@
       if(isToday){
         if(!state.reservations) state.reservations = [];
         state.reservations.push(res);
+      }else{
+        if(!state.upcomingReservations) state.upcomingReservations = [];
+        state.upcomingReservations.push(res);
       }
       nameInp.value=""; phoneInp.value=""; partyInp.value=""; memoInp.value=""; timeInp.value="";
       if(dateInp) dateInp.value = bizToday();
@@ -2816,15 +2871,17 @@
   function cancelReservation(id){
     let res = (state.reservations||[]).find(r=>String(r.id)===String(id));
     if(!res) res = (state.dashboardReservations||[]).find(r=>String(r.id)===String(id));
+    if(!res) res = (state.upcomingReservations||[]).find(r=>String(r.id)===String(id));
     if(!res) return;
     if(MANEE_STAFF_AUTH_ENABLED) return askConfirm('이 예약을 취소할까요?',async()=>{
-      const ok=await deleteAuthBusinessRow('reservations',id,()=>{state.reservations=(state.reservations||[]).filter(r=>String(r.id)!==String(id));state.dashboardReservations=(state.dashboardReservations||[]).filter(r=>String(r.id)!==String(id));});
+      const ok=await deleteAuthBusinessRow('reservations',id,()=>{state.reservations=(state.reservations||[]).filter(r=>String(r.id)!==String(id));state.dashboardReservations=(state.dashboardReservations||[]).filter(r=>String(r.id)!==String(id));state.upcomingReservations=(state.upcomingReservations||[]).filter(r=>String(r.id)!==String(id));});
       if(ok)showToast('예약을 취소했어요.');
     });
     const storeIdForPush = res.storeName ? state.storeIdMap[res.storeName] : currentStoreId();
     askConfirm((res.customerName||'예약')+' 예약을 취소할까요?', async ()=>{
       state.reservations = (state.reservations||[]).filter(r=>String(r.id)!==String(id));
       if(state.dashboardReservations) state.dashboardReservations = state.dashboardReservations.filter(r=>String(r.id)!==String(id));
+      state.upcomingReservations = (state.upcomingReservations||[]).filter(r=>String(r.id)!==String(id));
       render();
       try{ await db.from('reservations').delete().eq('id', id); }catch(e){}
       showToast("예약을 취소했어요.");
@@ -3167,10 +3224,10 @@
     const cashExpenseTotal = sumCashExpenseItems(d.cashExpenseItems);
 
     const leftSide = num(d.totalSales);
-    const rightSide = num(d.cardSales) + num(d.cashSales) + num(d.emoneySales) + num(d.discount) + cashExpenseTotal;
+    const rightSide = num(d.cardSales) + num(d.cashSales) + num(d.emoneySales) + num(d.discount);
     if(leftSide !== rightSide){
       const diff = leftSide - rightSide;
-      showToast("총매출이 안 맞아요. 카드매출+현금매출+전자화폐+할인+현금지출 합계보다 "+(diff>0?(diff.toLocaleString()+"원 많아요"):((-diff).toLocaleString()+"원 적어요"))+".");
+      showToast("총매출이 안 맞아요. 카드매출+현금매출+전자화폐+할인 합계보다 "+(diff>0?(diff.toLocaleString()+"원 많아요"):((-diff).toLocaleString()+"원 적어요"))+".");
       return;
     }
 
@@ -3250,7 +3307,9 @@
       loadFixedExpenses(store, monthKey()),
       loadChecklistLog(store, monthKey()),
       loadAnnouncements(store),
-      loadTodayReservations(store)
+      loadTodayReservations(store),
+      loadUpcomingReservations(store),
+      loadPayAdjustments(store, monthKey())
     ]);
     state.loading = false;
     render();
@@ -3287,7 +3346,8 @@
       loadSalesReports(store, monthKey()),
       loadExpenseEntries(store, monthKey()),
       loadVendors(store),
-      loadTodayReservations(store)
+      loadTodayReservations(store),
+      loadUpcomingReservations(store)
     ]);
     state.loading = false;
     render();
@@ -4042,7 +4102,7 @@
     state.monthNum=m; state.monthYear=y;
     state.selectedDate = null;
     state.dashboardData = null;
-    Promise.all([ loadShifts(state.store, monthKey()), loadAttendance(state.store, monthKey()), loadSalesReports(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadFixedExpenses(state.store, monthKey()), loadChecklistLog(state.store, monthKey()) ]).then(render);
+    Promise.all([ loadShifts(state.store, monthKey()), loadAttendance(state.store, monthKey()), loadSalesReports(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadFixedExpenses(state.store, monthKey()), loadChecklistLog(state.store, monthKey()), loadPayAdjustments(state.store, monthKey()) ]).then(render);
   }
 
   async function addCrewMember(){
@@ -4061,6 +4121,7 @@
     const hireDateInput = document.getElementById("crew-hiredate-input");
     const resignDateInput = document.getElementById("crew-resigndate-input");
     const workConditionSelect = document.getElementById("crew-workcondition-select");
+    const weeklyHoursInput = document.getElementById("crew-weeklyhours-input");
     const residentInput = document.getElementById("crew-resident-input");
     const bankInput = document.getElementById("crew-bank-input");
     const healthCertInput = document.getElementById("crew-healthcert-input");
@@ -4081,6 +4142,7 @@
     const hireDate = hireDateInput ? hireDateInput.value : "";
     const resignDate = resignDateInput ? resignDateInput.value : "";
     const workCondition = workConditionSelect ? workConditionSelect.value : "";
+    const weeklyHours = weeklyHoursInput && weeklyHoursInput.value!=="" ? Number(weeklyHoursInput.value) : null;
     const residentNumber = residentInput ? residentInput.value.trim() : "";
     const bankAccount = bankInput ? bankInput.value.trim() : "";
     const healthCertExpiry = healthCertInput ? healthCertInput.value : "";
@@ -4093,14 +4155,14 @@
       store_id: storeId, name, wage, wage_type: wageType, phone, position, is_manager: isManager, sales_access: salesAccess,
       tax33, weekly_allowance: weeklyAllowance, insurance4, insurance2, probation,
       hire_date: hireDate || null, resign_date: resignDate || null, join_code: uniqueJoinCode,
-      work_condition: workCondition, resident_number: residentNumber, bank_account: bankAccount,
+      work_condition: workCondition, weekly_hours: weeklyHours, resident_number: residentNumber, bank_account: bankAccount,
       health_cert_expiry: healthCertExpiry || null, contract_signed: contractSigned, notes
     };
     try{
       const { data, error } = await db.from('crew').insert(payload).select().single();
       if(error) throw error;
       state.crew.push(rowToCrew(data));
-      nameInput.value=""; wageInput.value=""; phoneInput.value="";
+      nameInput.value=""; wageInput.value=""; phoneInput.value=""; if(weeklyHoursInput) weeklyHoursInput.value="";
       state.showAddCrewForm = false;
       render();
       showToast(name+"님을 추가했어요.");
@@ -4124,10 +4186,30 @@
     const c = state.crew.find(c=>c.id===id);
     if(!c) return;
     c[field] = value;
-    const colMap = { workCondition:"work_condition", residentNumber:"resident_number", bankAccount:"bank_account", notes:"notes" };
+    const colMap = { workCondition:"work_condition", weeklyHours:"weekly_hours", residentNumber:"resident_number", bankAccount:"bank_account", notes:"notes" };
     const col = colMap[field];
     if(!col) return;
-    updateCrewRow(id, { [col]: value });
+    updateCrewRow(id, { [col]: field==="weeklyHours" ? (value===""?null:Number(value)) : value });
+  }
+  function addCrewCustomField(id){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c) return;
+    if(!c.customFields) c.customFields = [];
+    c.customFields.push({ label:"", value:"" });
+    render();
+  }
+  function updateCrewCustomField(id, idx, key, value){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c || !c.customFields || !c.customFields[idx]) return;
+    c.customFields[idx][key] = value;
+    updateCrewRow(id, { custom_fields: c.customFields });
+  }
+  function removeCrewCustomField(id, idx){
+    const c = state.crew.find(c=>c.id===id);
+    if(!c || !c.customFields) return;
+    c.customFields.splice(idx,1);
+    render();
+    updateCrewRow(id, { custom_fields: c.customFields });
   }
   function updateCrewHealthCert(id, value){
     const c = state.crew.find(c=>c.id===id);
@@ -5179,7 +5261,7 @@
           if(state.scheduleTab === "crew") html += renderCrewManage();
           else html += renderCalendar();
         }else{
-          html += renderStaffSchedule();
+          html += renderStaffSchedule(person);
         }
       }else if(state.staffView === "announcements"){
         html += renderAnnouncementsList(person);
@@ -5312,6 +5394,15 @@
     }else{
       html += '<p class="crew-code-hint" style="margin-bottom:8px;">오늘 등록된 예약이 없어요.</p>';
     }
+    const upcomingRes = (state.upcomingReservations||[]).slice().sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
+    if(upcomingRes.length>0){
+      html += '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">';
+      html += '<p class="crew-code-hint" style="margin-bottom:8px;">다가오는 예약 '+upcomingRes.length+'건</p>';
+      upcomingRes.forEach(r=>{
+        html += '<div class="pay-list-item"><span class="d">'+formatDateLabel(r.date)+' '+(r.time||'--:--')+' '+escapeHtml(r.customerName||'예약')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(r.partySize?r.partySize+'명':'')+'<button class="crew-del" data-cancelres="'+r.id+'">취소</button></span></div>';
+      });
+      html += '</div>';
+    }
     if(!state.showReservationForm){
       html += '<button id="show-reservation-form-btn" style="width:100%;margin-top:10px;border:none;border-radius:10px;padding:11px;font-size:13.5px;font-weight:800;cursor:pointer;background:var(--brick);color:#fff;">+ 예약 등록</button>';
     }else{
@@ -5335,7 +5426,8 @@
       html += '<select id="quick-expense-vendor-select" class="field-input" style="flex:1;">';
       state.vendors.forEach(v=> html += '<option value="'+v.id+'">'+escapeHtml(v.name)+'</option>');
       html += '</select>';
-      html += '<input id="quick-expense-amount-input" type="number" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
+      html += '<input id="quick-expense-amount-input" type="number" min="0" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
+      html += '<button type="button" id="quick-expense-sign-btn" class="crew-code-btn" data-sign="1" style="flex:0 0 auto;">지출</button>';
       html += '<button id="add-quick-expense-btn">등록</button>';
       html += '</div>';
       html += '<p class="crew-code-hint" style="margin-top:6px;">오늘 등록한 지출은 매출보고에 자동으로 반영돼요.</p>';
@@ -5354,6 +5446,7 @@
     if(net.taxRate > 0){
       html += '<div class="mp-row"><span>세금 ('+net.taxLabel+')</span><b>(-)'+net.taxAmount.toLocaleString()+'원</b></div>';
       html += '<div class="mp-row" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.25);font-size:15px;"><span>최종 환산금액</span><b style="color:#fff;font-size:17px;">'+net.netPay.toLocaleString()+'원</b></div>';
+      html += '<p style="font-size:10.5px;color:rgba(255,255,255,0.75);margin:6px 0 0;">참고용 계산이에요. 실제 공제·실수령액은 사람마다 다를 수 있어요.</p>';
     }
     html += '</div>';
 
@@ -5461,7 +5554,7 @@
       });
       html += '<div class="pay-list-item" style="font-weight:800;"><span class="d">계좌이체 합계</span><span>'+sumCashExpenseItems(bankItems).toLocaleString()+'원</span></div>';
     }
-    html += '<div class="add-row" style="padding:10px 0 0;background:transparent;"><input id="bank-item-amount-input" type="number" placeholder="금액" style="max-width:100px;flex:0 0 100px;"><input id="bank-item-note-input" type="text" placeholder="내용 (예: 재료비 이체)" style="flex:1;min-width:0;"><button id="add-bank-item-btn">추가</button></div>';
+    html += '<div class="add-row" style="padding:10px 0 0;background:transparent;"><input id="bank-item-amount-input" type="number" placeholder="금액" style="max-width:100px;flex:0 0 100px;"><input id="bank-item-note-input" type="text" placeholder="내용" style="flex:1;min-width:0;"><button id="add-bank-item-btn">추가</button></div>';
 
     const fieldDefsB = [
       { key:"actualCash", label:"실현금매출 (현금매출-현금지출-계좌이체)", computed:true },
@@ -5520,7 +5613,8 @@
       html += '<select id="expense-vendor-select" class="field-input" style="flex:1;">';
       state.vendors.forEach(v=> html += '<option value="'+v.id+'">'+escapeHtml(v.name)+'</option>');
       html += '</select>';
-      html += '<input id="expense-amount-input" type="number" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
+      html += '<input id="expense-amount-input" type="number" min="0" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
+      html += '<button type="button" id="expense-sign-btn" class="crew-code-btn" data-sign="1" style="flex:0 0 auto;">지출</button>';
       html += '<button id="add-expense-btn">추가</button>';
       html += '</div>';
     }
@@ -5566,11 +5660,13 @@
     return html;
   }
 
-  function renderStaffSchedule(){
+  function renderStaffSchedule(person){
     const y=state.monthYear, m=state.monthNum;
     const totalDays = daysInMonth(y,m);
     const leadEmpty = firstWeekdayMon0(y,m);
-    let html = '<h3 style="margin:0 0 14px;font-size:16px;font-weight:800;">'+state.store+' 스케줄</h3>';
+    const myId = state.myCrewId;
+    const myShiftsOnDate = dateStr => shiftsOnDate(dateStr).filter(s=>s.crewId===myId);
+    let html = '<h3 style="margin:0 0 14px;font-size:16px;font-weight:800;">내 스케줄</h3>';
     html += '<div class="month-nav"><button id="prev-month">‹</button><span class="month-label">'+y+'년 '+m+'월</span><button id="next-month">›</button></div>';
     html += '<div class="cal-grid">';
     DOW_LABELS.forEach(dl=> html += '<div class="cal-dow">'+dl+'</div>');
@@ -5579,19 +5675,30 @@
       const dateStr = y+"-"+pad(m)+"-"+pad(d);
       const isToday = dateStr === bizToday();
       const isSel = dateStr === state.selectedDate;
-      const cnt = shiftsOnDate(dateStr).length;
+      const cnt = myShiftsOnDate(dateStr).length;
       html += '<div class="cal-day'+(isToday?' today':'')+(isSel?' selected':'')+'" data-staffscheduledate="'+dateStr+'">';
       html += d + (cnt>0 ? '<span class="dot"></span>' : '');
       html += '</div>';
     }
     html += '</div>';
     if(state.selectedDate){
+      const mine = myShiftsOnDate(state.selectedDate).slice().sort((a,b)=>a.start.localeCompare(b.start));
       html += '<div class="day-panel">';
-      html += '<h3>'+formatDateLabel(state.selectedDate)+' 근무</h3>';
-      html += renderShiftsGrouped(state.selectedDate, false);
+      html += '<h3>'+formatDateLabel(state.selectedDate)+' 내 근무</h3>';
+      if(mine.length===0) html += '<div class="empty-note" style="padding:8px 0;">이 날은 근무 일정이 없어요.</div>';
+      else mine.forEach(s=> html += '<div class="shift-row"><span class="shift-time">'+s.start+'–'+s.end+'</span></div>');
       html += '</div>';
     }else{
-      html += '<p class="crew-code-hint">날짜를 누르면 그날 누가 근무하는지 볼 수 있어요.</p>';
+      html += '<p class="crew-code-hint">날짜를 누르면 그날 내 근무 시간을 볼 수 있어요.</p>';
+    }
+    if(person){
+      const info = calcCrewPay(person, y, m);
+      html += '<div class="month-pill" style="margin-top:12px;">';
+      html += '<p class="mp-label">'+m+'월 총 근무 (근무확인 완료 기준)</p>';
+      html += '<div class="mp-row"><span>근무일수</span><b>'+info.days+'일</b></div>';
+      html += '<div class="mp-row"><span>총 근무시간</span><b>'+info.hours.toFixed(1)+'시간</b></div>';
+      html += '<div class="mp-row"><span>예상 급여</span><b>'+info.pay.toLocaleString()+'원</b></div>';
+      html += '</div>';
     }
     return html;
   }
@@ -5662,7 +5769,7 @@
     days.forEach((d,i)=>{
       const h = Math.max(6, Math.round((d.val/max)*80));
       const isToday = i === days.length-1;
-      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;">';
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;cursor:pointer;" data-trenddate="'+d.key+'">';
       if(isToday){
         html += '<span style="font-size:10.5px;font-weight:800;color:var(--brick);position:absolute;top:-18px;white-space:nowrap;">'+Math.round(d.val/10000).toLocaleString()+'만</span>';
       }
@@ -6353,6 +6460,7 @@
 
   function renderFixedPanel(){
     let html = '<div class="day-panel">';
+    html += '<button class="staff-back" id="close-fixed-btn-top">‹ 뒤로</button>';
     html += '<h3>고정 근무 설정</h3>';
     const activeCrewForFixed = state.crew.filter(isCrewActive);
     if(activeCrewForFixed.length===0){
@@ -6427,6 +6535,7 @@
       html += '<option value="'+opt+'"'+(c && c.workCondition===opt?' selected':'')+'>'+opt+'</option>';
     });
     html += '</select></div>';
+    html += '<div style="margin-top:10px;"><label class="field-label">주당 근무시간</label><input class="field-input" type="number" min="0" step="0.5" placeholder="예: 40" '+(c?('data-weeklyhours="'+c.id+'" value="'+escapeHtml(c.weeklyHours||"")+'"'):'id="crew-weeklyhours-input"')+'></div>';
 
     html += '<div class="row2" style="margin-top:10px;">';
     html += '<div><label class="field-label">주민번호</label><input class="field-input" type="text" placeholder="000000-0000000" '+(c?('data-resident="'+c.id+'" value="'+escapeHtml(c.residentNumber||"")+'"'):'id="crew-resident-input"')+'></div>';
@@ -6442,27 +6551,44 @@
     }
 
     html += '<div style="margin-top:10px;"><label class="field-label">비고</label><textarea class="field-input" rows="2" style="resize:vertical;" placeholder="메모"'+(c?(' data-notes="'+c.id+'"'):' id="crew-notes-input"')+'>'+(c?escapeHtml(c.notes||""):'')+'</textarea></div>';
+    if(c){
+      html += '<div style="margin-top:10px;"><label class="field-label">추가 항목 (유니폼보증금, 비자종류, 신고가능기간 등)</label>';
+      (c.customFields||[]).forEach((f,idx)=>{
+        html += '<div class="row2" style="margin-top:6px;">';
+        html += '<input class="field-input" type="text" placeholder="항목명" data-customfieldlabel="'+c.id+':'+idx+'" value="'+escapeHtml(f.label||"")+'">';
+        html += '<input class="field-input" type="text" placeholder="값" data-customfieldvalue="'+c.id+':'+idx+'" value="'+escapeHtml(f.value||"")+'">';
+        html += '</div>';
+        html += '<button type="button" class="shift-del" data-customfielddel="'+c.id+':'+idx+'" style="margin-top:2px;">이 항목 삭제</button>';
+      });
+      html += '<button type="button" class="crew-code-btn" data-customfieldadd="'+c.id+'" style="margin-top:8px;">+ 항목 추가</button>';
+      html += '</div>';
+    }
     return html;
   }
 
   function infoModalContent(type){
     const rows = (arr)=> arr.map(([a,b])=>'<div class="pay-list-item"><span class="d">'+a+'</span><span>'+b+'</span></div>').join("");
+    const payrollDisclaimer = '<p style="font-size:11.5px;color:var(--danger);margin-top:10px;font-weight:700;">⚠️ 참고용 계산이에요. 소득세, 부양가족 수, 소득 구간별 상한/하한 등에 따라 실제 공제액·실수령액은 사람마다 다를 수 있어요. 정확한 금액은 세무사·4대보험 공단에 확인해 주세요.</p>';
     if(type==="insurance4"){
       return { title:"4대보험료 공제 9.7%", body:
         '<p style="font-size:13px;color:var(--ink-soft);margin-bottom:10px;">4대보험에 가입하여 세금을 적용할 경우, 근로자 급여에서 공제되는 금액이에요 (사업주 부담분은 별도).</p>' +
         rows([["국민연금 (9.50%)","4.75%"],["건강보험 (7.19%)","3.595%"],["장기요양보험 (0.9448%)","0.4724%"],["고용보험","0.9%"],["산재보험","없음 (전액 회사부담)"]]) +
-        '<p style="font-size:11.5px;color:var(--ink-soft);margin-top:10px;">· 주 15시간(월 60시간) 미만 근로자는 4대보험 가입대상이 아니에요.</p>'
+        '<p style="font-size:11.5px;color:var(--ink-soft);margin-top:10px;">· 주 15시간(월 60시간) 미만 근로자는 4대보험 가입대상이 아니에요.</p>' +
+        '<p style="font-size:11.5px;color:var(--ink-soft);margin-top:6px;">· 이 계산에는 소득세(근로소득세)가 포함되지 않았어요. 실제 급여명세서에는 소득세가 추가로 공제될 수 있어요.</p>' +
+        payrollDisclaimer
       };
     }
     if(type==="insurance2"){
       return { title:"2대보험료 공제 0.9%", body:
         '<p style="font-size:13px;color:var(--ink-soft);margin-bottom:10px;">국민연금·건강보험 없이 고용보험·산재보험만 적용할 때 근로자 급여에서 공제되는 금액이에요.</p>' +
-        rows([["고용보험","0.9%"],["산재보험","없음 (전액 회사부담)"]])
+        rows([["고용보험","0.9%"],["산재보험","없음 (전액 회사부담)"]]) +
+        payrollDisclaimer
       };
     }
     if(type==="tax33"){
       return { title:"3.3% 원천징수", body:
-        '<p style="font-size:13px;color:var(--ink-soft);">사업소득세 원천징수 방식이에요. 프리랜서·단기 아르바이트에 흔히 적용되고, 4대보험에는 가입되지 않아요. 급여의 3.3%를 공제하고 지급해요.</p>'
+        '<p style="font-size:13px;color:var(--ink-soft);">사업소득세 원천징수 방식이에요. 프리랜서·단기 아르바이트에 흔히 적용되고, 4대보험에는 가입되지 않아요. 급여의 3.3%를 공제하고 지급해요.</p>' +
+        payrollDisclaimer
       };
     }
     return { title:"주휴수당 포함", body:
@@ -6660,9 +6786,35 @@
       html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.15);">';
       html += '<p class="meta">세금 ('+personNet.taxLabel+') (-)'+personNet.taxAmount.toLocaleString()+'원</p>';
       html += '<p class="meta" style="font-size:15px;color:var(--brick-dim);font-weight:700;">실수령 예상액 '+personNet.netPay.toLocaleString()+'원</p>';
+      html += '<p style="font-size:10.5px;color:rgba(255,255,255,0.75);margin:4px 0 0;">참고용 계산이에요. 실제 공제·실수령액은 사람마다 다를 수 있어요.</p>';
       html += '</div>';
     }
     html += '</div>';
+
+    const myAdjustments = (state.payAdjustments||[]).filter(a=>a.crewId===state.payCrewId);
+    const adjTotal = myAdjustments.reduce((s,a)=>s+a.amount,0);
+    const baseForAdj = personNet.taxRate>0 ? personNet.netPay : personInfo.pay;
+    html += '<div class="day-panel" style="margin-top:12px;">';
+    html += '<h3 style="margin-top:0;">급여 조정 (반차·가불·무급휴가 등)</h3>';
+    html += '<p class="crew-code-hint" style="margin-bottom:10px;">양수는 지급액에 더하고, 음수(예: 가불은 -100000)는 이번 달 지급액에서 빼요.</p>';
+    if(myAdjustments.length===0){
+      html += '<p class="empty-note" style="padding:6px 0;">등록된 조정 항목이 없어요.</p>';
+    }else{
+      myAdjustments.forEach(a=>{
+        html += '<div class="pay-list-item"><span class="d">'+escapeHtml(a.type)+(a.note?(' · '+escapeHtml(a.note)):'')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(a.amount>=0?'+':'')+a.amount.toLocaleString()+'원<button class="crew-del" data-deladj="'+a.id+'">삭제</button></span></div>';
+      });
+      html += '<div class="pay-list-item" style="font-weight:800;"><span class="d">조정 합계</span><span>'+(adjTotal>=0?'+':'')+adjTotal.toLocaleString()+'원</span></div>';
+    }
+    html += '<div class="row2" style="margin-top:10px;">';
+    html += '<select class="field-input" id="payadj-type-select"><option value="반차">반차</option><option value="가불">가불</option><option value="무급휴가">무급휴가</option><option value="기타">기타</option></select>';
+    html += '<input class="field-input" type="number" id="payadj-amount-input" placeholder="금액 (가불은 -)">';
+    html += '</div>';
+    html += '<input class="field-input" type="text" id="payadj-note-input" placeholder="메모 (선택)" style="margin-top:8px;">';
+    html += '<button class="crew-code-btn" id="add-payadj-btn" style="margin-top:8px;width:100%;">+ 조정 항목 추가</button>';
+    html += '</div>';
+    if(myAdjustments.length>0){
+      html += '<div class="pay-summary c-teal" style="margin-top:12px;"><p class="label">조정 반영 후 최종 지급 예상액</p><p class="amount">'+(baseForAdj+adjTotal).toLocaleString()+'원</p></div>';
+    }
 
     if(myAttPending.length>0){
       html += '<div class="empty-note" style="background:#FFF3E0;border-radius:12px;padding:12px;text-align:left;margin-bottom:14px;">매니저 근무확인을 기다리는 근무가 '+myAttPending.length+'건 있어요. 확인 전에는 급여에 반영되지 않아요.</div>';
@@ -6777,6 +6929,12 @@
     if(clockOutBtn) clockOutBtn.addEventListener("click", clockOut);
     const addQuickExpenseBtn = document.getElementById("add-quick-expense-btn");
     if(addQuickExpenseBtn) addQuickExpenseBtn.addEventListener("click", addQuickExpenseEntry);
+    const quickExpenseSignBtn = document.getElementById("quick-expense-sign-btn");
+    if(quickExpenseSignBtn) quickExpenseSignBtn.addEventListener("click", ()=>{
+      const negative = quickExpenseSignBtn.getAttribute("data-sign")==="-1";
+      quickExpenseSignBtn.setAttribute("data-sign", negative?"1":"-1");
+      quickExpenseSignBtn.textContent = negative?"지출":"반품(-)";
+    });
     const addReservationBtn = document.getElementById("add-reservation-btn");
     if(addReservationBtn) addReservationBtn.addEventListener("click", addReservation);
     const showReservationFormBtn = document.getElementById("show-reservation-form-btn");
@@ -6838,6 +6996,12 @@
   function bindSalesReportEvents(){
     const addExpenseBtnForm = document.getElementById("add-expense-btn");
     if(addExpenseBtnForm) addExpenseBtnForm.addEventListener("click", addExpenseEntry);
+    const expenseSignBtn = document.getElementById("expense-sign-btn");
+    if(expenseSignBtn) expenseSignBtn.addEventListener("click", ()=>{
+      const negative = expenseSignBtn.getAttribute("data-sign")==="-1";
+      expenseSignBtn.setAttribute("data-sign", negative?"1":"-1");
+      expenseSignBtn.textContent = negative?"지출":"반품(-)";
+    });
     app.querySelectorAll("[data-delexpense]").forEach(btn=>{
       btn.addEventListener("click", ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense")));
     });
@@ -7014,6 +7178,30 @@
     app.querySelectorAll("[data-workcondition]").forEach(sel=>{
       sel.addEventListener("change", ()=> updateCrewExtraField(sel.getAttribute("data-workcondition"), "workCondition", sel.value));
     });
+    app.querySelectorAll("[data-weeklyhours]").forEach(inp=>{
+      inp.addEventListener("change", ()=> updateCrewExtraField(inp.getAttribute("data-weeklyhours"), "weeklyHours", inp.value.trim()));
+    });
+    app.querySelectorAll("[data-customfieldlabel]").forEach(inp=>{
+      inp.addEventListener("change", ()=>{
+        const [id, idx] = inp.getAttribute("data-customfieldlabel").split(":");
+        updateCrewCustomField(id, Number(idx), "label", inp.value.trim());
+      });
+    });
+    app.querySelectorAll("[data-customfieldvalue]").forEach(inp=>{
+      inp.addEventListener("change", ()=>{
+        const [id, idx] = inp.getAttribute("data-customfieldvalue").split(":");
+        updateCrewCustomField(id, Number(idx), "value", inp.value.trim());
+      });
+    });
+    app.querySelectorAll("[data-customfielddel]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const [id, idx] = btn.getAttribute("data-customfielddel").split(":");
+        removeCrewCustomField(id, Number(idx));
+      });
+    });
+    app.querySelectorAll("[data-customfieldadd]").forEach(btn=>{
+      btn.addEventListener("click", ()=> addCrewCustomField(btn.getAttribute("data-customfieldadd")));
+    });
     app.querySelectorAll("[data-resident]").forEach(inp=>{
       inp.addEventListener("change", ()=> updateCrewExtraField(inp.getAttribute("data-resident"), "residentNumber", inp.value.trim()));
     });
@@ -7080,6 +7268,8 @@
     if(openFixedBtn) openFixedBtn.addEventListener("click", openFixedPanel);
     const closeFixedBtn = document.getElementById("close-fixed-btn");
     if(closeFixedBtn) closeFixedBtn.addEventListener("click", closeFixedPanel);
+    const closeFixedBtnTop = document.getElementById("close-fixed-btn-top");
+    if(closeFixedBtnTop) closeFixedBtnTop.addEventListener("click", closeFixedPanel);
     const fixedCrewSel = document.getElementById("fixed-crew-select");
     if(fixedCrewSel) fixedCrewSel.addEventListener("change", ()=>{ state.fixedDraft.crewId = fixedCrewSel.value; });
     ["fixed-start","fixed-end"].forEach(prefix=>{
@@ -7206,6 +7396,11 @@
     });
     const paySel = document.getElementById("pay-crew-select");
     if(paySel) paySel.addEventListener("change", ()=>{ state.payCrewId = paySel.value; render(); });
+    const addPayAdjBtn = document.getElementById("add-payadj-btn");
+    if(addPayAdjBtn) addPayAdjBtn.addEventListener("click", addPayAdjustment);
+    app.querySelectorAll("[data-deladj]").forEach(btn=>{
+      btn.addEventListener("click", ()=> deletePayAdjustment(btn.getAttribute("data-deladj")));
+    });
     const exportBtn = document.getElementById("export-excel-btn");
     if(exportBtn) exportBtn.addEventListener("click", exportExcelAttendance);
   }
@@ -7388,6 +7583,9 @@
     });
     const resStoreSelect = document.getElementById("res-store-select");
     if(resStoreSelect) resStoreSelect.addEventListener("change", ()=> switchOwnerStore(resStoreSelect.value));
+    app.querySelectorAll("[data-trenddate]").forEach(el=>{
+      el.addEventListener("click", ()=> openOwnerSalesForm(el.getAttribute("data-trenddate")));
+    });
     const resDateInput = document.getElementById("res-date-input");
     if(resDateInput) resDateInput.addEventListener("input", ()=>{ state.reservationDraft.date = resDateInput.value; });
     const resTimeInput = document.getElementById("res-time-input");
