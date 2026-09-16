@@ -1,8 +1,11 @@
+const { blockExternalService } = require("./lib/manee-environment.cjs");
 // Netlify Function: 정산표 사진을 Claude Vision으로 읽어서 숫자를 뽑아줘요.
 // 이 파일은 서버(넷리파이) 쪽에서만 실행돼요. API 키가 여기 있어도
 // 사용자 브라우저에는 절대 노출되지 않아요.
 
 exports.handler = async function(event) {
+  const blocked = blockExternalService();
+  if (blocked) return blocked;
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
@@ -76,3 +79,4 @@ exports.handler = async function(event) {
     return { statusCode: 500, body: JSON.stringify({ error: "서버 오류가 발생했어요." }) };
   }
 };
+

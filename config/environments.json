@@ -1,0 +1,14 @@
+{
+  "production": {
+    "environment": "production",
+    "projectRef": "bhwuuxcrzxespkjlmqxr",
+    "supabaseUrl": "https://bhwuuxcrzxespkjlmqxr.supabase.co",
+    "publishableKey": "sb_publishable_Ch-j2871vwK9hgEFTd2xzg_-ara37n0"
+  },
+  "staging": {
+    "environment": "staging",
+    "projectRef": "obpkzecgswnfuyhwvncd",
+    "supabaseUrl": "https://obpkzecgswnfuyhwvncd.supabase.co",
+    "publishableKey": "sb_publishable_EYGVVagcD_MmLeUfj8bt7w_sq8gfeiK"
+  }
+}

@@ -1,2 +1,14 @@
+[build]
+  command = "node scripts/build-environment.mjs"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[headers]]
+  for = "/app-config.js"
+  [headers.values]
+    Cache-Control = "no-store"
+
 [functions."notify-reservations-cron"]
   schedule = "0 15 * * *"

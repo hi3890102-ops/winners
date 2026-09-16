@@ -1,3 +1,4 @@
+const { blockExternalService } = require("./lib/manee-environment.cjs");
 // netlify/functions/notify-reservations-cron.js
 // 매일 자정(KST 00:00)에 자동 실행돼요.
 // "오늘 날짜"로 등록된 예약 중 아직 알림을 안 보낸 것들을 매장별로 모아서 푸시 발송해요.
@@ -14,6 +15,8 @@ function todayKstDateStr(){
 }
 
 exports.handler = async () => {
+  const blocked = blockExternalService();
+  if (blocked) return blocked;
   try {
     const supabase = createClient(
       process.env.SUPABASE_URL,
@@ -88,3 +91,4 @@ exports.handler = async () => {
     return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
   }
 };
+

@@ -1,0 +1,27 @@
+{
+  "date": "2026-09-11",
+  "project_ref": "obpkzecgswnfuyhwvncd",
+  "environment": "staging",
+  "migration": {
+    "version": "20260911112246",
+    "name": "enable_staff_auth_approval_pilot"
+  },
+  "sql_path": "security/staff-auth.sql",
+  "edge_function": {
+    "name": "manee-staff-signup",
+    "version": 1,
+    "verify_jwt": false,
+    "bundle_sha256": "edc4e969cc091fbb23da9a36f5aea7ad493f10a7318a73fafde46b3ead9fff7a"
+  },
+  "local_tests": {
+    "passed": 73,
+    "failed": 0
+  },
+  "live_sql_role_validation": {
+    "passed": true,
+    "fixture_rows_rolled_back": true
+  },
+  "real_auth_http_or_browser_flow_verified": false,
+  "multi_connection_concurrency_verified": false,
+  "production_changes": false
+}

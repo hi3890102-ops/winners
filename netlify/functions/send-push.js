@@ -1,3 +1,4 @@
+const { blockExternalService } = require("./lib/manee-environment.cjs");
 // netlify/functions/send-push.js
 // 매장의 구독자(사장님/매니저)들에게 푸시알림을 보내는 함수
 // 프론트에서 fetch('/.netlify/functions/send-push', { method:'POST', body: JSON.stringify({...}) })로 호출
@@ -6,6 +7,8 @@ const webpush = require('web-push');
 const { createClient } = require('@supabase/supabase-js');
 
 exports.handler = async (event) => {
+  const blocked = blockExternalService();
+  if (blocked) return blocked;
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
@@ -57,3 +60,4 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
   }
 };
+
