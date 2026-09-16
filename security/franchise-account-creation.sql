@@ -30,7 +30,7 @@ begin
   if public.is_manee_username_reserved(uname) then raise exception 'username_taken' using errcode='23505'; end if;
 
   insert into public.profiles(user_id,username,display_name,status) values(p_user_id,uname,btrim(p_display_name),'active');
-  insert into public.franchises(name,username,password_hash) values(fname,uname,'auth_managed:'||encode(gen_random_bytes(16),'hex')) returning id into fid;
+  insert into public.franchises(name,username,password_hash) values(fname,uname,'auth_managed:'||encode(extensions.gen_random_bytes(16),'hex')) returning id into fid;
   insert into public.franchise_memberships(user_id,franchise_id,role,status) values(p_user_id,fid,'admin','active');
   return fid;
 end;
@@ -46,5 +46,11 @@ $$;
 -- postgres/service_role only), so mirror it explicitly here.
 revoke all on function private.bootstrap_franchise_account(uuid,uuid,text,text,text) from public, anon, authenticated;
 revoke all on function public.bootstrap_franchise_account(uuid,uuid,text,text,text) from public, anon, authenticated;
+-- The public wrapper is SECURITY INVOKER (plain LANGUAGE sql, no SECURITY
+-- DEFINER), so when service_role calls it, its inner call into the private
+-- function still executes as service_role and needs its own EXECUTE grant --
+-- revoking from public/anon/authenticated above does not imply granting to
+-- service_role, so it must be explicit here too.
+grant execute on function private.bootstrap_franchise_account(uuid,uuid,text,text,text) to service_role;
 
 commit;
