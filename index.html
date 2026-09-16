@@ -438,6 +438,9 @@
     storeOnboardingMap: {},
     onboardingStep: null,
     showStoreManage: false,
+    showFranchiseManage: false,
+    hqSalesSearch: "",
+    franchiseAssignSearch: "",
     landingMode: "default", // default | code | pin-setup | pin-entry | store-entry | store-login | request-form | request-pending | request-rejected
     pendingStoreForOwner: null,
     ownerRequests: [],
@@ -4689,11 +4692,16 @@
       html += renderAiChatSection();
     }else if(state.showAdminSettings){
       html += renderAdminSettingsSection();
+    }else if((isHq||isFranchise) && state.showFranchiseManage){
+      html += renderFranchiseManage();
     }else{
     if(state.showStoreManage) html += renderStoreManage();
     if(state.showAddStoreForm) html += renderAddStoreForm();
     if(state.showOwnerSalesForm){
       html += renderSalesReportForm();
+    }
+    else if(isHq || isFranchise){
+      html += renderHqStoreSearchSales();
     }
     else if(state.section === "dashboard"){
       html += renderDashboard();
@@ -4706,13 +4714,21 @@
     html += '<button class="switch-link" id="switch-user-btn">다른 사용자로 전환</button>';
     html += '</main>';
     html += '<nav class="bottom-nav">';
-    if(isHq || isFranchise || state.role==="storeOwner"){
+    if(isHq || isFranchise){
+      const hqNavActive = !state.showStoreManage && !state.showFranchiseManage && !state.showAdminSettings;
+      html += '<button class="'+(hqNavActive?"active":"")+'" id="hq-nav-search-btn">'+navIcon('chart')+'<span>매장검색</span></button>';
+      html += '<button class="'+(state.showStoreManage?"active":"")+'" id="hq-nav-store-manage-btn">'+navIcon('store')+'<span>매장관리</span></button>';
+      if(isHq){
+        html += '<button class="'+(state.showFranchiseManage?"active":"")+'" id="hq-nav-franchise-manage-btn">'+navIcon('people')+'<span>프랜차이즈</span></button>';
+        html += '<button class="'+(state.showAdminSettings?"active":"")+'" id="hq-nav-admin-settings-btn">'+navIcon('bell')+'<span>스텝비번</span></button>';
+      }
+    }else{
       html += '<button class="'+(state.section==="dashboard"?"active":"")+'" data-section="dashboard">'+navIcon('chart')+'<span>대시보드</span></button>';
+      html += '<button class="'+(state.section==="checklist"?"active":"")+'" data-section="checklist">'+navIcon('check')+'<span>체크</span></button>';
+      html += '<button class="'+(state.section==="schedule"?"active":"")+'" data-section="schedule">'+navIcon('calendar')+'<span>스케줄</span></button>';
+      html += '<button class="'+(state.section==="sales"?"active":"")+'" data-section="sales">'+navIcon('chart')+'<span>매출</span></button>';
+      html += '<button class="'+(state.section==="announce"?"active":"")+'" data-section="announce">'+navIcon('bell')+'<span>공지</span></button>';
     }
-    html += '<button class="'+(state.section==="checklist"?"active":"")+'" data-section="checklist">'+navIcon('check')+'<span>체크</span></button>';
-    html += '<button class="'+(state.section==="schedule"?"active":"")+'" data-section="schedule">'+navIcon('calendar')+'<span>스케줄</span></button>';
-    html += '<button class="'+(state.section==="sales"?"active":"")+'" data-section="sales">'+navIcon('chart')+'<span>매출</span></button>';
-    html += '<button class="'+(state.section==="announce"?"active":"")+'" data-section="announce">'+navIcon('bell')+'<span>공지</span></button>';
     html += '</nav>';
     html += renderConfirmOverlay();
     html += renderLightbox();
@@ -5058,6 +5074,44 @@
       });
     }
     html += '</div>';
+    return html;
+  }
+
+  function renderFranchiseManage(){
+    let html = '<button class="switch-link" id="close-franchise-manage-btn" style="margin-bottom:10px;">← 뒤로가기</button>';
+    html += '<div class="day-panel">';
+    html += '<h3>프랜차이즈 목록</h3>';
+    html += '<p class="crew-code-hint" style="margin-bottom:10px;">매장을 프랜차이즈 소속으로 배정하면, 그 프랜차이즈 계정으로 로그인했을 때만 보여요.</p>';
+    if(!state.franchises || state.franchises.length===0){
+      html += '<div class="empty-note" style="padding:8px 0;">등록된 프랜차이즈가 없어요.</div>';
+    }else{
+      state.franchises.forEach(f=>{
+        const storeCount = Object.values(state.storeFranchiseMap||{}).filter(fid=>fid===f.id).length;
+        html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(f.name)+'</div><div class="fp-detail">매장 '+storeCount+'개</div></div></div>';
+      });
+    }
+    html += '</div>';
+
+    html += '<div class="day-panel">';
+    html += '<h3>매장 소속 배정</h3>';
+    html += '<input class="field-input" id="franchise-store-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.franchiseAssignSearch||"")+'" style="margin-bottom:10px;">';
+    const q = (state.franchiseAssignSearch||"").trim().toLowerCase();
+    const matched = q ? state.storeList.filter(s=>s.toLowerCase().includes(q)) : [];
+    if(!q){
+      html += '<div class="empty-note" style="padding:8px 0;">매장 이름을 검색해 주세요. (전체 '+state.storeList.length+'개)</div>';
+    }else if(matched.length===0){
+      html += '<div class="empty-note" style="padding:8px 0;">일치하는 매장이 없어요.</div>';
+    }
+    matched.forEach(s=>{
+      const curFid = (state.storeFranchiseMap||{})[s] || "";
+      html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(s)+'</div></div>';
+      html += '<select class="field-input" data-assignfranchise="'+escapeHtml(s)+'" style="flex:0 0 auto;width:auto;padding:6px 10px;font-size:12.5px;"><option value="">본사 직영 (미배정)</option>';
+      (state.franchises||[]).forEach(f=>{ html += '<option value="'+f.id+'"'+(curFid===f.id?' selected':'')+'>'+escapeHtml(f.name)+'</option>'; });
+      html += '</select></div>';
+    });
+    html += '</div>';
+
+    html += '<div class="day-panel"><h3>새 프랜차이즈 계정 만들기</h3><p class="crew-code-hint">Auth 전용 프랜차이즈 계정 생성 기능은 아직 준비 중이에요. 필요하시면 말씀해 주세요.</p></div>';
     return html;
   }
 
@@ -5820,6 +5874,67 @@
       }
       html += '<div style="width:100%;background:'+(isActive?'var(--brick)':'var(--brick-dim)')+';border-radius:4px 4px 0 0;height:'+h+'px;"></div>';
       html += '<span style="font-size:10.5px;color:'+(isActive?'var(--brick)':'var(--ink-soft)')+';font-weight:'+(isActive?'800':'400')+';">'+(isToday?'오늘':dowLabel[d.dow])+'</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function renderHqStoreSearchSales(){
+    let html = "";
+    if(state.dashboardLoading || !state.dashboardData){
+      html += '<div class="empty-note">매장 '+state.storeList.length+'곳 데이터를 불러오는 중이에요…</div>';
+      return html;
+    }
+    const data = state.dashboardData;
+    let totalSales = 0, totalDelivery = 0, totalPrevMonth = 0;
+    data.forEach(d=>{ totalSales += d.salesSum; totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); });
+    const deltaPct = totalPrevMonth>0 ? ((totalSales-totalPrevMonth)/totalPrevMonth*100) : null;
+
+    html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
+    html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('chart')+'</svg></span>'+state.monthNum+'월 전체 매장 합산 매출</span>';
+    html += '<p style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;">'+totalSales.toLocaleString()+'원</p>';
+    if(deltaPct!==null){
+      html += '<p style="margin:0 0 6px;font-size:12px;font-weight:700;color:'+(deltaPct>=0?'var(--olive)':'var(--danger)')+';">전월 대비 '+(deltaPct>=0?'+':'')+deltaPct.toFixed(1)+'%</p>';
+    }
+    html += '<p style="margin:0;font-size:12px;color:var(--ink-soft);">배달매출 '+totalDelivery.toLocaleString()+'원 (별도 집계) · 매장 '+data.length+'개</p>';
+    html += '</div>';
+
+    html += '<div class="day-panel" style="margin-bottom:10px;">';
+    html += '<h3 style="margin:0 0 8px;">매장 검색</h3>';
+    html += '<input class="field-input" id="hq-sales-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.hqSalesSearch||"")+'">';
+    html += '</div>';
+
+    const q = (state.hqSalesSearch||"").trim().toLowerCase();
+    const matched = q ? data.filter(d=>d.store.toLowerCase().includes(q)) : data;
+    if(q && matched.length===0){
+      html += '<div class="empty-note">일치하는 매장이 없어요.</div>';
+      return html;
+    }
+    html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
+    matched.forEach((d, idx)=>{
+      const laborBad = d.laborRatio!==null && d.laborRatio>25;
+      const foodBad = d.expenseRatio!==null && d.expenseRatio>40;
+      const hasIssue = laborBad || foodBad;
+      const expanded = !!state.expandedStoreRows[d.store];
+      html += '<div style="'+(idx < matched.length-1 ? 'border-bottom:1px solid var(--line);' : '')+'">';
+      html += '<div data-storetoggle="'+escapeHtml(d.store)+'" style="cursor:pointer;display:grid;grid-template-columns:1fr 74px 74px;align-items:center;gap:6px;padding:14px 0;">';
+      html += '<div style="display:flex;align-items:center;gap:7px;min-width:0;">';
+      html += '<svg width="13" height="13" viewBox="0 0 24 24" style="transform:rotate('+(expanded?180:0)+'deg);flex:0 0 auto;"><path d="M6 9l6 6 6-6" stroke="var(--ink-soft)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      if(hasIssue) html += '<span style="width:6px;height:6px;border-radius:50%;background:var(--danger);flex:0 0 auto;"></span>';
+      html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(d.store)+'</span>';
+      html += '</div>';
+      html += '<div style="text-align:right;font-size:14px;font-weight:800;color:var(--ink);">'+Math.round(d.salesSum/10000).toLocaleString()+'만</div>';
+      html += '<div style="text-align:right;font-size:12px;color:var(--ink-soft);">배달 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만</div>';
+      html += '</div>';
+      if(expanded){
+        const ratioText = d.laborRatio===null ? "—" : d.laborRatio.toFixed(1)+"%";
+        const foodText = d.expenseRatio===null ? "—" : d.expenseRatio.toFixed(1)+"%";
+        html += '<div style="padding:0 0 14px 20px;display:flex;gap:28px;">';
+        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">인건비율</div><div style="font-size:16px;font-weight:800;color:'+(laborBad?'var(--danger)':'var(--olive)')+';">'+ratioText+'</div>'+(laborBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">25% 초과</div>':'')+'</div>';
+        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">식자재비율</div><div style="font-size:16px;font-weight:800;color:'+(foodBad?'var(--danger)':'var(--olive)')+';">'+foodText+'</div>'+(foodBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">40% 초과</div>':'')+'</div>';
+        html += '</div>';
+      }
       html += '</div>';
     });
     html += '</div>';
@@ -7519,6 +7634,50 @@
     if(openAdminSettingsBtn) openAdminSettingsBtn.addEventListener("click", async()=>{ state.showAdminSettings = true; state.showStoreManage = false; if(MANEE_ADMIN_AUTH_ENABLED) try{await loadPasswordResetRequests();}catch(e){} render(); });
     const closeAdminSettingsBtn = document.getElementById("close-admin-settings-btn");
     if(closeAdminSettingsBtn) closeAdminSettingsBtn.addEventListener("click", ()=>{ state.showAdminSettings = false; render(); });
+    const hqNavSearchBtn = document.getElementById("hq-nav-search-btn");
+    if(hqNavSearchBtn) hqNavSearchBtn.addEventListener("click", ()=>{
+      state.showStoreManage = false; state.showFranchiseManage = false; state.showAdminSettings = false; state.section = "dashboard"; render();
+    });
+    const hqNavStoreManageBtn = document.getElementById("hq-nav-store-manage-btn");
+    if(hqNavStoreManageBtn) hqNavStoreManageBtn.addEventListener("click", async()=>{
+      state.showFranchiseManage = false; state.showAdminSettings = false; state.showStoreManage = true;
+      if(MANEE_ADMIN_AUTH_ENABLED) try{await loadPasswordResetRequests();}catch(e){}
+      render();
+    });
+    const hqNavFranchiseManageBtn = document.getElementById("hq-nav-franchise-manage-btn");
+    if(hqNavFranchiseManageBtn) hqNavFranchiseManageBtn.addEventListener("click", async()=>{
+      state.showStoreManage = false; state.showAdminSettings = false; state.showFranchiseManage = true;
+      try{ await Promise.all([loadFranchises(), loadStoreFranchiseMap()]); }catch(e){}
+      render();
+    });
+    const closeFranchiseManageBtn = document.getElementById("close-franchise-manage-btn");
+    if(closeFranchiseManageBtn) closeFranchiseManageBtn.addEventListener("click", ()=>{ state.showFranchiseManage = false; render(); });
+    const hqNavAdminSettingsBtn = document.getElementById("hq-nav-admin-settings-btn");
+    if(hqNavAdminSettingsBtn) hqNavAdminSettingsBtn.addEventListener("click", async()=>{
+      state.showStoreManage = false; state.showFranchiseManage = false; state.showAdminSettings = true;
+      if(MANEE_ADMIN_AUTH_ENABLED) try{await loadPasswordResetRequests();}catch(e){}
+      render();
+    });
+    const hqSalesSearchInput = document.getElementById("hq-sales-search-input");
+    if(hqSalesSearchInput){
+      hqSalesSearchInput.addEventListener("input", ()=>{
+        const pos = hqSalesSearchInput.selectionStart;
+        state.hqSalesSearch = hqSalesSearchInput.value;
+        render();
+        const el = document.getElementById("hq-sales-search-input");
+        if(el){ el.focus(); el.setSelectionRange(pos, pos); }
+      });
+    }
+    const franchiseStoreSearchInput = document.getElementById("franchise-store-search-input");
+    if(franchiseStoreSearchInput){
+      franchiseStoreSearchInput.addEventListener("input", ()=>{
+        const pos = franchiseStoreSearchInput.selectionStart;
+        state.franchiseAssignSearch = franchiseStoreSearchInput.value;
+        render();
+        const el = document.getElementById("franchise-store-search-input");
+        if(el){ el.focus(); el.setSelectionRange(pos, pos); }
+      });
+    }
     const storeSearchInput = document.getElementById("store-search-input");
     if(storeSearchInput){
       storeSearchInput.addEventListener("input", ()=>{
