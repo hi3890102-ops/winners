@@ -1171,12 +1171,18 @@
   }
   function renderOwnerStaffAccess(){
     const access=state.ownerStaffAccess;
-    let html='<div class="day-panel"><h3>스텝 계정 연결</h3><p class="crew-code-hint">1. 매장코드를 직원에게 전달 → 2. 직원이 가입 요청 → 3. 신규 직원 승인 또는 기존 직원기록 연결</p>';
     if(!access || access.storeId!==currentStoreId()){
       if(!state.ownerStaffAccessLoading){
         state.ownerStaffAccessLoading=true;
         refreshOwnerStaffAccess().catch(e=>showToast(staffErrorMessage(e))).finally(()=>{state.ownerStaffAccessLoading=false;});
       }
+    }
+    let html='<div class="day-panel">'+
+      '<button type="button" data-staff-link-section-toggle="1" style="display:flex;width:100%;justify-content:space-between;align-items:center;background:none;border:none;padding:0;cursor:pointer;text-align:left;font:inherit;color:inherit;">'+
+      '<strong style="font-size:16px;">스텝 계정 연결</strong><span aria-hidden="true" style="display:inline-block;transition:transform .15s;transform:rotate('+(state.showStaffLinkSection?90:0)+'deg);font-size:18px;">›</span></button>';
+    if(!state.showStaffLinkSection) return html+'</div>';
+    html+='<p class="crew-code-hint" style="margin-top:8px;">1. 매장코드를 직원에게 전달 → 2. 직원이 가입 요청 → 3. 신규 직원 승인 또는 기존 직원기록 연결</p>';
+    if(!access || access.storeId!==currentStoreId()){
       return html+'<p>매장코드와 가입 요청을 불러오는 중이에요…</p></div>';
     }
     html+='<div class="day-panel" style="margin-top:12px;">'+
@@ -1263,7 +1269,9 @@
     const codePanelToggle=event.target.closest&&event.target.closest('[data-store-code-panel-toggle]');
     if(codePanelToggle){state.showStoreCodePanel=!state.showStoreCodePanel;render();return;}
     const linkedStaffToggle=event.target.closest&&event.target.closest('[data-linked-staff-toggle]');
-    if(linkedStaffToggle){state.showLinkedStaff=!state.showLinkedStaff;render();}
+    if(linkedStaffToggle){state.showLinkedStaff=!state.showLinkedStaff;render();return;}
+    const staffLinkSectionToggle=event.target.closest&&event.target.closest('[data-staff-link-section-toggle]');
+    if(staffLinkSectionToggle){state.showStaffLinkSection=!state.showStaffLinkSection;render();}
   });
   async function handleStaffAuthClick(event){
     const button=event.target.closest && event.target.closest('[data-staff-auth-action]');

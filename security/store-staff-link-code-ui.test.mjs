@@ -57,7 +57,7 @@ test('Switching stores while confirmation is open aborts the operation',async()=
   h.state.store='Other';h.state.storeIdMap.Other='other';await h.confirm();assert.equal(h.calls.some(x=>x.args),false);
 });
 test('Employee choices exclude records linked to someone else and escape unsafe names',()=>{
-  const h=harness();h.state.ownerStaffAccess.requests=[{id:'r',requester_user_id:'me',username:'<script>',display_name:'Worker'}];
+  const h=harness();h.state.showStaffLinkSection=true;h.state.ownerStaffAccess.requests=[{id:'r',requester_user_id:'me',username:'<script>',display_name:'Worker'}];
   h.state.ownerStaffAccess.available_crew=[{crew_id:'free',crew_name:'Free'},{crew_id:'mine',crew_name:'Mine',linked_user_id:'me'},{crew_id:'foreign',crew_name:'Hidden',linked_user_id:'other'}];
   const output=h.context.renderOwnerStaffAccess();assert.ok(output.includes('value="free"'));assert.ok(output.includes('value="mine"'));assert.equal(output.includes('value="foreign"'),false);assert.equal(output.includes('<script>'),false);
 });
