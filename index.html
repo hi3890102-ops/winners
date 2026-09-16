@@ -7743,7 +7743,8 @@
     });
     const hqSalesSearchInput = document.getElementById("hq-sales-search-input");
     if(hqSalesSearchInput){
-      hqSalesSearchInput.addEventListener("input", ()=>{
+      hqSalesSearchInput.addEventListener("input", (e)=>{
+        if(e.isComposing) return;
         const pos = hqSalesSearchInput.selectionStart;
         state.hqSalesSearch = hqSalesSearchInput.value;
         render();
@@ -7753,7 +7754,8 @@
     }
     const franchiseStoreSearchInput = document.getElementById("franchise-store-search-input");
     if(franchiseStoreSearchInput){
-      franchiseStoreSearchInput.addEventListener("input", ()=>{
+      franchiseStoreSearchInput.addEventListener("input", (e)=>{
+        if(e.isComposing) return;
         const pos = franchiseStoreSearchInput.selectionStart;
         state.franchiseAssignSearch = franchiseStoreSearchInput.value;
         render();
@@ -7763,7 +7765,8 @@
     }
     const storeSearchInput = document.getElementById("store-search-input");
     if(storeSearchInput){
-      storeSearchInput.addEventListener("input", ()=>{
+      storeSearchInput.addEventListener("input", (e)=>{
+        if(e.isComposing) return;
         const pos = storeSearchInput.selectionStart;
         state.storeManageSearch = storeSearchInput.value;
         render();
@@ -7773,7 +7776,8 @@
     }
     const ownerSearchInput = document.getElementById("owner-search-input");
     if(ownerSearchInput){
-      ownerSearchInput.addEventListener("input", ()=>{
+      ownerSearchInput.addEventListener("input", (e)=>{
+        if(e.isComposing) return;
         const pos = ownerSearchInput.selectionStart;
         state.ownerManageSearch = ownerSearchInput.value;
         render();
