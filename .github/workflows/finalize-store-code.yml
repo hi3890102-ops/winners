@@ -2,28 +2,37 @@ name: Verify store-code release
 on:
   push:
     branches: [security-v2]
-    paths: ['.github/workflows/finalize-store-code.yml', 'scripts/finalize-store-code-ui.py', 'security/**']
+    paths: ['.github/workflows/finalize-store-code.yml', 'index.html', 'security/**']
+  pull_request:
+    branches: [main]
 permissions:
-  contents: write
+  contents: read
 concurrency:
-  group: finalize-store-code-security-v2
-  cancel-in-progress: false
+  group: store-code-verify-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local_ci_only
+          POSTGRES_DB: manee_code_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      MANEE_TEST_DATABASE_URL: postgresql://postgres:local_ci_only@127.0.0.1:5432/manee_code_test
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: security-v2
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Finish connection UI
-        run: |
-          if test -f scripts/finalize-store-code-ui.py; then python scripts/finalize-store-code-ui.py; fi
       - run: npm ci
-      - name: All security regression tests
+      - name: Ensure PostgreSQL client
+        run: command -v psql || (sudo apt-get update -qq && sudo apt-get install -y postgresql-client)
+      - name: All security and concurrent connection tests
         run: |
           set -o pipefail
           node --test security/*.test.mjs | tee /tmp/store-code-tests.txt
@@ -41,18 +50,3 @@ jobs:
         with:
           name: store-code-tests
           path: /tmp/store-code-tests.txt
-      - name: Commit only tested UI and remove completed patch helpers
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          python - <<'PY'
-          from pathlib import Path
-          for p in Path('.github/workflows').glob('apply-store-level-staff-code*.yml'): p.unlink()
-          for name in ['scripts/apply-store-level-staff-code.py','scripts/finalize-store-code-ui.py']:
-              Path(name).unlink(missing_ok=True)
-          PY
-          git add -u -- index.html security scripts .github/workflows
-          if ! git diff --cached --quiet; then
-            git commit -m 'Finalize tested store-code onboarding and remove temporary patch workflows'
-            git push origin HEAD:security-v2
-          fi
