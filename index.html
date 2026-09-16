@@ -4689,7 +4689,10 @@
     }else{
     if(state.showStoreManage) html += renderStoreManage();
     if(state.showAddStoreForm) html += renderAddStoreForm();
-    if(state.section === "dashboard"){
+    if(state.showOwnerSalesForm){
+      html += renderSalesReportForm();
+    }
+    else if(state.section === "dashboard"){
       html += renderDashboard();
     }
     else if(state.section === "checklist") html += renderChecklist();
