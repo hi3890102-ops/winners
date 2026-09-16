@@ -525,6 +525,20 @@
 
   function pad(n){ return String(n).padStart(2,"0"); }
   function todayKey(){ return now.getFullYear()+"-"+pad(now.getMonth()+1)+"-"+pad(now.getDate()); }
+  function staffExpiringCerts(person){
+    if(!person) return [];
+    const todayD = new Date(todayKey());
+    const list = person.isManager ? (state.crew||[]) : [person];
+    return list
+      .filter(c=>!!c.healthCertExpiry)
+      .map(c=>{
+        const exp = new Date(c.healthCertExpiry);
+        const daysUntil = Math.round((exp - todayD) / 86400000);
+        return { name:c.name, expiry:c.healthCertExpiry, daysUntil, isSelf:c.id===person.id };
+      })
+      .filter(item=>item.daysUntil<=30)
+      .sort((a,b)=>a.daysUntil-b.daysUntil);
+  }
   function nowTimeStr(){ return pad(now.getHours())+":"+pad(now.getMinutes()); }
   // ---------- business day (영업일) ----------
   // 심야 영업 매장 특성상, 자정을 넘겨도 마감 시간 전까지는 "어제 영업일"로 취급해요.
@@ -5309,6 +5323,17 @@
     let html = '<div class="staff-hero" style="display:flex;align-items:center;gap:12px;">'+renderAvatarBadge(person, 48)+'<div style="flex:1;"><p class="greet" style="margin:0;">'+person.name+'님, 오늘도 왔네요</p><p class="sub" style="margin:2px 0 0;display:flex;align-items:center;gap:6px;">'+state.store+(person.isManager?' <span class="pos-badge mgr-badge">매니저</span>':' <span class="pos-badge staff-badge">스텝</span>')+'</p></div>';
     html += '<button id="push-toggle-btn" title="출퇴근·예약 알림" style="flex:0 0 auto;width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;background:'+(state.pushSubscribed?'var(--brick)':'var(--cream)')+';color:'+(state.pushSubscribed?'#fff':'var(--ink-soft)')+';"><svg viewBox="0 0 24 24" fill="none" width="20" height="20">'+navIcon('bell')+'</svg></button>';
     html += '</div>';
+
+    const myCerts = staffExpiringCerts(person);
+    if(myCerts.length>0){
+      html += '<div style="background:#FFF4E5;border:1px solid #FFD9A0;border-radius:12px;padding:12px 14px;margin-bottom:14px;">';
+      html += '<div style="font-weight:800;font-size:13px;color:#8A5A00;margin-bottom:6px;">⚠️ 보건증 만료 임박</div>';
+      myCerts.forEach(item=>{
+        const statusText = item.daysUntil < 0 ? (Math.abs(item.daysUntil)+'일 지남 (만료됨)') : (item.daysUntil===0 ? '오늘 만료' : ('D-'+item.daysUntil));
+        html += '<div style="font-size:12.5px;color:#6B4500;padding:2px 0;">'+escapeHtml(item.name)+(item.isSelf?' (본인)':'')+' · '+item.expiry+' · '+statusText+'</div>';
+      });
+      html += '</div>';
+    }
 
     // ---------- 출퇴근 + 오늘 예정 근무 (최상단, 가장 중요) ----------
     const openAtt = findOpenAttendance(state.myCrewId);
