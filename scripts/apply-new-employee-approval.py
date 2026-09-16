@@ -56,15 +56,19 @@ new_owner='''  function renderOwnerStaffAccess(){
 replace_once(old_owner,new_owner,'owner approval UI')
 replace_once('사장님이 요청을 확인하고 기존 직원 기록을 선택해 승인하면 출퇴근·급여·근무 기록이 이 계정에 연결돼요.','사장님이 승인하면 신규 직원으로 등록되거나 기존 직원기록과 연결돼요. 기존 기록을 연결하는 경우 출퇴근·급여·근무 기록이 그대로 이어집니다.','staff approval copy')
 replace_once("const ownerMutation=['approve','reject','revoke','regenerate-store-code','approve-edit','reject-edit'].includes(action);","const ownerMutation=['approve','approve-new','reject','revoke','regenerate-store-code','approve-edit','reject-edit'].includes(action);",'mutation list')
-replace_once("if(['approve','reject','revoke','regenerate-store-code','approve-edit','reject-edit'].includes(action) && button.dataset.confirmed!=='yes'){
-      const message=action==='regenerate-store-code'?'매장 연결코드를 새로 발급할까요? 이전 코드는 즉시 사용할 수 없어요.':action==='revoke'?'이 계정의 매장 접근을 해제할까요? 직원·근무 기록은 보존돼요.':action==='approve'?'선택한 직원 기록을 이 가입 계정에 연결할까요?':'이 요청을 처리할까요?';","if(['approve','approve-new','reject','revoke','regenerate-store-code','approve-edit','reject-edit'].includes(action) && button.dataset.confirmed!=='yes'){
-      const message=action==='regenerate-store-code'?'매장 연결코드를 새로 발급할까요? 이전 코드는 즉시 사용할 수 없어요.':action==='revoke'?'이 계정의 매장 접근을 해제할까요? 직원·근무 기록은 보존돼요.':action==='approve-new'?'신규 직원으로 등록하고 승인할까요? 새 직원기록이 생성됩니다.':action==='approve'?'선택한 기존 직원기록을 이 가입 계정에 연결할까요?':'이 요청을 처리할까요?';",'confirmation message')
+old_confirm='''if(['approve','reject','revoke','regenerate-store-code','approve-edit','reject-edit'].includes(action) && button.dataset.confirmed!=='yes'){
+      const message=action==='regenerate-store-code'?'매장 연결코드를 새로 발급할까요? 이전 코드는 즉시 사용할 수 없어요.':action==='revoke'?'이 계정의 매장 접근을 해제할까요? 직원·근무 기록은 보존돼요.':action==='approve'?'선택한 직원 기록을 이 가입 계정에 연결할까요?':'이 요청을 처리할까요?';'''
+new_confirm='''if(['approve','approve-new','reject','revoke','regenerate-store-code','approve-edit','reject-edit'].includes(action) && button.dataset.confirmed!=='yes'){
+      const message=action==='regenerate-store-code'?'매장 연결코드를 새로 발급할까요? 이전 코드는 즉시 사용할 수 없어요.':action==='revoke'?'이 계정의 매장 접근을 해제할까요? 직원·근무 기록은 보존돼요.':action==='approve-new'?'신규 직원으로 등록하고 승인할까요? 새 직원기록이 생성됩니다.':action==='approve'?'선택한 기존 직원기록을 이 가입 계정에 연결할까요?':'이 요청을 처리할까요?';'''
+replace_once(old_confirm,new_confirm,'confirmation message')
 replace_once("if(!select || !select.value){showToast('연결할 직원을 먼저 선택해 주세요.');return;}","if(!select || !select.value){showToast('연결할 기존 직원을 먼저 선택해 주세요.');return;}",'selection message')
-replace_once("      }else if(['approve','reject','revoke'].includes(action)){
-        const payload={request_id:button.dataset.requestId,membership_id:button.dataset.membershipId};","      }else if(action==='approve-new'){
+old_action='''      }else if(['approve','reject','revoke'].includes(action)){
+        const payload={request_id:button.dataset.requestId,membership_id:button.dataset.membershipId};'''
+new_action='''      }else if(action==='approve-new'){
         await staffPortal('approve_new',{request_id:button.dataset.requestId});
         await refreshOwnerStaffAccess(); showToast('신규 직원으로 승인했어요. 직원정보를 확인해 주세요.');
       }else if(['approve','reject','revoke'].includes(action)){
-        const payload={request_id:button.dataset.requestId,membership_id:button.dataset.membershipId};",'approve new action')
+        const payload={request_id:button.dataset.requestId,membership_id:button.dataset.membershipId};'''
+replace_once(old_action,new_action,'approve new action')
 p.write_text(text,encoding='utf-8')
 print('new employee approval UI patch applied')
