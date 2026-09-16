@@ -1179,10 +1179,14 @@
       }
       return html+'<p>매장코드와 가입 요청을 불러오는 중이에요…</p></div>';
     }
-    html+='<div class="day-panel" style="margin-top:12px;"><strong>매장 연결코드</strong><div class="crew-code-row"><span class="crew-code">'+escapeHtml(access.store_join_code||'--------')+'</span>'+staffAuthButton('copy-store-code','복사')+
-      ' <button type="button" class="crew-code-btn" data-store-code-menu-toggle="1" aria-label="더보기" style="padding:7px 12px;">⋮</button></div>'+
-      (state.showStoreCodeMenu?('<div style="margin-top:8px;text-align:right;">'+staffAuthButton('regenerate-store-code','재발급')+'</div>'):'')+
-      '<p class="crew-code-hint">여러 직원이 같은 코드를 사용합니다. 재발급해도 연결된 직원과 접수된 요청은 유지되며, 이전 코드로는 새 요청을 보낼 수 없습니다.</p></div>';
+    html+='<div class="day-panel" style="margin-top:12px;">'+
+      '<button type="button" data-store-code-panel-toggle="1" style="display:flex;width:100%;justify-content:space-between;align-items:center;background:none;border:none;padding:0;cursor:pointer;text-align:left;font:inherit;color:inherit;">'+
+      '<strong>매장 연결코드</strong><span aria-hidden="true" style="display:inline-block;transition:transform .15s;transform:rotate('+(state.showStoreCodePanel?90:0)+'deg);">›</span></button>'+
+      (state.showStoreCodePanel?('<div class="crew-code-row" style="margin-top:10px;"><span class="crew-code">'+escapeHtml(access.store_join_code||'--------')+'</span>'+staffAuthButton('copy-store-code','복사')+
+        ' <button type="button" class="crew-code-btn" data-store-code-menu-toggle="1" aria-label="더보기" style="padding:7px 12px;">⋮</button></div>'+
+        (state.showStoreCodeMenu?('<div style="margin-top:8px;text-align:right;">'+staffAuthButton('regenerate-store-code','재발급')+'</div>'):'')+
+        '<p class="crew-code-hint">여러 직원이 같은 코드를 사용합니다. 재발급해도 연결된 직원과 접수된 요청은 유지되며, 이전 코드로는 새 요청을 보낼 수 없습니다.</p>'
+      ):'')+'</div>';
     if(!(access.requests||[]).length) html+='<p>대기 중인 가입 요청이 없어요.</p>';
     for(const r of access.requests||[]){
       const available=(access.available_crew||[]).filter(c=>
@@ -1198,7 +1202,14 @@
       if(!available.length) html+='<p class="crew-code-hint">연결 가능한 기존 직원기록이 없습니다. 신규 직원이면 위의 신규 직원으로 승인을 눌러 주세요.</p>';
       html+=staffAuthButton('approve','기존 기록 연결','data-request-id="'+escapeHtml(r.id)+'"'+(!available.length?' disabled':''))+'</div></details> '+staffAuthButton('reject','거절','data-request-id="'+escapeHtml(r.id)+'" style="background:transparent;color:var(--ink-soft);border-color:transparent;text-decoration:underline;font-weight:600;"')+'</div>';
     }
-    for(const m of access.links||[]) html+='<div class="day-panel">'+escapeHtml(m.crew_name)+' · '+escapeHtml(m.username)+' · '+(m.status==='active'?'연결됨':'연결 해제됨')+' '+(m.status==='active'?staffAuthButton('revoke','연결 해제','data-membership-id="'+escapeHtml(m.id)+'"'):'')+'</div>';
+    if((access.links||[]).length){
+      const activeLinkCount=(access.links||[]).filter(m=>m.status==='active').length;
+      html+='<div class="day-panel" style="margin-top:12px;">'+
+        '<button type="button" data-linked-staff-toggle="1" style="display:flex;width:100%;justify-content:space-between;align-items:center;background:none;border:none;padding:0;cursor:pointer;text-align:left;font:inherit;color:inherit;">'+
+        '<strong>연결된 직원 '+activeLinkCount+'명</strong><span aria-hidden="true" style="display:inline-block;transition:transform .15s;transform:rotate('+(state.showLinkedStaff?90:0)+'deg);">›</span></button>'+
+        (state.showLinkedStaff?access.links.map(m=>'<div style="margin-top:10px;">'+escapeHtml(m.crew_name)+' · '+escapeHtml(m.username)+' · '+(m.status==='active'?'연결됨':'연결 해제됨')+' '+(m.status==='active'?staffAuthButton('revoke','연결 해제','data-membership-id="'+escapeHtml(m.id)+'"'):'')+'</div>').join(''):'')+
+        '</div>';
+    }
     for(const r of access.attendance_edits||[]) html+='<div class="day-panel"><strong>근무 시간 수정 요청</strong><p>'+escapeHtml(r.crew_name)+' · '+escapeHtml(r.date)+'<br>'+escapeHtml((r.requested_check_in||'').slice(0,5))+' ~ '+escapeHtml((r.requested_check_out||'').slice(0,5))+'</p>'+staffAuthButton('approve-edit','수정 승인','data-request-id="'+escapeHtml(r.id)+'"')+' '+staffAuthButton('reject-edit','거절','data-request-id="'+escapeHtml(r.id)+'"')+'</div>';
     return html+'</div>'+renderPasswordResetRequests('직원 비밀번호 재설정 요청');
   }
@@ -1248,7 +1259,11 @@
     const close=event.target.closest&&event.target.closest('[data-closeresetcode]');
     if(close){state.revealedResetCode=null;render();return;}
     const codeMenuToggle=event.target.closest&&event.target.closest('[data-store-code-menu-toggle]');
-    if(codeMenuToggle){state.showStoreCodeMenu=!state.showStoreCodeMenu;render();}
+    if(codeMenuToggle){state.showStoreCodeMenu=!state.showStoreCodeMenu;render();return;}
+    const codePanelToggle=event.target.closest&&event.target.closest('[data-store-code-panel-toggle]');
+    if(codePanelToggle){state.showStoreCodePanel=!state.showStoreCodePanel;render();return;}
+    const linkedStaffToggle=event.target.closest&&event.target.closest('[data-linked-staff-toggle]');
+    if(linkedStaffToggle){state.showLinkedStaff=!state.showLinkedStaff;render();}
   });
   async function handleStaffAuthClick(event){
     const button=event.target.closest && event.target.closest('[data-staff-auth-action]');
