@@ -1593,7 +1593,7 @@
     return true;
   }
 
-  async function restoreManeeAdmin(){
+  async function restoreManeeAdmin(expectedRole){
     const {data:sessionData,error:sessionError}=await db.auth.getSession();
     if(sessionError) throw sessionError;
     if(!sessionData?.session) return false;
@@ -1609,6 +1609,7 @@
     if(!profile || profile.status!=='active') throw new Error('사용할 수 없는 계정이에요.');
     state.authProfile=profile;state.myUsername=profile.username;state.myCrewId=null;
     if(platform){
+      if(expectedRole && expectedRole!=='hq') throw new Error('이 아이디는 본사 관리자 계정이 아니에요.');
       state.role='hq';state.franchiseId=null;state.franchiseName=null;
       await loadStoreList();
       if(state.store) await loadAllForStore(state.store);
@@ -1617,6 +1618,7 @@
     }
     const link=(franchiseLinks||[])[0];
     if(link){
+      if(expectedRole && expectedRole!=='franchise') throw new Error('이 아이디는 프랜차이즈 본사 계정이 아니에요.');
       const {data:franchise,error}=await db.from('franchises').select('id,name').eq('id',link.franchise_id).maybeSingle();
       if(error) throw error;
       if(!franchise) throw new Error('프랜차이즈 연결을 확인하지 못했어요.');
@@ -1628,7 +1630,7 @@
     throw new Error('관리자 권한이 연결되지 않은 계정이에요.');
   }
 
-  async function loginManeeAdmin(){
+  async function loginManeeAdmin(expectedRole){
     const username=(document.getElementById('admin-auth-username')?.value||'').trim();
     const password=document.getElementById('admin-auth-password')?.value||'';
     if(!username||!password){showToast('아이디와 비밀번호를 입력해 주세요.');return;}
@@ -1636,7 +1638,7 @@
     try{
       const data=await callManeeAuthApi('manee-login',{username,password});
       await applyManeeAuthSession(data.session);
-      await restoreManeeAdmin();
+      await restoreManeeAdmin(expectedRole);
       showToast('관리자 계정으로 로그인했어요.');
     }catch(e){try{await db.auth.signOut({scope:'local'});}catch(_){} showToast((e&&e.message)||'관리자 로그인을 확인하지 못했어요.');}
   }
@@ -1838,7 +1840,7 @@
     }else if(state.landingMode === "store-login" || state.landingMode === "request-form"){
       state.landingMode = "default";
       state.landingTab = "owner";
-    }else if(state.landingMode === "pin-setup" || state.landingMode === "pin-entry" || state.landingMode === "franchise-login"){
+    }else if(state.landingMode === "pin-setup" || state.landingMode === "pin-entry" || state.landingMode === "franchise-login" || state.landingMode === "hq-auth-login" || state.landingMode === "franchise-auth-login"){
       state.landingMode = "admin-select";
     }else{
       state.landingMode = "default";
@@ -5073,17 +5075,24 @@
 
     if(state.landingMode === "admin-select"){
       if(MANEE_ADMIN_AUTH_ENABLED){
-        html += '<p>권한이 연결된 관리자 아이디와 비밀번호로 로그인해 주세요.</p><div class="code-box">';
-        html += '<label for="admin-auth-username">아이디</label><input id="admin-auth-username" autocomplete="username" maxlength="30">';
-        html += '<label for="admin-auth-password">비밀번호</label><input id="admin-auth-password" type="password" autocomplete="current-password" maxlength="72">';
-        html += '<button id="admin-auth-login-btn">관리자 로그인</button></div>';
-        html += '<button class="switch-link" id="admin-forgot-password-btn">비밀번호를 잊으셨나요?</button>';
+        html += '<p>어느 쪽으로 로그인하시겠어요?</p>';
+        html += '<button class="landing-btn primary" id="admin-select-hq-auth-btn">본사 관리자 로그인</button>';
+        html += '<button class="landing-btn secondary" id="admin-select-franchise-auth-btn">프랜차이즈 본사 로그인</button>';
+        html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
       }else{
         html += '<p>어느 쪽으로 로그인하시겠어요?</p>';
         html += '<button class="landing-btn primary" id="admin-select-hq-btn">매니 본사 PIN 로그인</button>';
         html += '<button class="landing-btn secondary" id="admin-select-franchise-btn">프랜차이즈 본사 로그인</button>';
         html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
       }
+    }else if(state.landingMode === "hq-auth-login" || state.landingMode === "franchise-auth-login"){
+      const isHqLogin = state.landingMode === "hq-auth-login";
+      html += '<p>'+(isHqLogin?'본사 관리자':'프랜차이즈 본사')+' 아이디와 비밀번호로 로그인해 주세요.</p><div class="code-box">';
+      html += '<label for="admin-auth-username">아이디</label><input id="admin-auth-username" autocomplete="username" maxlength="30">';
+      html += '<label for="admin-auth-password">비밀번호</label><input id="admin-auth-password" type="password" autocomplete="current-password" maxlength="72">';
+      html += '<button id="admin-auth-login-btn">'+(isHqLogin?'본사 관리자':'프랜차이즈 본사')+' 로그인</button></div>';
+      html += '<button class="switch-link" id="admin-forgot-password-btn">비밀번호를 잊으셨나요?</button>';
+      html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
     }else if(state.landingMode === "franchise-login"){
       html += '<p>프랜차이즈 본사 아이디와 비밀번호로 로그인해 주세요.</p>';
       html += '<div class="code-box">';
@@ -6924,14 +6933,18 @@
     if(adminSelectHqBtn) adminSelectHqBtn.addEventListener("click", startHqFlow);
     const adminSelectFranchiseBtn = document.getElementById("admin-select-franchise-btn");
     if(adminSelectFranchiseBtn) adminSelectFranchiseBtn.addEventListener("click", ()=>{ state.landingMode = "franchise-login"; render(); });
+    const adminSelectHqAuthBtn = document.getElementById("admin-select-hq-auth-btn");
+    if(adminSelectHqAuthBtn) adminSelectHqAuthBtn.addEventListener("click", ()=>{ state.landingMode = "hq-auth-login"; render(); });
+    const adminSelectFranchiseAuthBtn = document.getElementById("admin-select-franchise-auth-btn");
+    if(adminSelectFranchiseAuthBtn) adminSelectFranchiseAuthBtn.addEventListener("click", ()=>{ state.landingMode = "franchise-auth-login"; render(); });
     const franchiseLoginBtn = document.getElementById("franchise-login-btn");
     if(franchiseLoginBtn) franchiseLoginBtn.addEventListener("click", loginFranchise);
     const franchiseLoginPwInput = document.getElementById("franchise-login-password-input");
     if(franchiseLoginPwInput){ franchiseLoginPwInput.addEventListener("keydown",(e)=>{ if(e.key==="Enter") loginFranchise(); }); }
     const adminAuthLoginBtn=document.getElementById('admin-auth-login-btn');
-    if(adminAuthLoginBtn) adminAuthLoginBtn.addEventListener('click',loginManeeAdmin);
+    if(adminAuthLoginBtn) adminAuthLoginBtn.addEventListener('click',()=>loginManeeAdmin(state.landingMode === "hq-auth-login" ? "hq" : state.landingMode === "franchise-auth-login" ? "franchise" : null));
     const adminAuthPassword=document.getElementById('admin-auth-password');
-    if(adminAuthPassword) adminAuthPassword.addEventListener('keydown',e=>{if(e.key==='Enter')loginManeeAdmin();});
+    if(adminAuthPassword) adminAuthPassword.addEventListener('keydown',e=>{if(e.key==='Enter')loginManeeAdmin(state.landingMode === "hq-auth-login" ? "hq" : state.landingMode === "franchise-auth-login" ? "franchise" : null);});
     const adminForgotPassword=document.getElementById('admin-forgot-password-btn');
     if(adminForgotPassword) adminForgotPassword.addEventListener('click',()=>{state.landingMode='account-recovery';render();});
 
