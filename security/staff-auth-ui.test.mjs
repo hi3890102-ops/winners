@@ -86,7 +86,7 @@ test('Staff signup calls only the employee endpoint and then opens connection po
   assert.equal(h.calls.find(c=>c.edge).edge,'manee-staff-signup');assert.equal(h.state.landingMode,'auth-account');
 });
 test('Owner review requires confirmation before any mutation RPC',async()=>{
-  const h=harness();const button={dataset:{staffAuthAction:'approve',requestId:'request'},disabled:false};button.closest=()=>button;
+  const h=harness({inputs:{'staff-link-crew-request':'crew-self'}});const button={dataset:{staffAuthAction:'approve',requestId:'request'},disabled:false};button.closest=()=>button;
   await h.context.handleStaffAuthClick({target:button});assert.ok(h.calls.some(c=>c.confirmation));assert.equal(h.calls.some(c=>c.name),false);
 });
 
