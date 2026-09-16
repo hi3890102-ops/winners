@@ -32,10 +32,13 @@ Codes are reserved atomically in private history, unique across stores, and auto
 ## Phase A — additive backend preparation
 
 1. Run `security/production-preflight.sql` read-only and save fresh results. Also check duplicate pending `(requester_user_id, store_id)` pairs if staff-link requests already exist. The new migration deliberately stops rather than deleting ambiguous historical requests.
-2. Take a Supabase database backup/snapshot. Record production main SHAs and Netlify deploy IDs for both repositories.
-3. Apply `security/staff-auth-production-foundation.sql`, NOT the staging staff-auth migration. The production foundation preserves legacy public policies/grants until cutover.
-4. Apply `security/support-password-recovery-production.sql`, not the staging variant that assumes recovery-key tables exist.
-5. Deploy `manee-staff-signup` and the production-specific recovery source at `supabase/functions/manee-account-recovery-production/index.ts` under the function name `manee-account-recovery`.
+2. Take a Supabase database backup/snapshot. Record production main SHAs and Netlify deploy IDs for both repositories. As of 2026-09-16 the org is on the Free plan with zero backups and no on-demand backup option — Supabase's own guidance for Free tier is a manual `supabase db dump`. Until the org upgrades (planned after incorporation), treat a fresh logical export of the critical tables as the minimum bar, not a substitute for a real backup.
+3. `security/staff-auth-production-foundation.sql` overwrites the live `public.clock_in`/`public.clock_out` functions that staff use today, so apply it as two parts instead of one file:
+   - `security/staff-auth-production-foundation-part1.sql` — everything except the clock functions (new tables, helper functions, `manee_staff_portal`, the one-open-attendance-per-crew index, `private.staff_clock`). Safe to apply anytime; nothing live calls the new code yet.
+   - `security/staff-auth-production-foundation-part2-clock-deferred.sql` — wires `public.clock_in`/`public.clock_out` to the new `private.staff_clock`. Apply only when `select count(*) from public.attendance where check_out is null` is 0 or as close as the business realistically gets (well after closing), since anyone with an open attendance row at that moment hits the new logic on their next clock-out.
+   Do NOT apply the original combined `staff-auth-production-foundation.sql` to production — use the two split files instead. NOT the staging staff-auth migration either. The production foundation preserves legacy public policies/grants until cutover.
+4. Apply `security/support-password-recovery-production.sql`, not the staging variant that assumes recovery-key tables exist. Fully additive, no live functions overwritten — safe regardless of clock-in state.
+5. Deploy `manee-staff-signup`, `manee-check-username` (added 2026-09-16 for the sign-up duplicate-ID check; reuses `is_manee_username_reserved` and `consume_auth_rate_limit`, no new migration needed, `verify_jwt` must be OFF), and the production-specific recovery source at `supabase/functions/manee-account-recovery-production/index.ts` under the function name `manee-account-recovery`.
 6. Explicitly select and verify the initial super_admin using `security/production-initial-admin-preflight.sql`; do not automatically promote an arbitrary account.
 7. Verify old signup/login and newly added APIs remain healthy.
 
