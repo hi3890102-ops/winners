@@ -44,7 +44,11 @@ Move the existing production app to Supabase Auth for owners/staff/admins while 
 7. Explicitly choose and assign the initial verified `super_admin`; use `security/production-initial-admin-preflight.sql` to identify the candidate first.
 8. Confirm `manee-login`/`manee-signup` remain healthy and verify the newly added RPCs/functions exist.
 
-### Phase B — application cutover
+### Phase B
+
+Before the security-v2 user-app cutover, apply `security/staff-link-one-time-codes.sql`. It converts still-unused legacy staff codes to 8-character codes and enables preview + one-time consumption. Consumed codes are cleared immediately when a connection request is created. `security/staff-link-one-time-codes-rollback.sql` restores only unconsumed legacy codes during an emergency rollback.
+
+ — application cutover
 
 1. Merge/deploy the user app production build. The production build now activates staff/owner security-v2 Auth while previews remain on staging.
 2. Merge/deploy the administrator app production build. Its environment-aware build selects production Supabase and activates administrator Auth only for the production build.

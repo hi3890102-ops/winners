@@ -26,9 +26,9 @@ await db.exec(`insert into public.profiles(user_id,username,display_name) values
 insert into public.stores(id,name,lat,lng,owner_username) values('${store}','Synthetic A',37.5,127,'owner_a'),('${otherStore}','Synthetic B',37.6,127.1,'owner_b');
 insert into public.store_memberships(user_id,store_id,role) values('${owner}','${store}','owner'),('${otherOwner}','${otherStore}','owner');
 insert into public.crew(id,store_id,name,join_code,wage,is_manager,resident_number,bank_account,notes) values
-('${crew}','${store}','Synthetic Crew A','120001',15000,true,'never-expose-resident','never-expose-bank','private-note'),
-('${otherCrew}','${otherStore}','Synthetic Crew B','120002',25000,false,'other-resident','other-bank','other-note'),
-('${secondCrew}','${store}','Synthetic Crew C','120003',35000,false,'other-resident','other-bank','other-note');
+('${crew}','${store}','Synthetic Crew A','A2B3C4D5',15000,true,'never-expose-resident','never-expose-bank','private-note'),
+('${otherCrew}','${otherStore}','Synthetic Crew B','E6F7G8H9',25000,false,'other-resident','other-bank','other-note'),
+('${secondCrew}','${store}','Synthetic Crew C','J2K3L4M5',35000,false,'other-resident','other-bank','other-note');
 insert into public.attendance(id,store_id,crew_id,date,check_in,check_out) values
 ('${historic}','${store}','${crew}','2026-01-15','10:00','18:00'),('${otherAttendance}','${store}','${secondCrew}','2026-01-15','11:00','19:00');`);
 
@@ -47,8 +47,8 @@ async function denied(fn,code){
   finally{await db.exec('rollback to expected_denial');await db.exec('release expected_denial');}
 }
 function scenario(name,fn){test(name,async()=>{await db.exec('begin');try{await fn();}finally{await db.exec('rollback');await db.exec('reset role');}});}
-async function request(user=worker,code='120001'){await role(user);const r=await portal('request',{code});assert.equal(r.ok,true);return r.request_id;}
-async function connect(user=worker,code='120001',reviewer=owner){const r=await request(user,code);await role(reviewer);const approved=await portal('approve',{request_id:r});assert.equal(approved.ok,true);return {request:r,membership:approved.membership_id};}
+async function request(user=worker,code='A2B3C4D5'){await role(user);const r=await portal('request',{code});assert.equal(r.ok,true);return r.request_id;}
+async function connect(user=worker,code='A2B3C4D5',reviewer=owner){const r=await request(user,code);await role(reviewer);const approved=await portal('approve',{request_id:r});assert.equal(approved.ok,true);return {request:r,membership:approved.membership_id};}
 after(async()=>{await db.close();});
 
 scenario('Staff bootstrap creates one profile and no owner membership or store',async()=>{
@@ -81,18 +81,23 @@ scenario('Missing Auth identity or suspended profile cannot enter portal',async(
   await postgres();await db.query("update public.profiles set status='suspended' where user_id=$1",[worker]);
   await role(worker);await denied(()=>portal('session'),'42501');
 });
-scenario('Code creates a pending request without revealing staff details or granting access',async()=>{
+scenario('Code preview reveals only store and employee names, then request consumes the code without granting access',async()=>{
   await role(worker);
-  const r=await portal('request',{code:'120001',user_id:owner,role:'owner',store_id:otherStore});
+  const preview=await portal('preview',{code:'A2B3C4D5'});
+  assert.deepEqual(Object.keys(preview).sort(),['crew_name','ok','store_name']);
+  assert.equal(preview.store_name,'Synthetic A');assert.equal(preview.crew_name,'Synthetic Crew A');
+  await postgres();assert.equal(await scalar('select join_code from public.crew where id=$1',[crew]),'A2B3C4D5');
+  await role(worker);const r=await portal('request',{code:'A2B3C4D5',user_id:owner,role:'owner',store_id:otherStore});
   assert.deepEqual(Object.keys(r).sort(),['ok','request_id']);
   assert.equal((await portal('session')).memberships.length,0);
   await postgres();assert.equal(await scalar('select requester_user_id from private.staff_link_requests where id=$1',[r.request_id]),worker);
+  assert.equal(await scalar('select join_code is null from public.crew where id=$1',[crew]),true);
 });
-scenario('Repeated requests are idempotent and failed guesses remain rate limited',async()=>{
-  const r=await request();assert.equal((await portal('request',{code:'120001'})).request_id,r);
-  for(let i=0;i<8;i++)assert.equal((await portal('request',{code:i%2?'12%':'999999'})).error,'invalid_code');
-  assert.equal((await portal('request',{code:'120001'})).error,'rate_limited');
-  await postgres();assert.equal(await scalar("select attempt_count from public.auth_rate_limits where action='staff_link_user'"),11);
+scenario('A consumed code cannot be reused and invalid previews are rate limited',async()=>{
+  await role(worker);const first=await portal('request',{code:'A2B3C4D5'});assert.equal(first.ok,true);
+  assert.equal((await portal('request',{code:'A2B3C4D5'})).error,'invalid_code');
+  for(let i=0;i<20;i++) await portal('preview',{code:'ZZZZZZZZ'});
+  assert.equal((await portal('preview',{code:'ZZZZZZZZ'})).error,'rate_limited');
 });
 scenario('Only requester may cancel their own pending request',async()=>{
   const r=await request();await role(otherWorker);
@@ -117,22 +122,20 @@ scenario('Owner approval links the original crew and history, defaults to staff,
   await postgres();assert.equal(await scalar('select count(*)::int from private.staff_access_events'),1);
   assert.equal(await scalar('select check_in::text from public.attendance where id=$1',[historic]),'10:00:00');
 });
-scenario('Competing pending requests cannot claim the same crew after one approval',async()=>{
-  const a=await request(worker),b=await request(otherWorker);await role(owner);
-  assert.equal((await portal('approve',{request_id:a})).ok,true);
-  assert.equal((await portal('approve',{request_id:b})).error,'record_already_linked');
-  await postgres();assert.equal(await scalar('select count(*)::int from public.store_memberships where crew_id=$1',[crew]),1);
-  assert.equal(await scalar('select status from private.staff_link_requests where id=$1',[b]),'pending');
+scenario('One-time code prevents a competing pending request for the same crew',async()=>{
+  const a=await request(worker);assert.ok(a);
+  await role(otherWorker);assert.equal((await portal('request',{code:'A2B3C4D5'})).error,'invalid_code');
+  await postgres();assert.equal(await scalar("select count(*)::int from private.staff_link_requests where crew_id=$1 and status='pending'",[crew]),1);
 });
 scenario('Two crew records in one store cannot overwrite an existing user membership',async()=>{
-  const a=await request(worker),b=await request(worker,'120003');await role(owner);
+  const a=await request(worker),b=await request(worker,'J2K3L4M5');await role(owner);
   assert.equal((await portal('approve',{request_id:a})).ok,true);
   assert.equal((await portal('approve',{request_id:b})).error,'store_account_conflict');
-  await role(owner);assert.equal((await portal('request',{code:'120001'})).error,'store_account_conflict');
+  await postgres();await db.query("update public.crew set join_code='P2Q3R4S5' where id=$1",[crew]);await role(owner);assert.equal((await portal('request',{code:'P2Q3R4S5'})).error,'store_account_conflict');
   assert.equal((await portal('session')).memberships[0].role,'owner');
 });
 scenario('A single employee account can connect to a second store with that owner approval',async()=>{
-  await connect();await connect(worker,'120002',otherOwner);await role(worker);
+  await connect();await connect(worker,'E6F7G8H9',otherOwner);await role(worker);
   assert.equal((await portal('session')).memberships.length,2);
 });
 scenario('Expired, suspended, resigned, archived and moved records fail approval without membership',async()=>{
@@ -152,7 +155,7 @@ scenario('Expired, suspended, resigned, archived and moved records fail approval
 });
 scenario('Resignation starts on the Seoul resignation date and a future date remains eligible',async()=>{
   await postgres();await db.query("update public.crew set resign_date=(now() at time zone 'Asia/Seoul')::date where id=$1",[crew]);
-  await role(worker);assert.equal((await portal('request',{code:'120001'})).error,'invalid_code');
+  await role(worker);assert.equal((await portal('request',{code:'A2B3C4D5'})).error,'invalid_code');
   await postgres();await db.query("update public.crew set resign_date=(now() at time zone 'Asia/Seoul')::date+1 where id=$1",[crew]);
   await connect();await role(worker);assert.equal((await portal('session')).memberships.length,1);
 });
@@ -166,12 +169,14 @@ scenario('Owner revoke immediately removes staff access while preserving identit
   assert.equal(await scalar('select count(*)::int from public.crew where id=$1',[crew]),1);
   assert.equal(await scalar('select count(*)::int from private.staff_access_events'),2);
 });
-scenario('Old approval cannot undo revoke; a fresh request may reactivate only the same account',async()=>{
+scenario('Old approval cannot undo revoke; a newly issued code may reactivate only the same account',async()=>{
   const linked=await connect();await portal('revoke',{membership_id:linked.membership});
   await portal('approve',{request_id:linked.request});await role(worker);
   assert.equal((await portal('session')).memberships.length,0);
-  await role(otherWorker);assert.equal((await portal('request',{code:'120001'})).error,'record_already_linked');
-  const next=await connect();assert.equal(next.membership,linked.membership);
+  await postgres();await db.query("update public.crew set join_code='N2P3Q4R5' where id=$1",[crew]);
+  await role(otherWorker);assert.equal((await portal('request',{code:'N2P3Q4R5'})).error,'record_already_linked');
+  await role(worker);const nextRequest=await portal('request',{code:'N2P3Q4R5'});assert.equal(nextRequest.ok,true);
+  await role(owner);const approved=await portal('approve',{request_id:nextRequest.request_id});assert.equal(approved.membership_id,linked.membership);
   await postgres();assert.equal(await scalar("select count(*)::int from private.staff_access_events where action='reactivated'"),1);
 });
 scenario('Staff cannot select raw coworker payroll, forge membership, or update attendance directly',async()=>{

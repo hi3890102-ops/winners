@@ -1,102 +1,37 @@
--- Production staff Auth foundation.
--- Additive only: does NOT remove legacy public policies or grants.
--- Apply before the production UI cutover; permission lockdown happens later in store-permissions.sql.
+-- Cutover migration for one-time 8-character staff connection codes.
+-- Apply to staging now; production only immediately before the security-v2 app cutover.
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='60s';
 
-create table private.staff_link_requests (
-  id uuid primary key default gen_random_uuid(),
-  requester_user_id uuid not null references auth.users(id) on delete cascade,
-  store_id uuid not null references public.stores(id) on delete cascade,
-  crew_id uuid not null references public.crew(id) on delete cascade,
-  status text not null default 'pending' check(status in ('pending','approved','rejected','cancelled','expired')),
-  requested_at timestamptz not null default now(),
-  expires_at timestamptz not null default now() + interval '7 days',
-  reviewed_at timestamptz,
-  reviewed_by uuid references auth.users(id) on delete set null,
-  membership_id uuid references public.store_memberships(id) on delete set null
+create table if not exists private.staff_link_code_rollout_backup (
+  crew_id uuid primary key references public.crew(id) on delete cascade,
+  old_join_code text,
+  backed_up_at timestamptz not null default now()
 );
-create unique index staff_link_pending_requester_crew_idx on private.staff_link_requests(requester_user_id,crew_id) where status='pending';
-create index staff_link_store_status_idx on private.staff_link_requests(store_id,status,requested_at);
-create index staff_link_crew_idx on private.staff_link_requests(crew_id);
-create index staff_link_reviewer_idx on private.staff_link_requests(reviewed_by);
-create index staff_link_membership_idx on private.staff_link_requests(membership_id);
-alter table private.staff_link_requests enable row level security;
-revoke all on private.staff_link_requests from public,anon,authenticated;
+revoke all on private.staff_link_code_rollout_backup from public,anon,authenticated;
+insert into private.staff_link_code_rollout_backup(crew_id,old_join_code)
+select id,join_code from public.crew where join_code is not null
+on conflict (crew_id) do nothing;
 
-create table private.staff_access_events (
-  id uuid primary key default gen_random_uuid(),
-  actor_user_id uuid not null,
-  target_user_id uuid not null,
-  store_id uuid not null,
-  crew_id uuid not null,
-  membership_id uuid not null,
-  action text not null check(action in ('approved','reactivated','revoked')),
-  created_at timestamptz not null default now()
-);
-create index staff_access_store_time_idx on private.staff_access_events(store_id,created_at);
-alter table private.staff_access_events enable row level security;
-revoke all on private.staff_access_events from public,anon,authenticated;
-
-create or replace function private.is_live_manee_session()
-returns boolean language sql stable security definer set search_path='' as $$
-  select exists(select 1 from auth.sessions s join public.profiles p on p.user_id=s.user_id and p.status='active'
-    where s.id=(select case when auth.jwt()->>'session_id' ~ '^[0-9a-fA-F-]{36}$' then (auth.jwt()->>'session_id')::uuid else null end)
-      and s.user_id=(select auth.uid()) and (s.not_after is null or s.not_after>now()));
-$$;
-revoke all on function private.is_live_manee_session() from public,anon;
-grant execute on function private.is_live_manee_session() to authenticated;
-
-create or replace function private.has_store_membership(target_store_id uuid, allowed_roles text[] default null::text[])
-returns boolean language sql stable security definer set search_path='' as $$
-  select exists (
-    select 1 from public.store_memberships sm
-    join public.profiles p on p.user_id=sm.user_id and p.status='active'
-    join public.stores s on s.id=sm.store_id and s.archived_at is null
-    left join public.crew c on c.id=sm.crew_id and c.store_id=sm.store_id
-    where sm.user_id=(select auth.uid()) and sm.store_id=target_store_id and sm.status='active'
-      and (allowed_roles is null or sm.role=any(allowed_roles))
-      and (sm.role='owner' or (sm.role in ('staff','manager') and c.id is not null
-        and (c.resign_date is null or c.resign_date > (now() at time zone 'Asia/Seoul')::date)))
-  );
-$$;
-create or replace function private.current_crew_id(target_store_id uuid)
-returns uuid language sql stable security definer set search_path='' as $$
-  select sm.crew_id from public.store_memberships sm
-  join public.crew c on c.id=sm.crew_id and c.store_id=sm.store_id
-  where sm.user_id=(select auth.uid()) and sm.store_id=target_store_id
-    and sm.status='active' and sm.role in ('staff','manager')
-    and private.has_store_membership(target_store_id,array['staff','manager']::text[]) limit 1;
-$$;
-create or replace function private.has_sales_access(target_store_id uuid)
-returns boolean language sql stable security definer set search_path='' as $$
-  select private.has_store_membership(target_store_id,array['owner','manager']::text[])
-    or (private.has_store_membership(target_store_id,array['staff']::text[]) and exists(
-      select 1 from public.crew c where c.id=private.current_crew_id(target_store_id) and c.store_id=target_store_id and c.sales_access));
-$$;
-revoke all on function private.has_store_membership(uuid,text[]),private.current_crew_id(uuid),private.has_sales_access(uuid) from public,anon;
-grant execute on function private.has_store_membership(uuid,text[]),private.current_crew_id(uuid),private.has_sales_access(uuid) to authenticated;
-
-create function private.bootstrap_staff_account(p_user_id uuid,p_username text,p_display_name text)
-returns uuid language plpgsql security definer set search_path='' as $$
-declare uname text := lower(btrim(normalize(coalesce(p_username,''),NFKC)));
+do $manee_codes$
+declare r record; candidate text;
 begin
-  if p_user_id is null or uname !~ '^[a-z0-9가-힣._-]{4,30}$'
-     or length(btrim(coalesce(p_display_name,''))) not between 1 and 50
-     or p_display_name ~ '[<>[:cntrl:]]' then raise exception 'Invalid staff account' using errcode='22023'; end if;
-  if public.is_manee_username_reserved(uname) then raise exception 'username_taken' using errcode='23505'; end if;
-  insert into public.profiles(user_id,username,display_name,status) values(p_user_id,uname,btrim(p_display_name),'active');
-  return p_user_id;
-end;
-$$;
-create function public.bootstrap_staff_account(p_user_id uuid,p_username text,p_display_name text)
-returns uuid language sql security invoker set search_path='' as $$ select private.bootstrap_staff_account(p_user_id,p_username,p_display_name); $$;
-revoke all on function private.bootstrap_staff_account(uuid,text,text),public.bootstrap_staff_account(uuid,text,text) from public,anon,authenticated;
-grant usage on schema private to service_role;
-grant execute on function private.bootstrap_staff_account(uuid,text,text),public.bootstrap_staff_account(uuid,text,text) to service_role;
+  for r in select id from public.crew where join_code is not null and join_code !~ '^[A-Z0-9]{8}$' loop
+    loop
+      candidate := upper(substr(md5(gen_random_uuid()::text || r.id::text || clock_timestamp()::text),1,8));
+      begin
+        update public.crew set join_code=candidate where id=r.id;
+        exit;
+      exception when unique_violation then
+        null;
+      end;
+    end loop;
+  end loop;
+end
+$manee_codes$;
 
-create function private.manee_staff_portal(p_action text,p_payload jsonb default '{}'::jsonb)
+create or replace function private.manee_staff_portal(p_action text,p_payload jsonb default '{}'::jsonb)
 returns jsonb language plpgsql security definer set search_path='' as $$
 declare
   actor uuid := (select auth.uid());
@@ -233,53 +168,5 @@ begin
   raise exception 'Unknown action' using errcode='22023';
 end;
 $$;
-create function public.manee_staff_portal(p_action text,p_payload jsonb default '{}'::jsonb)
-returns jsonb language sql security invoker set search_path='' as $$ select private.manee_staff_portal(p_action,p_payload); $$;
-revoke all on function private.manee_staff_portal(text,jsonb),public.manee_staff_portal(text,jsonb) from public,anon;
-grant usage on schema private to authenticated;
-grant execute on function private.manee_staff_portal(text,jsonb),public.manee_staff_portal(text,jsonb) to authenticated;
-
-create unique index if not exists attendance_one_open_per_crew_idx on public.attendance(crew_id) where check_out is null and crew_id is not null;
-
-create function private.staff_clock(p_store_id uuid,p_attendance_id uuid,p_lat double precision,p_lng double precision)
-returns public.attendance language plpgsql security definer set search_path='' as $$
-declare cid uuid; sid uuid; st public.stores%rowtype; a public.attendance%rowtype; local_now timestamp; business_date date;
-begin
-  if (select auth.uid()) is null or not private.is_live_manee_session() then raise exception 'Authentication required' using errcode='42501'; end if;
-  if p_attendance_id is null then sid:=p_store_id; else select store_id into sid from public.attendance where id=p_attendance_id; end if;
-  cid:=private.current_crew_id(sid);
-  if cid is null then raise exception 'Membership unavailable' using errcode='42501'; end if;
-  select * into st from public.stores where id=sid and archived_at is null for share;
-  if not found then raise exception 'Store unavailable' using errcode='42501'; end if;
-  perform 1 from public.crew where id=cid and store_id=sid for update;
-  perform 1 from public.profiles where user_id=(select auth.uid()) and status='active' for share;
-  if not found then raise exception 'Account unavailable' using errcode='42501'; end if;
-  perform 1 from public.store_memberships where user_id=(select auth.uid()) and store_id=sid and status='active' and crew_id=cid for share;
-  if not found or private.current_crew_id(sid) is distinct from cid then raise exception 'Membership unavailable' using errcode='42501'; end if;
-  if st.lat is null or st.lng is null then raise exception 'Store location is not configured'; end if;
-  if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then raise exception 'Current location is required'; end if;
-  if private.distance_meters(st.lat,st.lng,p_lat,p_lng)>100 then raise exception 'Outside attendance radius'; end if;
-  local_now:=timezone('Asia/Seoul',now());
-  if p_attendance_id is null then
-    if exists(select 1 from public.attendance where crew_id=cid and check_out is null) then raise exception 'Already clocked in'; end if;
-    business_date:=local_now::date;
-    if extract(hour from local_now)::int<coalesce(st.business_day_cutoff_hour,6) then business_date:=business_date-1; end if;
-    insert into public.attendance(store_id,crew_id,date,check_in,confirmed,staff_confirmed,time_edited,staff_ack_edit)
-      values(sid,cid,business_date,local_now::time,false,false,false,false) returning * into a;
-  else
-    select * into a from public.attendance where id=p_attendance_id and store_id=sid and crew_id=cid for update;
-    if not found then raise exception 'Attendance unavailable' using errcode='42501'; end if;
-    if a.check_out is not null then raise exception 'Already clocked out'; end if;
-    update public.attendance set check_out=local_now::time,confirmed=false,staff_confirmed=false where id=a.id returning * into a;
-  end if;
-  return a;
-end;
-$$;
-create or replace function public.clock_in(target_store_id uuid,current_lat double precision,current_lng double precision)
-returns public.attendance language sql security invoker set search_path='' as $$ select private.staff_clock(target_store_id,null,current_lat,current_lng); $$;
-create or replace function public.clock_out(target_attendance_id uuid,current_lat double precision,current_lng double precision)
-returns public.attendance language sql security invoker set search_path='' as $$ select private.staff_clock(null,target_attendance_id,current_lat,current_lng); $$;
-revoke all on function private.staff_clock(uuid,uuid,double precision,double precision),public.clock_in(uuid,double precision,double precision),public.clock_out(uuid,double precision,double precision) from public,anon;
-grant execute on function private.staff_clock(uuid,uuid,double precision,double precision),public.clock_in(uuid,double precision,double precision),public.clock_out(uuid,double precision,double precision) to authenticated;
 
 commit;

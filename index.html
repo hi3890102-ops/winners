@@ -550,16 +550,21 @@
     return (now.getMonth()+1)+"월 "+now.getDate()+"일 ("+days[now.getDay()]+")";
   }
   function monthKey(){ return state.monthYear+"-"+pad(state.monthNum); }
-  function genCode(){ return String(Math.floor(100000 + Math.random()*900000)); }
+  const STAFF_LINK_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  function genCode(){
+    const bytes = new Uint8Array(8);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, b=>STAFF_LINK_CODE_ALPHABET[b % STAFF_LINK_CODE_ALPHABET.length]).join("");
+  }
   async function genUniqueCode(){
-    for(let i=0;i<10;i++){
+    for(let i=0;i<20;i++){
       const code = genCode();
       try{
         const { data } = await db.from('crew').select('id').eq('join_code', code).maybeSingle();
         if(!data) return code;
       }catch(e){ return code; }
     }
-    return genCode()+String(Math.floor(Math.random()*10));
+    throw new Error("직원 연결코드를 만들지 못했어요. 다시 시도해 주세요.");
   }
 
   function askConfirm(message, onConfirm){
@@ -998,7 +1003,7 @@
     too_many_pending:'대기 중인 요청을 먼저 확인하거나 취소해 주세요.'
   };
   function clearStaffAuthView(){
-    state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;
+    state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
     state.items={};state.checks={};state.checklistLog={};state.homeChecklistItems={};state.homeChecklistChecks={};
     state.fixedExpenses=[];state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
     state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
@@ -1145,8 +1150,17 @@
     const p=state.authProfile||{};
     let html='<h2>내 매장 연결</h2><p>'+escapeHtml(p.display_name||p.username||'')+' · '+escapeHtml(p.username||'')+'</p>';
     for(const m of state.authMemberships||[]) html+='<div class="day-panel"><strong>'+escapeHtml(m.store_name)+'</strong> · '+(m.role==='owner'?'사장님':'스텝')+' '+staffAuthButton('open-store','매장 들어가기','data-store-id="'+escapeHtml(m.store_id)+'"')+'</div>';
-    html+='<div class="code-box"><label for="staff-link-code">사장님께 받은 참여코드</label><input id="staff-link-code" inputmode="numeric" maxlength="6" placeholder="6자리 코드">'+
-      staffAuthButton('request','매장 연결 요청')+'<p>사장님이 확인하고 승인하면 기존 근무 기록이 연결돼요.</p></div>';
+    const preview=state.staffLinkPreview;
+    if(preview){
+      html+='<div class="code-box"><h3 style="margin-top:0;">연결 정보를 확인해 주세요</h3>'+
+        '<div class="day-panel" style="margin:10px 0;"><strong>'+escapeHtml(preview.store_name||'')+'</strong><br><span>'+escapeHtml(preview.crew_name||'')+' 직원으로 연결을 요청합니다.</span></div>'+
+        '<p>사장님이 승인하면 기존 출퇴근·급여·근무 기록이 이 계정에 연결돼요.</p>'+
+        staffAuthButton('request','연결 요청하기')+' '+staffAuthButton('link-code-change','다른 코드 입력')+'</div>';
+    }else{
+      html+='<div class="code-box"><label for="staff-link-code">사장님께 받은 직원 연결코드</label>'+
+        '<input id="staff-link-code" maxlength="8" autocomplete="one-time-code" autocapitalize="characters" placeholder="8자리 연결코드" style="text-transform:uppercase;">'+
+        staffAuthButton('preview-link','확인')+'<p>매장명은 입력하지 않아도 돼요. 연결코드 하나로 매장과 직원 기록을 자동으로 찾습니다.</p></div>';
+    }
     const statuses={pending:'승인 대기',approved:'승인 완료',rejected:'거절됨',cancelled:'취소됨',expired:'기간 만료'};
     for(const r of state.staffLinkRequests||[]) html+='<div class="day-panel">'+escapeHtml(r.store_name)+' · '+(statuses[r.status]||'확인 필요')+' '+
       (r.status==='pending'?staffAuthButton('cancel','요청 취소','data-request-id="'+escapeHtml(r.id)+'"'):'')+'</div>';
@@ -1231,9 +1245,18 @@
         const data=await callManeeAuthApi('manee-staff-signup',{username,display_name,password});
         const session=data.session || (await callManeeAuthApi('manee-login',{username,password})).session;
         await applyManeeAuthSession(session); await restoreManeeAuthIdentity(null,true); showToast('스텝 계정을 만들었어요. 매장 연결을 요청해 주세요.');
+      }else if(action==='preview-link'){
+        const code=((document.getElementById('staff-link-code')||{}).value||'').replace(/\s+/g,'').toUpperCase();
+        if(!/^[A-Z0-9]{8}$/.test(code)) throw new Error('8자리 직원 연결코드를 입력해 주세요.');
+        const preview=await staffPortal('preview',{code});
+        state.staffLinkCode=code;state.staffLinkPreview={store_name:preview.store_name,crew_name:preview.crew_name};render();
+      }else if(action==='link-code-change'){
+        state.staffLinkCode=null;state.staffLinkPreview=null;render();
       }else if(action==='request'){
-        const code=(document.getElementById('staff-link-code').value||'').trim();
-        await staffPortal('request',{code}); await restoreManeeAuthIdentity(null,true); showToast('사장님께 연결 승인을 요청했어요.');
+        const code=String(state.staffLinkCode||'').trim().toUpperCase();
+        if(!/^[A-Z0-9]{8}$/.test(code)) throw new Error('연결코드를 다시 확인해 주세요.');
+        await staffPortal('request',{code}); state.staffLinkCode=null;state.staffLinkPreview=null;
+        await restoreManeeAuthIdentity(null,true); showToast('사장님께 연결 승인을 요청했어요. 이 연결코드는 사용 완료됐어요.');
       }else if(action==='cancel'){
         await staffPortal('cancel',{request_id:button.dataset.requestId}); await restoreManeeAuthIdentity(null,true);
       }else if(action==='refresh-account' || action==='account'){
@@ -6375,13 +6398,13 @@
             const wageLabel = c.wageType==="monthly" ? "월급" : "시급";
             const isOpen = !!(state.expandedCrewIds && state.expandedCrewIds[c.id]);
             html += '<div class="crew-card" data-crewname="'+escapeHtml(c.name)+'">';
-            html += '<div class="crew-top crew-toggle-row" data-togglecrew="'+c.id+'" style="cursor:pointer;">'+renderAvatarBadge(c, 38)+'<div class="crew-info"><div class="name">'+c.name+' <span class="pos-badge '+posClass(c.position)+'">'+(c.position||"홀")+'</span>'+(c.isManager?' <span class="pos-badge mgr-badge">매니저</span>':'')+'</div><div class="wage">코드 '+(c.joinCode||"------")+'</div></div><span style="color:var(--ink-soft);font-size:13px;">'+(isOpen?'▲':'▼')+'</span></div>';
+            html += '<div class="crew-top crew-toggle-row" data-togglecrew="'+c.id+'" style="cursor:pointer;">'+renderAvatarBadge(c, 38)+'<div class="crew-info"><div class="name">'+c.name+' <span class="pos-badge '+posClass(c.position)+'">'+(c.position||"홀")+'</span>'+(c.isManager?' <span class="pos-badge mgr-badge">매니저</span>':'')+'</div><div class="wage">코드 '+(c.joinCode||"사용됨")+'</div></div><span style="color:var(--ink-soft);font-size:13px;">'+(isOpen?'▲':'▼')+'</span></div>';
             if(isOpen){
               html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
               html += '<div class="row2"><div><label class="field-label">이름</label><input class="field-input" type="text" value="'+escapeHtml(c.name)+'" data-editname="'+c.id+'"></div><div class="narrow"><label class="field-label">근무 파트</label><select class="field-input" data-editposition="'+c.id+'"><option value="홀"'+((c.position||"홀")==="홀"?' selected':'')+'>홀</option><option value="주방"'+(c.position==="주방"?' selected':'')+'>주방</option><option value="그 외"'+(c.position==="그 외"?' selected':'')+'>그 외</option></select></div></div>';
               html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">금액 (원)</label><input class="field-input" type="number" min="0" step="100" value="'+c.wage+'" data-editwage="'+c.id+'"></div><div><label class="field-label">전화번호</label><input class="field-input" type="text" value="'+escapeHtml(c.phone||"")+'" placeholder="전화번호" data-editphone="'+c.id+'"></div></div>';
               html += '<div style="margin-top:12px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
-              html += '<div class="crew-code-row"><span class="crew-code">'+(c.joinCode||"------")+'</span><button class="crew-code-btn" data-copycode="'+c.joinCode+'">복사</button><button class="crew-code-btn" data-regencode="'+c.id+'">재발급</button></div>';
+              html += '<div class="crew-code-row"><span class="crew-code">'+(c.joinCode||"사용됨")+'</span>'+(c.joinCode?'<button class="crew-code-btn" data-copycode="'+c.joinCode+'">복사</button>':'')+'<button class="crew-code-btn" data-regencode="'+c.id+'">'+(c.joinCode?'재발급':'새 코드 발급')+'</button></div>';
               html += '<div class="mgr-toggle-row" style="margin-top:10px;"><input type="checkbox" data-toggle-manager="'+c.id+'"'+(c.isManager?' checked':'')+' id="mgr-toggle-'+c.id+'"><label for="mgr-toggle-'+c.id+'">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
               html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" data-toggle-salesaccess="'+c.id+'"'+(c.salesAccess?' checked':'')+' id="sales-toggle-'+c.id+'"><label for="sales-toggle-'+c.id+'">매출 탭 조회 권한 (급여·매출보고·월말리포트 열람)</label></div>';
               html += '<div style="margin-top:10px;">'+renderHireDates(c)+'</div>';

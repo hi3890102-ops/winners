@@ -117,17 +117,27 @@ begin
       'requests',coalesce((select jsonb_agg(q) from (select r.id,s.name as store_name,
         case when r.status='pending' and r.expires_at<=now() then 'expired' else r.status end as status,r.requested_at,r.expires_at
         from private.staff_link_requests r join public.stores s on s.id=r.store_id where r.requester_user_id=actor order by r.requested_at desc limit 30) q),'[]'::jsonb));
-  elsif p_action='request' then
-    -- Return errors instead of raising: failed guesses must commit the rate counter.
-    if not public.consume_auth_rate_limit('staff_link_user',md5(actor::text),300,10) then
+  elsif p_action='preview' then
+    if not public.consume_auth_rate_limit('staff_link_preview',md5(actor::text),300,20) then
       return jsonb_build_object('ok',false,'error','rate_limited'); end if;
-    code := btrim(coalesce(p_payload->>'code',''));
-    if code !~ '^[0-9]{6}$' then return jsonb_build_object('ok',false,'error','invalid_code'); end if;
+    code := upper(btrim(coalesce(p_payload->>'code','')));
+    if code !~ '^[A-Z0-9]{8}$' then return jsonb_build_object('ok',false,'error','invalid_code'); end if;
     select * into person from public.crew where join_code=code;
     if not found then return jsonb_build_object('ok',false,'error','invalid_code'); end if;
     select * into st from public.stores where id=person.store_id and archived_at is null for share;
+    if not found or (person.resign_date is not null and person.resign_date <= (now() at time zone 'Asia/Seoul')::date) then
+      return jsonb_build_object('ok',false,'error','invalid_code'); end if;
+    if exists(select 1 from public.store_memberships where crew_id=person.id and user_id<>actor) then
+      return jsonb_build_object('ok',false,'error','invalid_code'); end if;
+    return jsonb_build_object('ok',true,'store_name',st.name,'crew_name',person.name);
+  elsif p_action='request' then
+    if not public.consume_auth_rate_limit('staff_link_request',md5(actor::text),300,10) then
+      return jsonb_build_object('ok',false,'error','rate_limited'); end if;
+    code := upper(btrim(coalesce(p_payload->>'code','')));
+    if code !~ '^[A-Z0-9]{8}$' then return jsonb_build_object('ok',false,'error','invalid_code'); end if;
+    select * into person from public.crew where join_code=code for update;
     if not found then return jsonb_build_object('ok',false,'error','invalid_code'); end if;
-    select * into person from public.crew where id=person.id and join_code=code and store_id=st.id for update;
+    select * into st from public.stores where id=person.store_id and archived_at is null for share;
     if not found or (person.resign_date is not null and person.resign_date <= (now() at time zone 'Asia/Seoul')::date) then
       return jsonb_build_object('ok',false,'error','invalid_code'); end if;
     select * into member from public.store_memberships where user_id=actor and store_id=st.id;
@@ -138,9 +148,13 @@ begin
       return jsonb_build_object('ok',false,'error','record_already_linked'); end if;
     update private.staff_link_requests set status='expired',reviewed_at=now() where requester_user_id=actor and status='pending' and expires_at<=now();
     select id into rid from private.staff_link_requests where requester_user_id=actor and crew_id=person.id and status='pending';
-    if rid is not null then return jsonb_build_object('ok',true,'request_id',rid); end if;
+    if rid is not null then
+      update public.crew set join_code=null where id=person.id and join_code=code;
+      return jsonb_build_object('ok',true,'request_id',rid); end if;
     if (select count(*) from private.staff_link_requests where requester_user_id=actor and status='pending')>=10 then
       return jsonb_build_object('ok',false,'error','too_many_pending'); end if;
+    update public.crew set join_code=null where id=person.id and join_code=code;
+    if not found then return jsonb_build_object('ok',false,'error','invalid_code'); end if;
     insert into private.staff_link_requests(requester_user_id,store_id,crew_id) values(actor,st.id,person.id) returning id into rid;
     return jsonb_build_object('ok',true,'request_id',rid);
   elsif p_action='cancel' then
