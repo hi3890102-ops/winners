@@ -31,7 +31,9 @@ function harness(options={}){
     findOpenAttendance:cid=>state.attendance.find(a=>a.crewId===cid && !a.checkOut),
     escapeHtml:x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
     askConfirm:(message,cb)=>{calls.push({confirmation:message});if(options.confirm)cb();},
-    callManeeAuthApi:async(name,args)=>{calls.push({edge:name,args});return {session:{access_token:'test-access',refresh_token:'test-refresh'}};},
+    callManeeAuthApi:async(name,args)=>{calls.push({edge:name,args});
+      if(name==='manee-check-username')return {ok:true,username:args.username,available:options.checkAvailable??true};
+      return {session:{access_token:'test-access',refresh_token:'test-refresh'}};},
     applyManeeAuthSession:async()=>{calls.push('setSession');},switchUser:()=>{calls.push('switchUser');},
   });
   new Script(code).runInContext(context);
@@ -81,9 +83,36 @@ test('Failed clock-out keeps existing record unchanged, while revoked access cle
 });
 test('Staff signup calls only the employee endpoint and then opens connection portal',async()=>{
   const h=harness({inputs:{'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password'}});
+  const checkButton={dataset:{staffAuthAction:'check-staff-username'},disabled:false};checkButton.closest=()=>checkButton;
+  await h.context.handleStaffAuthClick({target:checkButton});
   const button={dataset:{staffAuthAction:'signup'},disabled:false};button.closest=()=>button;
   await h.context.handleStaffAuthClick({target:button});
-  assert.equal(h.calls.find(c=>c.edge).edge,'manee-staff-signup');assert.equal(h.state.landingMode,'auth-account');
+  assert.equal(h.calls.filter(c=>c.edge).map(c=>c.edge).join(','),'manee-check-username,manee-staff-signup');
+  assert.equal(h.state.landingMode,'auth-account');
+});
+test('Signup is blocked until the username duplicate check passes for the current value',async()=>{
+  const h=harness({inputs:{'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password'}});
+  const button={dataset:{staffAuthAction:'signup'},disabled:false};button.closest=()=>button;
+  await h.context.handleStaffAuthClick({target:button});
+  assert.equal(h.calls.some(c=>c.edge==='manee-staff-signup'),false);
+  assert.ok(h.calls.some(c=>c.toast&&c.toast.includes('중복확인')));
+});
+test('Signup is blocked when the username changes after a successful check',async()=>{
+  const inputs={'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password'};
+  const h=harness({inputs});
+  const checkButton={dataset:{staffAuthAction:'check-staff-username'},disabled:false};checkButton.closest=()=>checkButton;
+  await h.context.handleStaffAuthClick({target:checkButton});
+  inputs['staff-signup-username']='someone-else';
+  const button={dataset:{staffAuthAction:'signup'},disabled:false};button.closest=()=>button;
+  await h.context.handleStaffAuthClick({target:button});
+  assert.equal(h.calls.some(c=>c.edge==='manee-staff-signup'),false);
+});
+test('An already-taken username fails the check and still blocks signup',async()=>{
+  const h=harness({checkAvailable:false,inputs:{'staff-signup-username':'worker'}});
+  const checkButton={dataset:{staffAuthAction:'check-staff-username'},disabled:false};checkButton.closest=()=>checkButton;
+  await h.context.handleStaffAuthClick({target:checkButton});
+  assert.equal(h.state.staffSignupUsernameCheck.available,false);
+  assert.ok(h.calls.some(c=>c.toast==='이미 사용 중인 아이디예요.'));
 });
 test('Owner review requires confirmation before any mutation RPC',async()=>{
   const h=harness({inputs:{'staff-link-crew-request':'crew-self'}});const button={dataset:{staffAuthAction:'approve',requestId:'request'},disabled:false};button.closest=()=>button;
