@@ -2207,7 +2207,7 @@
     }catch(e){ state.franchises = []; }
   }
   async function loadHqDashboardStats(){
-    state.hqDashboardStatsLoading = true;
+    state.hqDashboardStatsLoading = true; render();
     try{
       const { data:storeRows, error } = await db.from('stores').select('name,owner_username,franchise_id').is('archived_at', null);
       if(error) throw error;
@@ -2236,6 +2236,7 @@
       state.hqDashboardStats = { totalStores:0, totalOwners:0, owners:[], franchiseStats:[], storeOwnerRows:[] };
     }
     state.hqDashboardStatsLoading = false;
+    render();
   }
   async function createFranchise(){
     const nameInp = document.getElementById("new-franchise-name-input");
