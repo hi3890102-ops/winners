@@ -1147,7 +1147,7 @@
       '<label for="staff-signup-username">아이디</label>'+
       '<div style="display:flex;gap:8px;align-items:center;">'+
         '<input id="staff-signup-username" minlength="4" maxlength="30" autocomplete="username" placeholder="4~30자" style="flex:1;width:auto;min-width:0;margin-bottom:0;">'+
-        staffAuthButton('check-staff-username','중복확인','style="white-space:nowrap;padding:0 14px;"')+
+        staffAuthButton('check-staff-username','중복확인','style="white-space:nowrap;padding:0 14px;width:auto;flex:0 0 auto;"')+
       '</div>'+statusHtml+
       '<label for="staff-signup-password">비밀번호</label><input id="staff-signup-password" type="password" minlength="8" maxlength="72" autocomplete="new-password" placeholder="8자 이상">'+
       '<label for="staff-signup-confirm">비밀번호 확인</label><input id="staff-signup-confirm" type="password" maxlength="72" autocomplete="new-password">'+
@@ -5055,7 +5055,7 @@
       html += '<label style="margin-top:8px;">아이디</label>';
       html += '<div style="display:flex;gap:8px;align-items:center;">';
       html += '<input id="owner-request-username-input" type="text" placeholder="아이디" style="flex:1;width:auto;min-width:0;margin-bottom:0;text-align:left;letter-spacing:normal;font-weight:500;">';
-      html += '<button type="button" id="check-owner-username-btn" style="white-space:nowrap;padding:0 14px;">중복확인</button>';
+      html += '<button type="button" id="check-owner-username-btn" style="white-space:nowrap;padding:0 14px;width:auto;flex:0 0 auto;">중복확인</button>';
       html += '</div>';
       if(state.ownerRequestUsernameCheck){
         const check=state.ownerRequestUsernameCheck;
