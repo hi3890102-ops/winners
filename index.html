@@ -1619,6 +1619,23 @@
         state.myCrewId = link.crewId;
         state.storeList = [link.store];
         if(link.storeId) state.storeIdMap[link.store] = link.storeId;
+        try{
+          let storeQuery = db.from('stores').select('id,name,lat,lng,manager_dashboard_enabled,business_day_cutoff_hour');
+          storeQuery = link.storeId ? storeQuery.eq('id', link.storeId) : storeQuery.eq('name', link.store);
+          const { data: storeRow, error: storeError } = await storeQuery.maybeSingle();
+          if(storeError) throw storeError;
+          if(storeRow){
+            state.store = storeRow.name || link.store;
+            state.storeList = [state.store];
+            state.storeIdMap[state.store] = storeRow.id;
+            state.storeLocationMap = state.storeLocationMap || {};
+            state.storeLocationMap[state.store] = (storeRow.lat!=null && storeRow.lng!=null) ? { lat:storeRow.lat, lng:storeRow.lng } : null;
+            state.storeManagerDashboardMap = state.storeManagerDashboardMap || {};
+            state.storeManagerDashboardMap[state.store] = !!storeRow.manager_dashboard_enabled;
+            state.storeCutoffMap = state.storeCutoffMap || {};
+            state.storeCutoffMap[state.store] = storeRow.business_day_cutoff_hour!=null ? storeRow.business_day_cutoff_hour : DEFAULT_BUSINESS_DAY_CUTOFF_HOUR;
+          }
+        }catch(e){}
         await loadStaffHome(state.store, state.myCrewId);
         return;
       }
@@ -2217,12 +2234,18 @@
     if(code.length < 4){ showToast("코드를 정확히 입력해 주세요."); return; }
     showToast("확인 중이에요…");
     try{
-      const { data, error } = await db.from('crew').select('*, stores(id,name)').eq('join_code', code).maybeSingle();
+      const { data, error } = await db.from('crew').select('*, stores(id,name,lat,lng,manager_dashboard_enabled,business_day_cutoff_hour)').eq('join_code', code).maybeSingle();
       if(error) throw error;
       if(!data){ showToast("일치하는 코드가 없어요. 사장님께 다시 확인해 주세요."); return; }
       const store = data.stores.name;
       const crewObj = rowToCrew(data);
       state.storeIdMap[store] = data.stores.id;
+      state.storeLocationMap = state.storeLocationMap || {};
+      state.storeLocationMap[store] = (data.stores.lat!=null && data.stores.lng!=null) ? { lat:data.stores.lat, lng:data.stores.lng } : null;
+      state.storeManagerDashboardMap = state.storeManagerDashboardMap || {};
+      state.storeManagerDashboardMap[store] = !!data.stores.manager_dashboard_enabled;
+      state.storeCutoffMap = state.storeCutoffMap || {};
+      state.storeCutoffMap[store] = data.stores.business_day_cutoff_hour!=null ? data.stores.business_day_cutoff_hour : DEFAULT_BUSINESS_DAY_CUTOFF_HOUR;
       localSet("my-link", JSON.stringify({ store, crewId: crewObj.id, storeId: data.stores.id }));
       state.role = "staff";
       state.store = store;
