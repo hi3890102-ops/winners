@@ -1,0 +1,24 @@
+name: Manager home summary regression
+
+on:
+  push:
+    branches:
+      - security-v2
+    paths:
+      - '.github/workflows/run-manager-home-summary-regression.yml'
+      - 'security/manager-home-summary-regression.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security-v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test security/manager-home-summary-regression.test.mjs
