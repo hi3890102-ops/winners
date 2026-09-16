@@ -6,9 +6,9 @@ set local statement_timeout = '30s';
 do $validation$
 declare
   owner_id uuid:=gen_random_uuid(); worker_id uuid:=gen_random_uuid(); other_id uuid:=gen_random_uuid();
-  sid uuid; cid uuid:=gen_random_uuid(); original_att uuid:=gen_random_uuid(); rid uuid; second_rid uuid; mid uuid;
+  sid uuid; cid uuid:=gen_random_uuid(); original_att uuid:=gen_random_uuid(); rid uuid; mid uuid;
   suffix text:=substr(replace(gen_random_uuid()::text,'-',''),1,12);
-  code text; result jsonb; blocked boolean; clocked public.attendance%rowtype; op jsonb; fresh_session uuid:=gen_random_uuid();
+  code text; second_code text; result jsonb; blocked boolean; clocked public.attendance%rowtype; op jsonb; fresh_session uuid:=gen_random_uuid();
 begin
   insert into auth.users(id) values(owner_id),(worker_id),(other_id);
   insert into auth.sessions(id,user_id,created_at,updated_at) values(owner_id,owner_id,now(),now()),(worker_id,worker_id,now(),now()),(other_id,other_id,now(),now());
@@ -16,7 +16,7 @@ begin
   perform public.bootstrap_staff_account(worker_id,'teststaff_'||suffix,'Synthetic validation worker');
   perform public.bootstrap_staff_account(other_id,'testother_'||suffix,'Synthetic competing worker');
   loop
-    code:=lpad(floor(random()*1000000)::int::text,6,'0');
+    code:=upper(substr(md5(gen_random_uuid()::text),1,8));
     exit when not exists(select 1 from public.crew where join_code=code);
   end loop;
   insert into public.crew(id,store_id,name,join_code,wage,is_manager) values(cid,sid,'Synthetic existing employee',code,15000,true);
@@ -25,6 +25,8 @@ begin
   perform set_config('request.jwt.claim.sub',worker_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('session_id',worker_id)::text,true);
   execute 'set local role authenticated';
+  result:=public.manee_staff_portal('preview',jsonb_build_object('code',code));
+  assert (result->>'ok')::boolean,'preview failed';
   result:=public.manee_staff_portal('request',jsonb_build_object('code',code,'user_id',owner_id,'role','owner'));
   assert (result->>'ok')::boolean,'request failed';
   rid:=(result->>'request_id')::uuid;
@@ -35,11 +37,13 @@ begin
   exception when insufficient_privilege then blocked:=true; end;
   assert blocked,'staff self-approval was allowed';
   execute 'reset role';
+  assert (select join_code is null from public.crew where id=cid),'one-time code was not consumed';
 
   perform set_config('request.jwt.claim.sub',other_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('session_id',other_id)::text,true);
   execute 'set local role authenticated';
-  second_rid:=(public.manee_staff_portal('request',jsonb_build_object('code',code))->>'request_id')::uuid;
+  result:=public.manee_staff_portal('request',jsonb_build_object('code',code));
+  assert result->>'error'='invalid_code','consumed code was reusable';
   execute 'reset role';
 
   perform set_config('request.jwt.claim.sub',owner_id::text,true);
@@ -48,7 +52,18 @@ begin
   result:=public.manee_staff_portal('approve',jsonb_build_object('request_id',rid));
   assert (result->>'ok')::boolean,'owner approval failed';
   mid:=(result->>'membership_id')::uuid;
-  assert public.manee_staff_portal('approve',jsonb_build_object('request_id',second_rid))->>'error'='record_already_linked','duplicate ownership allowed';
+  execute 'reset role';
+
+  loop
+    second_code:=upper(substr(md5(gen_random_uuid()::text),1,8));
+    exit when not exists(select 1 from public.crew where join_code=second_code);
+  end loop;
+  update public.crew set join_code=second_code where id=cid;
+  perform set_config('request.jwt.claim.sub',other_id::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('session_id',other_id)::text,true);
+  execute 'set local role authenticated';
+  result:=public.manee_staff_portal('request',jsonb_build_object('code',second_code));
+  assert result->>'error'='record_already_linked','duplicate ownership allowed';
   execute 'reset role';
 
   perform set_config('request.jwt.claim.sub',worker_id::text,true);
@@ -84,8 +99,6 @@ begin
   assert public.manee_recovery_service('consume',jsonb_build_object('username','teststaff_'||suffix,'key_hash',repeat('a',64)))->>'error'='invalid_recovery','key replay succeeded';
   assert (public.manee_recovery_service('complete',op)->>'ok')::boolean,'completion audit failed';
   execute 'reset role';
-  -- Simulate the session deletion performed by Auth's admin password update.
-  -- This is not a test of the HTTP Auth password endpoint.
   delete from auth.sessions where user_id=worker_id;
   execute 'set local role authenticated';
   blocked:=false;
@@ -99,7 +112,6 @@ begin
   result:=public.manee_staff_portal('session');
   assert (result->'memberships'->0->>'crew_id')::uuid=cid,'new session lost original crew';
   execute 'reset role';
-
 
   perform set_config('request.jwt.claim.sub',owner_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('session_id',owner_id)::text,true);
@@ -116,7 +128,7 @@ begin
   assert (select count(*) from public.attendance where id=original_att)=1,'attendance deleted on revoke';
   assert (select count(*) from public.attendance where crew_id=cid)=2,'clock history lost';
   assert (select count(*) from private.staff_access_events where store_id=sid)=2,'approval/revoke audit missing';
-  -- The owner sees only its own store; no archived-only policy can bypass it.
+
   perform set_config('request.jwt.claim.sub',owner_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('session_id',owner_id)::text,true);
   execute 'set local role authenticated';
@@ -131,11 +143,14 @@ begin
     '{"items":{"morning":[{"id":"opening","name":"Opening","items":[{"id":"clean","label":"Clean"},{"id":"lights","label":"Lights"}]}],"afternoon":[],"routine":[]}}'::jsonb);
   assert (result->>'ok')::boolean,'checklist init failed';
   execute 'reset role';
-  -- Reconnect only the synthetic worker via the normal request + approval path.
+
+  -- Reconnect the original worker with the still-active fresh code. The competing account could not claim it.
   perform set_config('request.jwt.claim.sub',worker_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('session_id',fresh_session)::text,true);
   execute 'set local role authenticated';
-  rid:=(public.manee_staff_portal('request',jsonb_build_object('code',code))->>'request_id')::uuid;
+  result:=public.manee_staff_portal('request',jsonb_build_object('code',second_code));
+  assert (result->>'ok')::boolean,'reactivation request failed';
+  rid:=(result->>'request_id')::uuid;
   execute 'reset role';
   perform set_config('request.jwt.claim.sub',owner_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('session_id',owner_id)::text,true);
@@ -168,6 +183,6 @@ begin
 end;
 $validation$;
 select jsonb_build_object('passed',true,'synthetic_sql_role_flow',true,'self_approval_blocked',true,
-  'duplicate_connection_blocked',true,'original_crew_and_history_preserved',true,'legacy_role_escalation_blocked',true,
+  'one_time_code_enforced',true,'duplicate_connection_blocked',true,'original_crew_and_history_preserved',true,'legacy_role_escalation_blocked',true,
   'direct_staff_writes_blocked',true,'revocation_enforced',true,'audit_recorded',true,'test_data_rolled_back',true,'clock_in_out',true,'recovery_replay_blocked',true,'expired_session_blocked',true,'new_session_restores_same_crew',true,'cross_store_list_blocked',true,'anonymous_data_access_blocked',true,'checklist_server_totals',true,'legacy_credentials_closed',true) as validation;
 rollback;
