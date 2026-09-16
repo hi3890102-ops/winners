@@ -439,6 +439,7 @@
     onboardingStep: null,
     showStoreManage: false,
     showFranchiseManage: false,
+    showCreateFranchiseForm: false,
     hqSalesSearch: "",
     franchiseAssignSearch: "",
     landingMode: "default", // default | code | pin-setup | pin-entry | store-entry | store-login | request-form | request-pending | request-rejected
@@ -5171,12 +5172,19 @@
     html += '</div>';
 
     html += '<div class="day-panel">';
-    html += '<h3>새 프랜차이즈 계정 만들기</h3>';
-    html += '<label class="field-label">프랜차이즈 이름</label><input class="field-input" id="new-franchise-name-input" type="text" placeholder="프랜차이즈 이름" style="margin-bottom:8px;">';
-    html += '<label class="field-label">담당자 이름</label><input class="field-input" id="new-franchise-display-name-input" type="text" placeholder="담당자 이름" style="margin-bottom:8px;">';
-    html += '<label class="field-label">아이디</label><input class="field-input" id="new-franchise-username-input" type="text" placeholder="아이디 (4~30자)" style="margin-bottom:8px;">';
-    html += '<label class="field-label">비밀번호</label><input class="field-input" id="new-franchise-password-input" type="password" placeholder="비밀번호 (8자 이상)" style="margin-bottom:10px;">';
-    html += '<button class="landing-btn primary" id="create-franchise-auth-btn" style="margin:0;">계정 만들기</button>';
+    html += '<div id="toggle-create-franchise-btn" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">';
+    html += '<h3 style="margin:0;">새 프랜차이즈 계정 만들기</h3>';
+    html += '<svg width="14" height="14" viewBox="0 0 24 24" style="transform:rotate('+(state.showCreateFranchiseForm?180:0)+'deg);flex:0 0 auto;"><path d="M6 9l6 6 6-6" stroke="var(--ink-soft)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    html += '</div>';
+    if(state.showCreateFranchiseForm){
+      html += '<div style="margin-top:10px;">';
+      html += '<label class="field-label">프랜차이즈 이름</label><input class="field-input" id="new-franchise-name-input" type="text" placeholder="프랜차이즈 이름" style="margin-bottom:8px;">';
+      html += '<label class="field-label">담당자 이름</label><input class="field-input" id="new-franchise-display-name-input" type="text" placeholder="담당자 이름" style="margin-bottom:8px;">';
+      html += '<label class="field-label">아이디</label><input class="field-input" id="new-franchise-username-input" type="text" placeholder="아이디 (4~30자)" style="margin-bottom:8px;">';
+      html += '<label class="field-label">비밀번호</label><input class="field-input" id="new-franchise-password-input" type="password" placeholder="비밀번호 (8자 이상)" style="margin-bottom:10px;">';
+      html += '<button class="landing-btn primary" id="create-franchise-auth-btn" style="margin:0;">계정 만들기</button>';
+      html += '</div>';
+    }
     html += '</div>';
     return html;
   }
@@ -7822,6 +7830,8 @@
     if(createFranchiseBtn) createFranchiseBtn.addEventListener("click", createFranchise);
     const createFranchiseAuthBtn = document.getElementById("create-franchise-auth-btn");
     if(createFranchiseAuthBtn) createFranchiseAuthBtn.addEventListener("click", createFranchiseAuthAccount);
+    const toggleCreateFranchiseBtn = document.getElementById("toggle-create-franchise-btn");
+    if(toggleCreateFranchiseBtn) toggleCreateFranchiseBtn.addEventListener("click", ()=>{ state.showCreateFranchiseForm = !state.showCreateFranchiseForm; render(); });
     app.querySelectorAll("[data-copypw]").forEach(btn=>{
       btn.addEventListener("click", ()=> copyCode(btn.getAttribute("data-copypw")));
     });
