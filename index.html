@@ -494,6 +494,7 @@
     notifBarExpanded: false,
     expandedStoreRows: {},
     dashboardDailyTrend: {},
+    dashboardTrendActiveDate: null,
     announceDraft: { title: "", body: "" },
     reservationDraft: {},
     showVendorManage: false,
@@ -5795,18 +5796,21 @@
       const key = d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
       days.push({ key, dow: d.getDay(), val: trend[key]||0 });
     }
+    const todayKeyStr = days[days.length-1].key;
+    const activeKey = state.dashboardTrendActiveDate || todayKeyStr;
     const max = Math.max.apply(null, days.map(d=>d.val).concat([1]));
     const dowLabel = ['일','월','화','수','목','금','토'];
     let html = '<div style="display:flex;align-items:flex-end;gap:8px;height:88px;">';
     days.forEach((d,i)=>{
       const h = Math.max(6, Math.round((d.val/max)*80));
-      const isToday = i === days.length-1;
+      const isToday = d.key === todayKeyStr;
+      const isActive = d.key === activeKey;
       html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;cursor:pointer;" data-trenddate="'+d.key+'">';
-      if(isToday){
+      if(isActive){
         html += '<span style="font-size:10.5px;font-weight:800;color:var(--brick);position:absolute;top:-18px;white-space:nowrap;">'+Math.round(d.val/10000).toLocaleString()+'만</span>';
       }
-      html += '<div style="width:100%;background:'+(isToday?'var(--brick)':'var(--brick-dim)')+';border-radius:4px 4px 0 0;height:'+h+'px;"></div>';
-      html += '<span style="font-size:10.5px;color:'+(isToday?'var(--brick)':'var(--ink-soft)')+';font-weight:'+(isToday?'800':'400')+';">'+(isToday?'오늘':dowLabel[d.dow])+'</span>';
+      html += '<div style="width:100%;background:'+(isActive?'var(--brick)':'var(--brick-dim)')+';border-radius:4px 4px 0 0;height:'+h+'px;"></div>';
+      html += '<span style="font-size:10.5px;color:'+(isActive?'var(--brick)':'var(--ink-soft)')+';font-weight:'+(isActive?'800':'400')+';">'+(isToday?'오늘':dowLabel[d.dow])+'</span>';
       html += '</div>';
     });
     html += '</div>';
@@ -7616,7 +7620,7 @@
     const resStoreSelect = document.getElementById("res-store-select");
     if(resStoreSelect) resStoreSelect.addEventListener("change", ()=> switchOwnerStore(resStoreSelect.value));
     app.querySelectorAll("[data-trenddate]").forEach(el=>{
-      el.addEventListener("click", ()=> openOwnerSalesForm(el.getAttribute("data-trenddate")));
+      el.addEventListener("click", ()=>{ state.dashboardTrendActiveDate = el.getAttribute("data-trenddate"); render(); });
     });
     const resDateInput = document.getElementById("res-date-input");
     if(resDateInput) resDateInput.addEventListener("input", ()=>{ state.reservationDraft.date = resDateInput.value; });
