@@ -2238,6 +2238,36 @@
     state.hqDashboardStatsLoading = false;
     render();
   }
+  async function createFranchiseAuthAccount(){
+    const nameInp = document.getElementById("new-franchise-name-input");
+    const displayInp = document.getElementById("new-franchise-display-name-input");
+    const userInp = document.getElementById("new-franchise-username-input");
+    const pwInp = document.getElementById("new-franchise-password-input");
+    const franchiseName = (nameInp.value||"").trim();
+    const displayName = (displayInp.value||"").trim();
+    const username = (userInp.value||"").trim();
+    const password = pwInp.value||"";
+    if(!franchiseName || !displayName || !username || !password){ showToast("모든 항목을 입력해 주세요."); return; }
+    if(password.length < 8){ showToast("비밀번호는 8자 이상으로 만들어 주세요."); return; }
+    showToast("계정을 만드는 중이에요…");
+    try{
+      const { data:sessionData, error:sessionError } = await db.auth.getSession();
+      if(sessionError || !sessionData?.session?.access_token) throw new Error("다시 로그인해 주세요.");
+      const res = await fetch(SUPABASE_URL+"/functions/v1/manee-franchise-signup", {
+        method: "POST",
+        headers: { "Content-Type":"application/json", "apikey":SUPABASE_ANON_KEY, "Authorization":"Bearer "+sessionData.session.access_token },
+        body: JSON.stringify({ franchise_name:franchiseName, display_name:displayName, username, password })
+      });
+      const data = await res.json().catch(()=>null);
+      if(!res.ok || !data || data.ok!==true) throw new Error((data&&data.message)||"계정을 만들지 못했어요.");
+      nameInp.value=""; displayInp.value=""; userInp.value=""; pwInp.value="";
+      await Promise.all([loadFranchises(), loadStoreFranchiseMap()]);
+      render();
+      showToast(franchiseName+" 계정을 만들었어요");
+    }catch(e){
+      showToast((e&&e.message)||"계정을 만들지 못했어요.");
+    }
+  }
   async function createFranchise(){
     const nameInp = document.getElementById("new-franchise-name-input");
     const userInp = document.getElementById("new-franchise-username-input");
@@ -5140,7 +5170,14 @@
     });
     html += '</div>';
 
-    html += '<div class="day-panel"><h3>새 프랜차이즈 계정 만들기</h3><p class="crew-code-hint">Auth 전용 프랜차이즈 계정 생성 기능은 아직 준비 중이에요. 필요하시면 말씀해 주세요.</p></div>';
+    html += '<div class="day-panel">';
+    html += '<h3>새 프랜차이즈 계정 만들기</h3>';
+    html += '<label class="field-label">프랜차이즈 이름</label><input class="field-input" id="new-franchise-name-input" type="text" placeholder="프랜차이즈 이름" style="margin-bottom:8px;">';
+    html += '<label class="field-label">담당자 이름</label><input class="field-input" id="new-franchise-display-name-input" type="text" placeholder="담당자 이름" style="margin-bottom:8px;">';
+    html += '<label class="field-label">아이디</label><input class="field-input" id="new-franchise-username-input" type="text" placeholder="아이디 (4~30자)" style="margin-bottom:8px;">';
+    html += '<label class="field-label">비밀번호</label><input class="field-input" id="new-franchise-password-input" type="password" placeholder="비밀번호 (8자 이상)" style="margin-bottom:10px;">';
+    html += '<button class="landing-btn primary" id="create-franchise-auth-btn" style="margin:0;">계정 만들기</button>';
+    html += '</div>';
     return html;
   }
 
@@ -7783,6 +7820,8 @@
     });
     const createFranchiseBtn = document.getElementById("create-franchise-btn");
     if(createFranchiseBtn) createFranchiseBtn.addEventListener("click", createFranchise);
+    const createFranchiseAuthBtn = document.getElementById("create-franchise-auth-btn");
+    if(createFranchiseAuthBtn) createFranchiseAuthBtn.addEventListener("click", createFranchiseAuthAccount);
     app.querySelectorAll("[data-copypw]").forEach(btn=>{
       btn.addEventListener("click", ()=> copyCode(btn.getAttribute("data-copypw")));
     });
