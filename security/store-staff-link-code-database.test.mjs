@@ -33,9 +33,9 @@ insert into public.attendance(id,store_id,crew_id,date,check_in,check_out) value
 async function postgres(){await db.exec('reset role');}
 async function role(user,dbRole='authenticated'){
   await db.exec('reset role');
-  await db.query("select set_config('request.jwt.claim.sub',$1,true),set_config('request.jwt.claim.role',$2,true)",[user||'',dbRole]);
-  await db.query("select set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub:user||'',role:dbRole,session_id:user||null})]);
-  await db.exec('set local role '+dbRole);
+  await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claim.role',$2,false)",[user||'',dbRole]);
+  await db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:user||'',role:dbRole,session_id:user||null})]);
+  await db.exec('set role '+dbRole);
 }
 async function portal(action,payload={}){return (await db.query('select public.manee_staff_portal($1,$2::jsonb) result',[action,JSON.stringify(payload)])).rows[0].result;}
 async function scalar(sql,args=[]){return Object.values((await db.query(sql,args)).rows[0])[0];}
