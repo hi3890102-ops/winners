@@ -1,0 +1,58 @@
+name: Verify store-code release
+on:
+  push:
+    branches: [security-v2]
+    paths: ['.github/workflows/finalize-store-code.yml', 'scripts/finalize-store-code-ui.py', 'security/**']
+permissions:
+  contents: write
+concurrency:
+  group: finalize-store-code-security-v2
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security-v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Finish connection UI
+        run: |
+          if test -f scripts/finalize-store-code-ui.py; then python scripts/finalize-store-code-ui.py; fi
+      - run: npm ci
+      - name: All security regression tests
+        run: |
+          set -o pipefail
+          node --test security/*.test.mjs | tee /tmp/store-code-tests.txt
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';import {Script} from 'node:vm';
+          const html=readFileSync('index.html','utf8');let count=0;
+          for(const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)){
+            if(/src=|application\/ld\+json/.test(m[1])||!m[2].trim())continue;
+            new Script(m[2]);count++;
+          }
+          console.log('Inline script syntax verified:',count);
+          JS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: store-code-tests
+          path: /tmp/store-code-tests.txt
+      - name: Commit only tested UI and remove completed patch helpers
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python - <<'PY'
+          from pathlib import Path
+          for p in Path('.github/workflows').glob('apply-store-level-staff-code*.yml'): p.unlink()
+          for name in ['scripts/apply-store-level-staff-code.py','scripts/finalize-store-code-ui.py']:
+              Path(name).unlink(missing_ok=True)
+          PY
+          git add -u -- index.html security scripts .github/workflows
+          if ! git diff --cached --quiet; then
+            git commit -m 'Finalize tested store-code onboarding and remove temporary patch workflows'
+            git push origin HEAD:security-v2
+          fi
