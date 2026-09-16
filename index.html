@@ -5019,7 +5019,7 @@
     html += '<div class="day-panel">';
     html += '<h3>매장 관리</h3>';
     html += '<p class="crew-code-hint" style="margin-bottom:10px;">매장 이름을 검색해서 찾아 주세요. "위치 설정"은 그 매장에 직접 가서 눌러야 정확해요 — 스텝 출퇴근을 매장 100m 이내에서만 찍히게 하는 데 쓰여요.</p>';
-    html += '<input class="field-input" id="store-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.storeManageSearch||"")+'" style="margin-bottom:10px;">';
+    html += '<div style="display:flex;gap:6px;margin-bottom:10px;"><input class="field-input" id="store-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.storeManageSearch||"")+'" style="margin:0;"><button class="crew-code-btn" id="store-search-btn" style="flex:0 0 auto;">검색</button></div>';
     const storeSearchQ = (state.storeManageSearch||"").trim().toLowerCase();
     const matchedStores = storeSearchQ ? state.storeList.filter(s=>s.toLowerCase().includes(storeSearchQ)) : [];
     if(!storeSearchQ){
@@ -5108,7 +5108,7 @@
     }
     if(approved.length>0){
       html += '<p class="crew-group-label">현재 승인된 매장 사장님</p>';
-      html += '<input class="field-input" id="owner-search-input" type="text" placeholder="이름·아이디·매장명 검색" value="'+escapeHtml(state.ownerManageSearch||"")+'" style="margin-bottom:10px;">';
+      html += '<div style="display:flex;gap:6px;margin-bottom:10px;"><input class="field-input" id="owner-search-input" type="text" placeholder="이름·아이디·매장명 검색" value="'+escapeHtml(state.ownerManageSearch||"")+'" style="margin:0;"><button class="crew-code-btn" id="owner-search-btn" style="flex:0 0 auto;">검색</button></div>';
       const ownerSearchQ = (state.ownerManageSearch||"").trim().toLowerCase();
       const matchedOwners = ownerSearchQ ? approved.filter(r=>
         (r.name||"").toLowerCase().includes(ownerSearchQ) ||
@@ -5154,7 +5154,7 @@
 
     html += '<div class="day-panel">';
     html += '<h3>매장 소속 배정</h3>';
-    html += '<input class="field-input" id="franchise-store-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.franchiseAssignSearch||"")+'" style="margin-bottom:10px;">';
+    html += '<div style="display:flex;gap:6px;margin-bottom:10px;"><input class="field-input" id="franchise-store-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.franchiseAssignSearch||"")+'" style="margin:0;"><button class="crew-code-btn" id="franchise-store-search-btn" style="flex:0 0 auto;">검색</button></div>';
     const q = (state.franchiseAssignSearch||"").trim().toLowerCase();
     const matched = q ? state.storeList.filter(s=>s.toLowerCase().includes(q)) : [];
     if(!q){
@@ -6001,7 +6001,7 @@
 
     html += '<div class="day-panel" style="margin-bottom:10px;">';
     html += '<h3 style="margin:0 0 8px;">매장 검색</h3>';
-    html += '<input class="field-input" id="hq-sales-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.hqSalesSearch||"")+'">';
+    html += '<div style="display:flex;gap:6px;"><input class="field-input" id="hq-sales-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.hqSalesSearch||"")+'" style="margin:0;"><button class="crew-code-btn" id="hq-sales-search-btn" style="flex:0 0 auto;">검색</button></div>';
     html += '</div>';
 
     const q = (state.hqSalesSearch||"").trim().toLowerCase();
@@ -7742,49 +7742,28 @@
       render();
     });
     const hqSalesSearchInput = document.getElementById("hq-sales-search-input");
-    if(hqSalesSearchInput){
-      hqSalesSearchInput.addEventListener("input", (e)=>{
-        if(e.isComposing) return;
-        const pos = hqSalesSearchInput.selectionStart;
-        state.hqSalesSearch = hqSalesSearchInput.value;
-        render();
-        const el = document.getElementById("hq-sales-search-input");
-        if(el){ el.focus(); el.setSelectionRange(pos, pos); }
-      });
-    }
+    const hqSalesSearchBtn = document.getElementById("hq-sales-search-btn");
+    const runHqSalesSearch = ()=>{ state.hqSalesSearch = hqSalesSearchInput.value; render(); };
+    if(hqSalesSearchBtn) hqSalesSearchBtn.addEventListener("click", runHqSalesSearch);
+    if(hqSalesSearchInput) hqSalesSearchInput.addEventListener("keydown", e=>{ if(e.key==="Enter") runHqSalesSearch(); });
+
     const franchiseStoreSearchInput = document.getElementById("franchise-store-search-input");
-    if(franchiseStoreSearchInput){
-      franchiseStoreSearchInput.addEventListener("input", (e)=>{
-        if(e.isComposing) return;
-        const pos = franchiseStoreSearchInput.selectionStart;
-        state.franchiseAssignSearch = franchiseStoreSearchInput.value;
-        render();
-        const el = document.getElementById("franchise-store-search-input");
-        if(el){ el.focus(); el.setSelectionRange(pos, pos); }
-      });
-    }
+    const franchiseStoreSearchBtn = document.getElementById("franchise-store-search-btn");
+    const runFranchiseStoreSearch = ()=>{ state.franchiseAssignSearch = franchiseStoreSearchInput.value; render(); };
+    if(franchiseStoreSearchBtn) franchiseStoreSearchBtn.addEventListener("click", runFranchiseStoreSearch);
+    if(franchiseStoreSearchInput) franchiseStoreSearchInput.addEventListener("keydown", e=>{ if(e.key==="Enter") runFranchiseStoreSearch(); });
+
     const storeSearchInput = document.getElementById("store-search-input");
-    if(storeSearchInput){
-      storeSearchInput.addEventListener("input", (e)=>{
-        if(e.isComposing) return;
-        const pos = storeSearchInput.selectionStart;
-        state.storeManageSearch = storeSearchInput.value;
-        render();
-        const el = document.getElementById("store-search-input");
-        if(el){ el.focus(); el.setSelectionRange(pos, pos); }
-      });
-    }
+    const storeSearchBtn = document.getElementById("store-search-btn");
+    const runStoreSearch = ()=>{ state.storeManageSearch = storeSearchInput.value; render(); };
+    if(storeSearchBtn) storeSearchBtn.addEventListener("click", runStoreSearch);
+    if(storeSearchInput) storeSearchInput.addEventListener("keydown", e=>{ if(e.key==="Enter") runStoreSearch(); });
+
     const ownerSearchInput = document.getElementById("owner-search-input");
-    if(ownerSearchInput){
-      ownerSearchInput.addEventListener("input", (e)=>{
-        if(e.isComposing) return;
-        const pos = ownerSearchInput.selectionStart;
-        state.ownerManageSearch = ownerSearchInput.value;
-        render();
-        const el = document.getElementById("owner-search-input");
-        if(el){ el.focus(); el.setSelectionRange(pos, pos); }
-      });
-    }
+    const ownerSearchBtn = document.getElementById("owner-search-btn");
+    const runOwnerSearch = ()=>{ state.ownerManageSearch = ownerSearchInput.value; render(); };
+    if(ownerSearchBtn) ownerSearchBtn.addEventListener("click", runOwnerSearch);
+    if(ownerSearchInput) ownerSearchInput.addEventListener("keydown", e=>{ if(e.key==="Enter") runOwnerSearch(); });
     app.querySelectorAll("[data-togglestorerow]").forEach(row=>{
       row.addEventListener("click", ()=>{
         const s = row.getAttribute("data-togglestorerow");
