@@ -6,16 +6,16 @@ set local statement_timeout = '30s';
 do $validation$
 declare
   owner_id uuid:=gen_random_uuid(); worker_id uuid:=gen_random_uuid(); other_id uuid:=gen_random_uuid();
-  sid uuid; cid uuid:=gen_random_uuid(); original_att uuid:=gen_random_uuid(); rid uuid; second_rid uuid; mid uuid;
+  sid uuid; cid uuid:=gen_random_uuid(); original_att uuid:=gen_random_uuid(); rid uuid; mid uuid;
   suffix text:=substr(replace(gen_random_uuid()::text,'-',''),1,12);
-  code text; result jsonb; blocked boolean;
+  code text; second_code text; result jsonb; blocked boolean;
 begin
   insert into auth.users(id) values(owner_id),(worker_id),(other_id);
   sid:=public.bootstrap_owner_account(owner_id,'testowner_'||suffix,'Synthetic validation owner','Validation store '||suffix);
   perform public.bootstrap_staff_account(worker_id,'teststaff_'||suffix,'Synthetic validation worker');
   perform public.bootstrap_staff_account(other_id,'testother_'||suffix,'Synthetic competing worker');
   loop
-    code:=lpad(floor(random()*1000000)::int::text,6,'0');
+    code:=upper(substr(md5(gen_random_uuid()::text),1,8));
     exit when not exists(select 1 from public.crew where join_code=code);
   end loop;
   insert into public.crew(id,store_id,name,join_code,wage,is_manager) values(cid,sid,'Synthetic existing employee',code,15000,true);
@@ -23,6 +23,10 @@ begin
 
   perform set_config('request.jwt.claim.sub',worker_id::text,true);
   execute 'set local role authenticated';
+  result:=public.manee_staff_portal('preview',jsonb_build_object('code',code));
+  assert (result->>'ok')::boolean,'preview failed';
+  assert result->>'store_name'='Validation store '||suffix,'preview store mismatch';
+  assert result->>'crew_name'='Synthetic existing employee','preview crew mismatch';
   result:=public.manee_staff_portal('request',jsonb_build_object('code',code,'user_id',owner_id,'role','owner'));
   assert (result->>'ok')::boolean,'request failed';
   rid:=(result->>'request_id')::uuid;
@@ -33,10 +37,12 @@ begin
   exception when insufficient_privilege then blocked:=true; end;
   assert blocked,'staff self-approval was allowed';
   execute 'reset role';
+  assert (select join_code is null from public.crew where id=cid),'one-time code was not consumed';
 
   perform set_config('request.jwt.claim.sub',other_id::text,true);
   execute 'set local role authenticated';
-  second_rid:=(public.manee_staff_portal('request',jsonb_build_object('code',code))->>'request_id')::uuid;
+  result:=public.manee_staff_portal('request',jsonb_build_object('code',code));
+  assert result->>'error'='invalid_code','consumed code was reusable';
   execute 'reset role';
 
   perform set_config('request.jwt.claim.sub',owner_id::text,true);
@@ -44,7 +50,17 @@ begin
   result:=public.manee_staff_portal('approve',jsonb_build_object('request_id',rid));
   assert (result->>'ok')::boolean,'owner approval failed';
   mid:=(result->>'membership_id')::uuid;
-  assert public.manee_staff_portal('approve',jsonb_build_object('request_id',second_rid))->>'error'='record_already_linked','duplicate ownership allowed';
+  execute 'reset role';
+
+  loop
+    second_code:=upper(substr(md5(gen_random_uuid()::text),1,8));
+    exit when not exists(select 1 from public.crew where join_code=second_code);
+  end loop;
+  update public.crew set join_code=second_code where id=cid;
+  perform set_config('request.jwt.claim.sub',other_id::text,true);
+  execute 'set local role authenticated';
+  result:=public.manee_staff_portal('request',jsonb_build_object('code',second_code));
+  assert result->>'error'='record_already_linked','duplicate ownership allowed';
   execute 'reset role';
 
   perform set_config('request.jwt.claim.sub',worker_id::text,true);
@@ -77,6 +93,6 @@ begin
 end;
 $validation$;
 select jsonb_build_object('passed',true,'synthetic_sql_role_flow',true,'self_approval_blocked',true,
-  'duplicate_connection_blocked',true,'original_crew_and_history_preserved',true,'legacy_role_escalation_blocked',true,
+  'one_time_code_enforced',true,'duplicate_connection_blocked',true,'original_crew_and_history_preserved',true,'legacy_role_escalation_blocked',true,
   'direct_staff_writes_blocked',true,'revocation_enforced',true,'audit_recorded',true,'test_data_rolled_back',true) as validation;
 rollback;
