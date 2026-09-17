@@ -57,6 +57,12 @@ The previous permissive production RLS remains until Phase C. A successful code-
 
 After the application smoke test, apply `security/store-permissions.sql`. Recheck anonymous table access, unconditional legacy policies, cross-store access, owner-only settings, role/sales-scoped financial access, staff payroll isolation, expired/suspended/revoked sessions, and original attendance/history preservation.
 
+**Status (2026-09-17):** the 15 tables `store-permissions.sql` fully covers (announcement_reads, announcements, attendance, checklist_checks/log/templates, crew, expense_entries, fixed_expenses, fixed_schedules, sales_report_photos, sales_reports, shifts, stores, vendors) are locked down on production — see `security/phase-c-core-tables-2026-09-17.sql` for the exact statements applied and why the full file wasn't run verbatim (three pieces were already live from other same-day fixes). franchises and reservations were also locked down the same day (`franchises-rls-lockdown.sql`, `reservations-push-subscriptions-rls-lockdown.sql`). Supabase's security advisor shows zero ERROR-level findings as of this pass.
+
+**Update (same day):** `billing_settings`, `crew_pay_adjustments`, `tax_reminder_ack` are now locked down too — see `security/billing-pay-tax-rls-lockdown.sql`. Zero ERROR-level advisor findings on production after this.
+
+**Still open, deliberately deferred:** `app_settings` and `owner_requests` still have their legacy "allow all" policy on both staging and production. Both are read/written pre-authentication by legacy login flows (client fetches `password_hash` directly to verify credentials before any Supabase Auth session exists) and need an RPC-based redesign, not a grant/policy swap. Do this as its own reviewed pass.
+
 Store-code joining adds no direct grant to employee payroll and must not reopen the previous private employee-code or store-code implementation RPCs. Recheck those restrictions after all migrations.
 
 ## Rollback
