@@ -1152,9 +1152,16 @@
   async function loadAuthStaffCrew(store){
     const sid=state.storeIdMap[store];
     const mine=await staffPortal('crew',{store_id:sid});
+    if(!mine.crew || mine.crew.id!==state.myCrewId) throw new Error('직원 연결이 변경됐어요. 다시 로그인해 주세요.');
+    if(mine.crew.is_manager){
+      // Managers pass can_manage_store, so RLS allows a full select with real wages —
+      // skip the privacy-limited directory RPC that zeroes out everyone else's wage.
+      const { data, error } = await db.from('crew').select('*').eq('store_id', sid).order('created_at');
+      if(error) throw error;
+      return (data||[]).map(rowToCrew);
+    }
     const {data:directory,error}=await db.rpc('get_store_crew_directory',{target_store_id:sid});
     if(error) throw error;
-    if(!mine.crew || mine.crew.id!==state.myCrewId) throw new Error('직원 연결이 변경됐어요. 다시 로그인해 주세요.');
     const crew=(directory||[]).map(c=>rowToCrew({id:c.crew_id,name:c.crew_name,position:c.crew_position,resign_date:c.resign_date,wage:0,wage_type:'hourly'}));
     return [...crew.filter(c=>c.id!==mine.crew.id),rowToCrew(mine.crew)];
   }
