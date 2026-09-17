@@ -3545,6 +3545,18 @@
       showToast(wasEditing ? "매출보고를 수정했어요" : (MANEE_STAFF_AUTH_ENABLED?"매출보고를 제출했어요":"매출보고를 제출했어요 · 오늘 체크리스트도 자동으로 마감했어요"));
     }
     autoCloseChecklistForDate(state.store, dateStr);
+    if(wasEditing && state.role !== "storeOwner" && storeId){
+      fetch("/.netlify/functions/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId, ownerOnly: true, excludeCrewId: state.myCrewId || null,
+          title: state.store+" 매출보고 수정됨",
+          body: managerName+"님이 "+dateStr+" 매출보고를 수정했어요.",
+          url: "/", tag: "sales-report-edited-"+dateStr
+        })
+      }).catch(()=>{});
+    }
   }
 
   async function autoCloseChecklistForDate(store, dateStr){
