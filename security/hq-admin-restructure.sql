@@ -8,6 +8,7 @@ set local lock_timeout='5s';
 set local statement_timeout='60s';
 
 alter table public.stores add column if not exists phone text;
+grant update(phone) on public.stores to authenticated;
 
 create table if not exists public.hq_announcements (
   id uuid primary key default gen_random_uuid(),
@@ -54,5 +55,25 @@ create table if not exists public.update_log (
 alter table public.update_log enable row level security;
 drop policy if exists "allow all - update_log" on public.update_log;
 create policy "allow all - update_log" on public.update_log for all using (true) with check (true);
+
+-- Pre-existing gap found while verifying the 프랜차이즈 탭: authenticated had
+-- no grants at all on public.franchises, so the client-side franchise list
+-- query 403'd for every HQ admin even though RLS already allowed it. The
+-- edge-function-based create/delete flows never hit this since they run as
+-- service_role. NOT yet ported to production -- do that separately once
+-- this is verified, since franchise-account-creation.sql (which this table
+-- belongs to) is already live in prod.
+grant select on public.franchises to authenticated;
+
+-- Same discovery for the new 정지/재개 (suspend/resume) action: franchise_memberships
+-- had no permissive UPDATE policy at all (only a self-scoped SELECT policy plus
+-- the restrictive liveness gate), so no authenticated role could ever update it
+-- through PostgREST. Scoped narrowly to platform admins, matching can_manage_store's
+-- role check. NOT yet ported to production.
+create policy franchise_memberships_admin_manage on public.franchise_memberships
+  for update to authenticated
+  using (private.has_platform_role(array['super_admin','admin']::text[]))
+  with check (private.has_platform_role(array['super_admin','admin']::text[]));
+grant update(status, revoked_at) on public.franchise_memberships to authenticated;
 
 commit;
