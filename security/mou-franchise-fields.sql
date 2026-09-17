@@ -76,3 +76,12 @@ create policy franchises_admin_write on public.franchises
   for update to authenticated
   using (private.has_platform_role(array['super_admin','admin']::text[]))
   with check (private.has_platform_role(array['super_admin','admin']::text[]));
+
+-- Follow-up fix, same day: the original franchises SELECT grant (from
+-- franchises-rls-lockdown.sql) is column-level, not table-wide -- it only
+-- covers id/name/username/monthly_price/created_at and does NOT
+-- automatically extend to new columns. Once index.html started selecting
+-- mou_start_date/mou_end_date/subsidy_amount, every loadFranchises() call
+-- got a 403 and silently emptied state.franchises (reported by the user
+-- as "등록된 프랜차이즈가 없어요" despite the row still existing).
+grant select (mou_start_date, mou_end_date, subsidy_amount) on public.franchises to authenticated;
