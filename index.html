@@ -1996,11 +1996,13 @@
     const userInput = document.getElementById("owner-request-username-input");
     const pwInput = document.getElementById("owner-request-password-input");
     const pwConfirmInput = document.getElementById("owner-request-password-confirm-input");
+    const franchiseCodeInput = document.getElementById("owner-request-franchise-code-input");
     const name = (nameInput.value||"").trim();
     const storeName = (storeInput.value||"").trim();
     const username = (userInput.value||"").trim();
     const pw = pwInput.value||"";
     const pwConfirm = pwConfirmInput.value||"";
+    const franchiseCode = (franchiseCodeInput && franchiseCodeInput.value||"").trim();
     if(!name || !storeName || !username){ showToast("이름, 매장명, 아이디를 모두 입력해 주세요."); return; }
     if(pw.length < 8){ showToast("비밀번호는 8자 이상으로 만들어 주세요."); return; }
     if(pw !== pwConfirm){ showToast("비밀번호가 서로 달라요."); return; }
@@ -2009,7 +2011,9 @@
     if(!usernameCheck || usernameCheck.username !== normalizedUsername || !usernameCheck.available){ showToast("아이디 중복확인을 먼저 해주세요."); return; }
     showToast("계정을 만드는 중이에요…");
     try{
-      const data = await callManeeAuthApi("manee-signup", { username, password:pw, display_name:name, store_name:storeName });
+      const payload = { username, password:pw, display_name:name, store_name:storeName };
+      if(franchiseCode) payload.franchise_code = franchiseCode;
+      const data = await callManeeAuthApi("manee-signup", payload);
       let session = data.session;
       if(!session){
         const loginData = await callManeeAuthApi("manee-login", { username, password:pw });
@@ -2017,8 +2021,9 @@
       }
       await applyManeeAuthSession(session);
       await enterAuthenticatedOwner(data.user.username, data.store.name);
-      showToast("가입이 완료됐어요");
+      showToast(franchiseCode ? "가입이 완료됐어요. 프랜차이즈 요금제가 적용됩니다." : "가입이 완료됐어요");
     }catch(e){
+      if(e && e.code==='invalid_franchise_code'){ showToast("프랜차이즈 코드를 확인해 주세요."); return; }
       showToast((e && e.message) ? e.message : "가입에 실패했어요.");
     }
   }
@@ -5619,6 +5624,9 @@
       html += '<input id="owner-request-password-input" type="password" placeholder="8자 이상" style="text-align:left;letter-spacing:normal;font-weight:500;">';
       html += '<label style="margin-top:8px;">비밀번호 확인</label>';
       html += '<input id="owner-request-password-confirm-input" type="password" placeholder="비밀번호 확인" style="text-align:left;letter-spacing:normal;font-weight:500;">';
+      html += '<label style="margin-top:8px;">프랜차이즈 코드 (있으신 경우)</label>';
+      html += '<input id="owner-request-franchise-code-input" type="text" placeholder="선택 입력" style="text-align:left;letter-spacing:normal;font-weight:500;text-transform:uppercase;">';
+      html += '<p style="margin:4px 0 0;font-size:12.5px;color:var(--ink-soft);">코드를 입력하면 프랜차이즈 요금제가 적용돼요.</p>';
       html += '<button id="submit-owner-request-btn">회원가입하기</button>';
       html += '</div>';
       html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
