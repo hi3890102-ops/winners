@@ -435,11 +435,22 @@
     storeList: [],
     storeIdMap: {},
     storeLocationMap: {},
+    storePhoneMap: {},
     storeOnboardingMap: {},
     onboardingStep: null,
     showStoreManage: false,
     showFranchiseManage: false,
     showCreateFranchiseForm: false,
+    showHqCommunication: false,
+    hqCommTab: "announce",
+    hqClaims: [],
+    hqUpdateLog: [],
+    hqSelectedClaim: null,
+    hqClaimMessages: [],
+    hqAnnounceDraft: { title:"", body:"", targetType:"all", targetId:"" },
+    hqStoreDetailStore: null,
+    hqStoreDetailLoading: false,
+    hqEditingStorePhone: null,
     hqSalesSearch: "",
     franchiseAssignSearch: "",
     landingMode: "default", // default | code | pin-setup | pin-entry | store-entry | store-login | request-form | request-pending | request-rejected
@@ -640,7 +651,7 @@
   async function loadStoreList(ownerUsername, franchiseId, authorizedStoreIds){
     let rows = [];
     try{
-      let q = db.from('stores').select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour').is('archived_at', null).order('created_at');
+      let q = db.from('stores').select('id,name,phone,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour').is('archived_at', null).order('created_at');
       if(Array.isArray(authorizedStoreIds)) q = q.in('id', authorizedStoreIds);
       if(ownerUsername) q = q.eq('owner_username', ownerUsername);
       if(franchiseId) q = q.eq('franchise_id', franchiseId);
@@ -658,10 +669,11 @@
     state.storeList = rows.map(r=>r.name);
     state.storeIdMap = {};
     state.storeLocationMap = {};
+    state.storePhoneMap = {};
     state.storeOnboardingMap = {};
     state.storeManagerDashboardMap = {};
     state.storeCutoffMap = {};
-    rows.forEach(r=>{ state.storeIdMap[r.name] = r.id; state.storeLocationMap[r.name] = (r.lat!=null && r.lng!=null) ? { lat:r.lat, lng:r.lng } : null; state.storeOnboardingMap[r.name] = !!r.onboarding_done; state.storeManagerDashboardMap[r.name] = !!r.manager_dashboard_enabled; state.storeCutoffMap[r.name] = (r.business_day_cutoff_hour!=null) ? r.business_day_cutoff_hour : DEFAULT_BUSINESS_DAY_CUTOFF_HOUR; });
+    rows.forEach(r=>{ state.storeIdMap[r.name] = r.id; state.storeLocationMap[r.name] = (r.lat!=null && r.lng!=null) ? { lat:r.lat, lng:r.lng } : null; state.storePhoneMap[r.name] = r.phone||""; state.storeOnboardingMap[r.name] = !!r.onboarding_done; state.storeManagerDashboardMap[r.name] = !!r.manager_dashboard_enabled; state.storeCutoffMap[r.name] = (r.business_day_cutoff_hour!=null) ? r.business_day_cutoff_hour : DEFAULT_BUSINESS_DAY_CUTOFF_HOUR; });
     state.store = state.storeList[0];
   }
   function currentStoreId(){ return state.storeIdMap[state.store]; }
@@ -874,6 +886,58 @@
   }
   function cancelRenameStore(){
     state.editingStoreOld = null;
+    render();
+  }
+  function startEditStorePhone(storeName){
+    state.hqEditingStorePhone = storeName;
+    render();
+  }
+  async function submitStorePhone(storeName){
+    const input = document.getElementById("edit-store-phone-input");
+    const phone = (input.value||"").trim();
+    const storeId = state.storeIdMap[storeName];
+    if(!storeId){ showToast("매장 정보를 찾지 못했어요."); return; }
+    try{
+      const { error } = await db.from('stores').update({ phone: phone||null }).eq('id', storeId);
+      if(error) throw error;
+    }catch(e){ showToast("연락처 저장에 실패했어요."); return; }
+    state.storePhoneMap[storeName] = phone;
+    state.hqEditingStorePhone = null;
+    render();
+    showToast("연락처를 저장했어요.");
+  }
+  async function loadHqCommunicationData(){
+    try{
+      const [{data:claimsData}, {data:updatesData}] = await Promise.all([
+        db.from('claims').select('id,store_id,title,status,created_at').order('created_at',{ascending:false}).limit(50),
+        db.from('update_log').select('id,version,released_at,notes').order('released_at',{ascending:false}).limit(20)
+      ]);
+      state.hqClaims = claimsData||[];
+      state.hqUpdateLog = updatesData||[];
+    }catch(e){ state.hqClaims=[]; state.hqUpdateLog=[]; }
+  }
+  async function openHqClaimThread(claimId){
+    state.hqSelectedClaim = claimId;
+    state.hqClaimMessages = [];
+    render();
+    try{
+      const { data } = await db.from('claim_messages').select('id,sender_type,sender_name,body,created_at').eq('claim_id', claimId).order('created_at');
+      state.hqClaimMessages = data||[];
+    }catch(e){}
+    render();
+  }
+  function closeHqClaimThread(){
+    state.hqSelectedClaim = null;
+    render();
+  }
+  function openHqStoreDetail(storeName){
+    state.hqStoreDetailStore = storeName;
+    state.hqStoreDetailLoading = true;
+    render();
+    loadAllForStore(storeName).then(()=>{ state.hqStoreDetailLoading = false; render(); });
+  }
+  function closeHqStoreDetail(){
+    state.hqStoreDetailStore = null;
     render();
   }
   function haversineMeters(lat1, lng1, lat2, lng2){
@@ -2204,8 +2268,49 @@
     try{
       const { data, error } = await db.from('franchises').select('id,name,username,created_at,monthly_price').order('created_at');
       if(error) throw error;
-      state.franchises = (data||[]).map(r=>({ id:r.id, name:r.name, username:r.username, monthlyPrice: r.monthly_price!=null ? Number(r.monthly_price) : null }));
+      let statusMap = {};
+      if(MANEE_ADMIN_AUTH_ENABLED){
+        try{
+          const { data:memberships } = await db.from('franchise_memberships').select('franchise_id,status').order('created_at',{ascending:false});
+          (memberships||[]).forEach(m=>{ if(!(m.franchise_id in statusMap)) statusMap[m.franchise_id] = m.status; });
+        }catch(e){}
+      }
+      state.franchises = (data||[]).map(r=>({ id:r.id, name:r.name, username:r.username, monthlyPrice: r.monthly_price!=null ? Number(r.monthly_price) : null, status: statusMap[r.id]||'active' }));
     }catch(e){ state.franchises = []; }
+  }
+  async function toggleFranchiseStatus(id){
+    const rec = state.franchises.find(f=>f.id===id);
+    if(!rec) return;
+    const newStatus = rec.status==='revoked' ? 'active' : 'revoked';
+    try{
+      const { error } = await db.from('franchise_memberships').update({ status:newStatus, revoked_at: newStatus==='revoked'?new Date().toISOString():null }).eq('franchise_id', id);
+      if(error) throw error;
+    }catch(e){ showToast("변경에 실패했어요."); return; }
+    rec.status = newStatus;
+    render();
+    showToast(newStatus==='revoked' ? rec.name+" 계정을 정지했어요." : rec.name+" 계정을 재개했어요.");
+  }
+  function deleteFranchiseAuth(id){
+    const rec = state.franchises.find(f=>f.id===id);
+    if(!rec) return;
+    askConfirm(rec.name+" 계정을 영구 삭제할까요? 계정 로그인이 완전히 사라지고, 소속 매장들은 소속만 해제되고 그대로 남아요.", async ()=>{
+      try{
+        const { data:sessionData, error:sessionError } = await db.auth.getSession();
+        if(sessionError || !sessionData?.session?.access_token) throw new Error("다시 로그인해 주세요.");
+        const res = await fetch(SUPABASE_URL+"/functions/v1/manee-franchise-delete", {
+          method: "POST",
+          headers: { "Content-Type":"application/json", "apikey":SUPABASE_ANON_KEY, "Authorization":"Bearer "+sessionData.session.access_token },
+          body: JSON.stringify({ franchise_id:id })
+        });
+        const data = await res.json().catch(()=>null);
+        if(!res.ok || !data || data.ok!==true) throw new Error((data&&data.message)||"삭제하지 못했어요.");
+      }catch(e){ showToast((e&&e.message)||"삭제하지 못했어요."); return; }
+      state.franchises = state.franchises.filter(f=>f.id!==id);
+      state.storeFranchiseMap = state.storeFranchiseMap || {};
+      Object.keys(state.storeFranchiseMap).forEach(s=>{ if(state.storeFranchiseMap[s]===id) delete state.storeFranchiseMap[s]; });
+      render();
+      showToast("삭제했어요");
+    });
   }
   async function loadHqDashboardStats(){
     state.hqDashboardStatsLoading = true; render();
@@ -4814,6 +4919,8 @@
       html += renderAdminSettingsSection();
     }else if((isHq||isFranchise) && state.showFranchiseManage){
       html += renderFranchiseManage();
+    }else if(isHq && state.showHqCommunication){
+      html += renderHqCommunication();
     }else{
     if(state.showStoreManage) html += renderStoreManage();
     if(state.showAddStoreForm) html += renderAddStoreForm();
@@ -4831,16 +4938,17 @@
     else if(state.section === "sales") html += renderSalesSection();
     else html += renderSchedule();
     }
-    html += '<button class="switch-link" id="switch-user-btn">다른 사용자로 전환</button>';
+    if(!(isHq||isFranchise)) html += '<button class="switch-link" id="switch-user-btn">다른 사용자로 전환</button>';
     html += '</main>';
     html += '<nav class="bottom-nav">';
     if(isHq || isFranchise){
-      const hqNavActive = !state.showStoreManage && !state.showFranchiseManage && !state.showAdminSettings;
+      const hqNavActive = !state.showStoreManage && !state.showFranchiseManage && !state.showAdminSettings && !state.showHqCommunication;
       html += '<button class="'+(hqNavActive?"active":"")+'" id="hq-nav-search-btn">'+navIcon('chart')+'<span>대시보드</span></button>';
-      html += '<button class="'+(state.showStoreManage?"active":"")+'" id="hq-nav-store-manage-btn">'+navIcon('store')+'<span>매장검색</span></button>';
+      html += '<button class="'+(state.showStoreManage?"active":"")+'" id="hq-nav-store-manage-btn">'+navIcon('store')+'<span>매장</span></button>';
       if(isHq){
         html += '<button class="'+(state.showFranchiseManage?"active":"")+'" id="hq-nav-franchise-manage-btn">'+navIcon('people')+'<span>프랜차이즈</span></button>';
-        html += '<button class="'+(state.showAdminSettings?"active":"")+'" id="hq-nav-admin-settings-btn">'+navIcon('bell')+'<span>스텝비번</span></button>';
+        html += '<button class="'+(state.showHqCommunication?"active":"")+'" id="hq-nav-communication-btn">'+navIcon('bell')+'<span>소통</span></button>';
+        html += '<button class="'+(state.showAdminSettings?"active":"")+'" id="hq-nav-admin-settings-btn">'+navIcon('check')+'<span>계정</span></button>';
       }
     }else{
       html += '<button class="'+(state.section==="dashboard"?"active":"")+'" data-section="dashboard">'+navIcon('chart')+'<span>대시보드</span></button>';
@@ -5049,6 +5157,7 @@
     if(MANEE_ADMIN_AUTH_ENABLED){
       html += '<div class="day-panel"><h3>관리자 계정</h3><p class="crew-code-hint">'+escapeHtml(state.authProfile?.display_name||state.myUsername||'')+' · '+escapeHtml(state.myUsername||'')+'</p>'+staffAuthButton('recovery-change','내 비밀번호 변경')+'</div>';
       html += renderPasswordResetRequests('비밀번호 재설정 요청');
+      html += '<div class="day-panel"><button class="switch-link" id="hq-account-logout-btn">로그아웃</button></div>';
       return html;
     }
     html += '<div class="day-panel">';
@@ -5066,6 +5175,10 @@
   function renderStoreManage(){
     let html = "";
 
+    if((state.role==="hq"||state.role==="franchise") && state.hqStoreDetailStore){
+      return renderHqStoreDetail(state.hqStoreDetailStore);
+    }
+
     if(state.revealedPassword){
       const rp = state.revealedPassword;
       html += '<div class="day-panel" style="border-color:var(--brick);">';
@@ -5078,7 +5191,7 @@
 
     html += '<div class="day-panel">';
     html += '<h3>매장 관리</h3>';
-    html += '<p class="crew-code-hint" style="margin-bottom:10px;">매장 이름을 검색해서 찾아 주세요. "위치 설정"은 그 매장에 직접 가서 눌러야 정확해요 — 스텝 출퇴근을 매장 100m 이내에서만 찍히게 하는 데 쓰여요.</p>';
+    html += '<p class="crew-code-hint" style="margin-bottom:10px;">'+(MANEE_ADMIN_AUTH_ENABLED?'매장 이름을 검색해서 찾아 주세요.':'매장 이름을 검색해서 찾아 주세요. "위치 설정"은 그 매장에 직접 가서 눌러야 정확해요 — 스텝 출퇴근을 매장 100m 이내에서만 찍히게 하는 데 쓰여요.')+'</p>';
     html += '<div style="display:flex;gap:6px;margin-bottom:10px;"><input class="field-input" id="store-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.storeManageSearch||"")+'" style="margin:0;"><button class="crew-code-btn" id="store-search-btn" style="flex:0 0 auto;">검색</button></div>';
     const storeSearchQ = (state.storeManageSearch||"").trim().toLowerCase();
     const matchedStores = storeSearchQ ? state.storeList.filter(s=>s.toLowerCase().includes(storeSearchQ)) : [];
@@ -5113,8 +5226,18 @@
             html += '<div style="background:var(--cream);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11.5px;color:var(--ink-soft);">소유자 '+escapeHtml(row.ownerDisplayName)+' (계정정보 없음)</div>';
           }
         }
-        html += '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">'+(hasLoc?'📍 위치 설정됨':'위치 미설정')+'</div>';
-        html += '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"><button class="crew-code-btn" data-setloc="'+escapeHtml(s)+'">위치 설정</button><button class="crew-code-btn" data-renamestore="'+escapeHtml(s)+'">이름수정</button>'+(!MANEE_ADMIN_AUTH_ENABLED?'<button class="crew-del" data-delstore="'+escapeHtml(s)+'">삭제</button>':'')+'</div>';
+        if(MANEE_ADMIN_AUTH_ENABLED){
+          const curPhone = (state.storePhoneMap||{})[s] || "";
+          if(state.hqEditingStorePhone === s){
+            html += '<div style="display:flex;gap:6px;margin-bottom:8px;"><input id="edit-store-phone-input" class="field-input" type="text" placeholder="연락처" value="'+escapeHtml(curPhone)+'" style="flex:1;margin:0;"><button class="crew-code-btn" data-savephone="'+escapeHtml(s)+'">저장</button></div>';
+          }else{
+            html += '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">연락처: '+(curPhone?escapeHtml(curPhone):'미등록')+' <span class="switch-link" data-editphone="'+escapeHtml(s)+'" style="margin-left:4px;">수정</span></div>';
+          }
+          html += '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"><button class="crew-code-btn" data-renamestore="'+escapeHtml(s)+'">이름수정</button><button class="crew-code-btn" data-storedetail="'+escapeHtml(s)+'" style="background:var(--brick);color:#fff;border-color:var(--brick);">상세보기</button></div>';
+        }else{
+          html += '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">'+(hasLoc?'📍 위치 설정됨':'위치 미설정')+'</div>';
+          html += '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"><button class="crew-code-btn" data-setloc="'+escapeHtml(s)+'">위치 설정</button><button class="crew-code-btn" data-renamestore="'+escapeHtml(s)+'">이름수정</button><button class="crew-del" data-delstore="'+escapeHtml(s)+'">삭제</button></div>';
+        }
         if(!MANEE_ADMIN_AUTH_ENABLED){
           const curFid = (state.storeFranchiseMap||{})[s] || "";
           html += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;color:var(--ink-soft);">소속</span><select class="field-input" data-assignfranchise="'+escapeHtml(s)+'" style="flex:1;padding:6px 10px;font-size:12.5px;"><option value="">본사 직영 (미배정)</option>';
@@ -5125,13 +5248,11 @@
       }
     });
     if(!MANEE_ADMIN_AUTH_ENABLED) html += '<div class="add-row" style="padding:12px 0 0; background:transparent;"><input id="new-store-input" type="text" placeholder="새 매장 이름"><button id="add-store-btn">추가</button></div>';
-    html += '<p class="crew-code-hint">'+(MANEE_ADMIN_AUTH_ENABLED?'새 매장 생성·삭제와 소속 변경은 Auth 전용 관리 기능에서 제공할 예정이에요.':'매장을 빼도 저장된 기록은 남아있어요. 같은 이름으로 다시 추가하면 이어서 볼 수 있어요.')+'</p>';
+    html += '<p class="crew-code-hint">'+(MANEE_ADMIN_AUTH_ENABLED?'매장은 사장님이 직접 가입해요. 소속 배정은 프랜차이즈 탭에서 관리해요.':'매장을 빼도 저장된 기록은 남아있어요. 같은 이름으로 다시 추가하면 이어서 볼 수 있어요.')+'</p>';
     html += '<button class="switch-link" id="close-store-manage-btn">닫기</button>';
     html += '</div>';
 
     if(MANEE_ADMIN_AUTH_ENABLED){
-      html += renderPasswordResetRequests('비밀번호 재설정 요청');
-      html += '<div class="day-panel"><h3>계정 관리 전환 중</h3><p class="crew-code-hint">프랜차이즈 계정 생성과 사장님 권한 변경은 Auth 전용 관리 기능으로 교체한 뒤 사용할 수 있어요.</p></div>';
       return html;
     }
 
@@ -5220,7 +5341,9 @@
     }else{
       state.franchises.forEach(f=>{
         const storeCount = Object.values(state.storeFranchiseMap||{}).filter(fid=>fid===f.id).length;
-        html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(f.name)+'</div><div class="fp-detail">매장 '+storeCount+'개</div></div></div>';
+        const suspended = f.status==='revoked';
+        html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(f.name)+(suspended?' <span style="color:var(--brick);font-size:11px;">(정지됨)</span>':'')+'</div><div class="fp-detail">매장 '+storeCount+'개</div></div>';
+        html += '<div style="display:flex;gap:6px;"><button class="crew-code-btn" data-suspendfranchise="'+f.id+'">'+(suspended?'재개':'정지')+'</button><button class="crew-del" data-delfranchiseauth="'+f.id+'">삭제</button></div></div>';
       });
     }
     html += '</div>';
@@ -6024,6 +6147,135 @@
       html += '</div>';
     });
     html += '</div>';
+    return html;
+  }
+
+  function renderHqStoreDetail(storeName){
+    let html = '<button class="switch-link" id="close-hq-store-detail-btn" style="margin-bottom:10px;">← 매장 목록으로</button>';
+    if(state.hqStoreDetailLoading){
+      html += '<div class="empty-note">불러오는 중이에요…</div>';
+      return html;
+    }
+    const phone = (state.storePhoneMap||{})[storeName]||"";
+    html += '<div class="day-panel"><h3 style="margin:0 0 6px;">'+escapeHtml(storeName)+'</h3>';
+    html += '<p class="crew-code-hint" style="margin:0;">연락처: '+(phone?escapeHtml(phone):'미등록')+'</p>';
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">스텝 목록 ('+state.crew.length+'명)</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+    html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
+    if(state.crew.length===0){
+      html += '<div class="empty-note" style="padding:12px 0;">등록된 스텝이 없어요.</div>';
+    }else{
+      state.crew.forEach((c,idx)=>{
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;'+(idx<state.crew.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+        html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);">'+escapeHtml(c.name)+(c.isManager?' <span class="pos-badge mgr-badge">매니저</span>':'')+'</span>';
+        html += '<span style="font-size:12px;color:var(--ink-soft);">'+escapeHtml(c.position||"")+' · '+(c.wageType==="monthly"?"월급":"시급")+' '+Number(c.wage||0).toLocaleString()+'원</span>';
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+
+    const num = v => Number(v)||0;
+    const totalNetSales = (state.salesReports||[]).reduce((s,r)=> s+num(r.netSales!=null?r.netSales:r.totalSales), 0);
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">이번달 매출·근무 현황</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+    html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
+    html += '<p style="margin:0 0 4px;font-size:20px;font-weight:800;">'+totalNetSales.toLocaleString()+'원</p>';
+    html += '<p style="margin:0 0 4px;font-size:12px;color:var(--ink-soft);">매출보고 '+(state.salesReports||[]).length+'건 · 출퇴근기록 '+(state.attendance||[]).length+'건</p>';
+    html += '<p style="margin:0;font-size:12px;color:var(--ink-soft);">예약 '+(state.reservations||[]).length+'건</p>';
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">최근 공지</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+    html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
+    const recentAnn = (state.announcements||[]).slice(0,5);
+    if(recentAnn.length===0){
+      html += '<div class="empty-note" style="padding:12px 0;">등록된 공지가 없어요.</div>';
+    }else{
+      recentAnn.forEach((a,idx)=>{
+        html += '<div style="padding:10px 0;'+(idx<recentAnn.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+        html += '<div style="font-size:13px;font-weight:700;color:var(--ink);">'+escapeHtml(a.title||"")+'</div>';
+        html += '<div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">'+escapeHtml(a.authorName||"")+' · '+(a.createdAt?new Date(a.createdAt).toISOString().slice(0,10):"")+'</div>';
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+    html += '<p class="crew-code-hint" style="margin-top:-6px;">읽기 전용 요약이에요 — 상세 스케줄·급여 계산은 사장님 화면에서 확인해 주세요.</p>';
+    return html;
+  }
+
+  function renderHqCommunication(){
+    let html = '<div class="subnav" style="margin-bottom:14px;">';
+    html += '<button class="'+(state.hqCommTab==="announce"?"active":"")+'" data-hqcommtab="announce">공지작성</button>';
+    html += '<button class="'+(state.hqCommTab==="claims"?"active":"")+'" data-hqcommtab="claims">클레임접수</button>';
+    html += '<button class="'+(state.hqCommTab==="updates"?"active":"")+'" data-hqcommtab="updates">업데이트 현황</button>';
+    html += '</div>';
+
+    if(state.hqCommTab === "announce"){
+      const d = state.hqAnnounceDraft;
+      html += '<div class="day-panel">';
+      html += '<h3>공지 작성</h3>';
+      html += '<label class="field-label">제목</label><input class="field-input" id="hq-announce-title-input" type="text" placeholder="제목" value="'+escapeHtml(d.title)+'" style="margin-bottom:8px;">';
+      html += '<label class="field-label">내용</label><textarea class="field-input" id="hq-announce-body-input" placeholder="내용" rows="4" style="margin-bottom:8px;resize:vertical;">'+escapeHtml(d.body)+'</textarea>';
+      html += '<label class="field-label">발송 대상</label><select class="field-input" id="hq-announce-target-select" style="margin-bottom:8px;">';
+      html += '<option value="all"'+(d.targetType==="all"?' selected':'')+'>전체</option>';
+      html += '<option value="franchise"'+(d.targetType==="franchise"?' selected':'')+'>특정 프랜차이즈</option>';
+      html += '<option value="store"'+(d.targetType==="store"?' selected':'')+'>특정 매장</option>';
+      html += '</select>';
+      if(d.targetType==="franchise"){
+        html += '<select class="field-input" id="hq-announce-target-id-select" style="margin-bottom:8px;"><option value="">프랜차이즈 선택</option>';
+        (state.franchises||[]).forEach(f=>{ html += '<option value="'+f.id+'"'+(d.targetId===f.id?' selected':'')+'>'+escapeHtml(f.name)+'</option>'; });
+        html += '</select>';
+      }else if(d.targetType==="store"){
+        html += '<input class="field-input" id="hq-announce-target-id-select" type="text" placeholder="매장 이름" value="'+escapeHtml(d.targetId||"")+'" style="margin-bottom:8px;">';
+      }
+      html += '<button class="landing-btn primary" id="hq-announce-submit-btn" style="margin:0;">등록</button>';
+      html += '<p class="crew-code-hint" style="margin-top:8px;">화면 뼈대만 준비된 상태예요 — 실제 발송 기능은 다음 단계에서 연결할 예정입니다.</p>';
+      html += '</div>';
+    }else if(state.hqCommTab === "claims"){
+      if(state.hqSelectedClaim){
+        const claim = (state.hqClaims||[]).find(c=>c.id===state.hqSelectedClaim);
+        html += '<button class="switch-link" id="close-hq-claim-thread-btn" style="margin-bottom:10px;">← 목록으로</button>';
+        html += '<div class="day-panel" style="margin-bottom:10px;"><h3 style="margin:0;">'+escapeHtml(claim?claim.title:"")+'</h3></div>';
+        html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">';
+        if((state.hqClaimMessages||[]).length===0){
+          html += '<div class="empty-note">아직 대화 내용이 없어요.</div>';
+        }else{
+          state.hqClaimMessages.forEach(m=>{
+            const isHqMsg = m.sender_type==="hq";
+            html += '<div style="align-self:'+(isHqMsg?'flex-end':'flex-start')+';max-width:80%;background:'+(isHqMsg?'var(--brick)':'var(--cream)')+';color:'+(isHqMsg?'#fff':'var(--ink)')+';border-radius:12px;padding:8px 12px;font-size:13px;">'+escapeHtml(m.body)+'</div>';
+          });
+        }
+        html += '</div>';
+        html += '<div style="display:flex;gap:6px;"><input class="field-input" id="hq-claim-reply-input" type="text" placeholder="메시지 입력 (준비 중)" style="margin:0;" disabled><button class="crew-code-btn" disabled>전송</button></div>';
+      }else{
+        html += '<div class="category" style="padding:4px 16px;">';
+        if((state.hqClaims||[]).length===0){
+          html += '<div class="empty-note" style="padding:12px 0;">접수된 클레임이 없어요.</div>';
+        }else{
+          const statusLabel = {open:'접수',in_progress:'처리중',resolved:'완료'};
+          state.hqClaims.forEach((c,idx)=>{
+            const storeName = Object.keys(state.storeIdMap||{}).find(name=>state.storeIdMap[name]===c.store_id) || "매장 미상";
+            html += '<div data-hqclaimopen="'+c.id+'" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:12px 0;'+(idx<state.hqClaims.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+            html += '<div><div style="font-size:13.5px;font-weight:700;color:var(--ink);">'+escapeHtml(c.title)+'</div><div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">'+escapeHtml(storeName)+'</div></div>';
+            html += '<span class="pos-badge" style="background:var(--brick-dim);color:var(--brick);">'+(statusLabel[c.status]||c.status)+'</span>';
+            html += '</div>';
+          });
+        }
+        html += '</div>';
+      }
+    }else{
+      html += '<div class="category" style="padding:4px 16px;">';
+      if((state.hqUpdateLog||[]).length===0){
+        html += '<div class="empty-note" style="padding:12px 0;">등록된 업데이트 내역이 없어요.</div>';
+      }else{
+        state.hqUpdateLog.forEach((u,idx)=>{
+          html += '<div style="padding:12px 0;'+(idx<state.hqUpdateLog.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:13.5px;font-weight:700;color:var(--ink);">v'+escapeHtml(u.version)+'</span><span style="font-size:11.5px;color:var(--ink-soft);">'+escapeHtml(u.released_at)+'</span></div>';
+          html += '<div style="font-size:12.5px;color:var(--ink-soft);margin-top:4px;">'+escapeHtml(u.notes)+'</div>';
+          html += '</div>';
+        });
+      }
+      html += '</div>';
+    }
     return html;
   }
 
@@ -7262,6 +7514,8 @@
     });
     const switchBtn = document.getElementById("switch-user-btn");
     if(switchBtn) switchBtn.addEventListener("click", switchUser);
+    const hqAccountLogoutBtn = document.getElementById("hq-account-logout-btn");
+    if(hqAccountLogoutBtn) hqAccountLogoutBtn.addEventListener("click", switchUser);
     const clockInBtn = document.getElementById("clock-in-btn");
     if(clockInBtn) clockInBtn.addEventListener("click", clockIn);
     const clockOutBtn = document.getElementById("clock-out-btn");
@@ -7811,17 +8065,17 @@
     if(closeAdminSettingsBtn) closeAdminSettingsBtn.addEventListener("click", ()=>{ state.showAdminSettings = false; render(); });
     const hqNavSearchBtn = document.getElementById("hq-nav-search-btn");
     if(hqNavSearchBtn) hqNavSearchBtn.addEventListener("click", ()=>{
-      state.showStoreManage = false; state.showFranchiseManage = false; state.showAdminSettings = false; state.section = "dashboard"; render();
+      state.showStoreManage = false; state.showFranchiseManage = false; state.showAdminSettings = false; state.showHqCommunication = false; state.section = "dashboard"; render();
     });
     const hqNavStoreManageBtn = document.getElementById("hq-nav-store-manage-btn");
     if(hqNavStoreManageBtn) hqNavStoreManageBtn.addEventListener("click", async()=>{
-      state.showFranchiseManage = false; state.showAdminSettings = false; state.showStoreManage = true;
+      state.showFranchiseManage = false; state.showAdminSettings = false; state.showHqCommunication = false; state.showStoreManage = true;
       if(MANEE_ADMIN_AUTH_ENABLED) try{await loadPasswordResetRequests();}catch(e){}
       render();
     });
     const hqNavFranchiseManageBtn = document.getElementById("hq-nav-franchise-manage-btn");
     if(hqNavFranchiseManageBtn) hqNavFranchiseManageBtn.addEventListener("click", async()=>{
-      state.showStoreManage = false; state.showAdminSettings = false; state.showFranchiseManage = true;
+      state.showStoreManage = false; state.showAdminSettings = false; state.showHqCommunication = false; state.showFranchiseManage = true;
       try{ await Promise.all([loadFranchises(), loadStoreFranchiseMap()]); }catch(e){}
       render();
     });
@@ -7829,8 +8083,14 @@
     if(closeFranchiseManageBtn) closeFranchiseManageBtn.addEventListener("click", ()=>{ state.showFranchiseManage = false; render(); });
     const hqNavAdminSettingsBtn = document.getElementById("hq-nav-admin-settings-btn");
     if(hqNavAdminSettingsBtn) hqNavAdminSettingsBtn.addEventListener("click", async()=>{
-      state.showStoreManage = false; state.showFranchiseManage = false; state.showAdminSettings = true;
+      state.showStoreManage = false; state.showFranchiseManage = false; state.showHqCommunication = false; state.showAdminSettings = true;
       if(MANEE_ADMIN_AUTH_ENABLED) try{await loadPasswordResetRequests();}catch(e){}
+      render();
+    });
+    const hqNavCommunicationBtn = document.getElementById("hq-nav-communication-btn");
+    if(hqNavCommunicationBtn) hqNavCommunicationBtn.addEventListener("click", async()=>{
+      state.showStoreManage = false; state.showFranchiseManage = false; state.showAdminSettings = false; state.showHqCommunication = true;
+      try{ await loadHqCommunicationData(); }catch(e){}
       render();
     });
     const franchiseStoreSearchInput = document.getElementById("franchise-store-search-input");
@@ -7895,6 +8155,12 @@
     app.querySelectorAll("[data-delfranchise]").forEach(btn=>{
       btn.addEventListener("click", ()=> deleteFranchise(btn.getAttribute("data-delfranchise")));
     });
+    app.querySelectorAll("[data-suspendfranchise]").forEach(btn=>{
+      btn.addEventListener("click", ()=> toggleFranchiseStatus(btn.getAttribute("data-suspendfranchise")));
+    });
+    app.querySelectorAll("[data-delfranchiseauth]").forEach(btn=>{
+      btn.addEventListener("click", ()=> deleteFranchiseAuth(btn.getAttribute("data-delfranchiseauth")));
+    });
     const createFranchiseBtn = document.getElementById("create-franchise-btn");
     if(createFranchiseBtn) createFranchiseBtn.addEventListener("click", createFranchise);
     const createFranchiseAuthBtn = document.getElementById("create-franchise-auth-btn");
@@ -7917,6 +8183,35 @@
     app.querySelectorAll("[data-setloc]").forEach(btn=>{
       btn.addEventListener("click", ()=> setStoreLocation(btn.getAttribute("data-setloc")));
     });
+    app.querySelectorAll("[data-editphone]").forEach(btn=>{
+      btn.addEventListener("click", ()=> startEditStorePhone(btn.getAttribute("data-editphone")));
+    });
+    app.querySelectorAll("[data-savephone]").forEach(btn=>{
+      btn.addEventListener("click", ()=> submitStorePhone(btn.getAttribute("data-savephone")));
+    });
+    app.querySelectorAll("[data-storedetail]").forEach(btn=>{
+      btn.addEventListener("click", ()=> openHqStoreDetail(btn.getAttribute("data-storedetail")));
+    });
+    const closeHqStoreDetailBtn = document.getElementById("close-hq-store-detail-btn");
+    if(closeHqStoreDetailBtn) closeHqStoreDetailBtn.addEventListener("click", closeHqStoreDetail);
+    app.querySelectorAll("[data-hqcommtab]").forEach(btn=>{
+      btn.addEventListener("click", ()=>{ state.hqCommTab = btn.getAttribute("data-hqcommtab"); render(); });
+    });
+    const hqAnnounceTitleInput = document.getElementById("hq-announce-title-input");
+    if(hqAnnounceTitleInput) hqAnnounceTitleInput.addEventListener("input", ()=>{ state.hqAnnounceDraft.title = hqAnnounceTitleInput.value; });
+    const hqAnnounceBodyInput = document.getElementById("hq-announce-body-input");
+    if(hqAnnounceBodyInput) hqAnnounceBodyInput.addEventListener("input", ()=>{ state.hqAnnounceDraft.body = hqAnnounceBodyInput.value; });
+    const hqAnnounceTargetSelect = document.getElementById("hq-announce-target-select");
+    if(hqAnnounceTargetSelect) hqAnnounceTargetSelect.addEventListener("change", ()=>{ state.hqAnnounceDraft.targetType = hqAnnounceTargetSelect.value; state.hqAnnounceDraft.targetId = ""; render(); });
+    const hqAnnounceTargetIdSelect = document.getElementById("hq-announce-target-id-select");
+    if(hqAnnounceTargetIdSelect) hqAnnounceTargetIdSelect.addEventListener(hqAnnounceTargetIdSelect.tagName==="SELECT"?"change":"input", ()=>{ state.hqAnnounceDraft.targetId = hqAnnounceTargetIdSelect.value; });
+    const hqAnnounceSubmitBtn = document.getElementById("hq-announce-submit-btn");
+    if(hqAnnounceSubmitBtn) hqAnnounceSubmitBtn.addEventListener("click", ()=>{ showToast("준비 중인 기능이에요. 다음 업데이트에서 연결될 예정이에요."); });
+    app.querySelectorAll("[data-hqclaimopen]").forEach(row=>{
+      row.addEventListener("click", ()=> openHqClaimThread(row.getAttribute("data-hqclaimopen")));
+    });
+    const closeHqClaimThreadBtn = document.getElementById("close-hq-claim-thread-btn");
+    if(closeHqClaimThreadBtn) closeHqClaimThreadBtn.addEventListener("click", closeHqClaimThread);
     app.querySelectorAll("[data-renamesave]").forEach(btn=>{
       btn.addEventListener("click", ()=> submitRenameStore(btn.getAttribute("data-renamesave")));
     });
