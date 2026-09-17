@@ -1,8 +1,13 @@
 -- HQ admin (manee-admin) tab restructure -- STAGING ONLY, do not apply to
--- production. Adds: store contact info, and bare schema for the new 소통
--- tab (announcements/claims/update log) -- UI ships as a skeleton this
--- round, no real send/save logic wired yet, but the tables are real so
--- wiring them up later doesn't need another migration.
+-- production as-is (the stores.phone / new-table pieces below still need to
+-- be ported; the franchises/franchise_memberships grant fixes near the
+-- bottom have ALREADY been ported to production separately, see
+-- franchises-rls-lockdown.sql -- don't reapply them from here).
+--
+-- Adds: store contact info, and bare schema for the new 소통 tab
+-- (announcements/claims/update log) -- UI ships as a skeleton this round,
+-- no real send/save logic wired yet, so client access is read-only and
+-- scoped to platform admins for now; widen it when the real feature lands.
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='60s';
@@ -19,8 +24,8 @@ create table if not exists public.hq_announcements (
   created_at timestamptz not null default now()
 );
 alter table public.hq_announcements enable row level security;
-drop policy if exists "allow all - hq_announcements" on public.hq_announcements;
-create policy "allow all - hq_announcements" on public.hq_announcements for all using (true) with check (true);
+-- Nothing reads or writes this table from the client yet (the 공지작성 form
+-- doesn't actually submit) -- no grants at all until that's built for real.
 
 create table if not exists public.claims (
   id uuid primary key default gen_random_uuid(),
@@ -30,8 +35,9 @@ create table if not exists public.claims (
   created_at timestamptz not null default now()
 );
 alter table public.claims enable row level security;
-drop policy if exists "allow all - claims" on public.claims;
-create policy "allow all - claims" on public.claims for all using (true) with check (true);
+grant select on public.claims to authenticated;
+create policy hq_communication_admin_read on public.claims for select to authenticated
+  using (private.has_platform_role(array['super_admin','admin','support','read_only']::text[]));
 
 create table if not exists public.claim_messages (
   id uuid primary key default gen_random_uuid(),
@@ -43,8 +49,9 @@ create table if not exists public.claim_messages (
 );
 create index if not exists claim_messages_claim_idx on public.claim_messages(claim_id, created_at);
 alter table public.claim_messages enable row level security;
-drop policy if exists "allow all - claim_messages" on public.claim_messages;
-create policy "allow all - claim_messages" on public.claim_messages for all using (true) with check (true);
+grant select on public.claim_messages to authenticated;
+create policy hq_communication_admin_read on public.claim_messages for select to authenticated
+  using (private.has_platform_role(array['super_admin','admin','support','read_only']::text[]));
 
 create table if not exists public.update_log (
   id uuid primary key default gen_random_uuid(),
@@ -53,27 +60,17 @@ create table if not exists public.update_log (
   notes text not null
 );
 alter table public.update_log enable row level security;
-drop policy if exists "allow all - update_log" on public.update_log;
-create policy "allow all - update_log" on public.update_log for all using (true) with check (true);
-
--- Pre-existing gap found while verifying the 프랜차이즈 탭: authenticated had
--- no grants at all on public.franchises, so the client-side franchise list
--- query 403'd for every HQ admin even though RLS already allowed it. The
--- edge-function-based create/delete flows never hit this since they run as
--- service_role. NOT yet ported to production -- do that separately once
--- this is verified, since franchise-account-creation.sql (which this table
--- belongs to) is already live in prod.
-grant select on public.franchises to authenticated;
-
--- Same discovery for the new 정지/재개 (suspend/resume) action: franchise_memberships
--- had no permissive UPDATE policy at all (only a self-scoped SELECT policy plus
--- the restrictive liveness gate), so no authenticated role could ever update it
--- through PostgREST. Scoped narrowly to platform admins, matching can_manage_store's
--- role check. NOT yet ported to production.
-create policy franchise_memberships_admin_manage on public.franchise_memberships
-  for update to authenticated
-  using (private.has_platform_role(array['super_admin','admin']::text[]))
-  with check (private.has_platform_role(array['super_admin','admin']::text[]));
-grant update(status, revoked_at) on public.franchise_memberships to authenticated;
+grant select on public.update_log to authenticated;
+create policy hq_communication_admin_read on public.update_log for select to authenticated
+  using (private.has_platform_role(array['super_admin','admin','support','read_only']::text[]));
 
 commit;
+
+-- ALREADY PORTED TO PRODUCTION separately (see franchises-rls-lockdown.sql,
+-- applied 2026-09-17) -- kept here only as the staging-side record of the
+-- same two fixes, do not reapply:
+--   1. franchises had no grant at all to authenticated -> the client-side
+--      franchise list query 403'd for every HQ admin even though RLS
+--      already allowed it.
+--   2. franchise_memberships had no permissive UPDATE policy at all, so
+--      정지/재개 (suspend/resume) silently no-op'd for every platform admin.
