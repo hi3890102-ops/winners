@@ -14,7 +14,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { storeId, title, body, url, tag, excludeCrewId, managerOnly } = JSON.parse(event.body || '{}');
+    const { storeId, title, body, url, tag, excludeCrewId, managerOnly, ownerOnly } = JSON.parse(event.body || '{}');
     if (!storeId || !title) {
       return { statusCode: 400, body: JSON.stringify({ error: 'storeId, title 필요' }) };
     }
@@ -32,6 +32,7 @@ exports.handler = async (event) => {
 
     let query = supabase.from('push_subscriptions').select('*').eq('store_id', storeId);
     if (managerOnly) query = query.eq('is_manager', true);
+    if (ownerOnly) query = query.eq('role', 'storeOwner');
     const { data: subs, error } = await query;
     if (error) throw error;
 
