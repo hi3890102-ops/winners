@@ -4921,8 +4921,9 @@
       html += renderFranchiseManage();
     }else if(isHq && state.showHqCommunication){
       html += renderHqCommunication();
+    }else if((isHq||isFranchise) && state.showStoreManage){
+      html += renderStoreManage();
     }else{
-    if(state.showStoreManage) html += renderStoreManage();
     if(state.showAddStoreForm) html += renderAddStoreForm();
     if(state.showOwnerSalesForm){
       html += renderSalesReportForm();
