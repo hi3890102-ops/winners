@@ -2262,16 +2262,39 @@
       const franchiseCounts = {};
       rows.forEach(r=>{ if(r.franchise_id) franchiseCounts[r.franchise_id] = (franchiseCounts[r.franchise_id]||0)+1; });
       const franchiseStats = (state.franchises||[]).map(f=>({ name:f.name, storeCount: franchiseCounts[f.id]||0, monthlyPrice: f.monthlyPrice ?? defaultFranchisePrice })).sort((a,b)=>b.storeCount-a.storeCount);
+
+      let trialCount=0, regularPaidCount=0, franchisePaidCount=0, otherPaidCount=0, unlimitedTrialCount=0;
+      owners.forEach(o=>{
+        if(o.unlimitedTrial) unlimitedTrialCount++;
+        if(o.billingStatus==='trial') trialCount++;
+        else if(o.effectivePrice===defaultPrice) regularPaidCount++;
+        else if(o.effectivePrice===defaultFranchisePrice) franchisePaidCount++;
+        else otherPaidCount++;
+      });
+
+      const weeklySignups = [];
+      for(let w=5; w>=0; w--){
+        const weekEnd = nowMs - w*7*86400000;
+        const weekStart = weekEnd - 7*86400000;
+        const count = owners.filter(o=> o.signupDate && o.signupDate.getTime()>weekStart && o.signupDate.getTime()<=weekEnd).length;
+        weeklySignups.push({ label: w===0?'이번주':w+'주전', count });
+      }
+
       state.hqDashboardStats = {
         totalStores: rows.length,
         totalOwners: owners.length,
         owners, franchiseStats,
         defaultPrice, defaultFranchisePrice, additionalStorePrice, defaultTrialDays,
-        newSignupsToday, projectedRevenue,
-        storeOwnerRows: rows.map(r=>({ name:r.name, ownerDisplayName: r.owner_username ? ((profileMap[r.owner_username]||{}).display_name||r.owner_username) : "미배정" }))
+        newSignupsToday, projectedRevenue, weeklySignups,
+        tierCounts: { trial: trialCount, regularPaid: regularPaidCount, franchisePaid: franchisePaidCount, otherPaid: otherPaidCount, unlimitedTrial: unlimitedTrialCount },
+        storeOwnerRows: rows.map(r=>{
+          const p = r.owner_username ? profileMap[r.owner_username] : null;
+          const ownerStat = r.owner_username ? owners.find(o=>o.username===r.owner_username) : null;
+          return { name:r.name, ownerDisplayName: p ? (p.display_name||r.owner_username) : (r.owner_username?r.owner_username:"미배정"), ownerStat };
+        })
       };
     }catch(e){
-      state.hqDashboardStats = { totalStores:0, totalOwners:0, owners:[], franchiseStats:[], storeOwnerRows:[], defaultPrice:9900, defaultFranchisePrice:4900, additionalStorePrice:0, defaultTrialDays:40, newSignupsToday:0, projectedRevenue:0 };
+      state.hqDashboardStats = { totalStores:0, totalOwners:0, owners:[], franchiseStats:[], storeOwnerRows:[], defaultPrice:9900, defaultFranchisePrice:4900, additionalStorePrice:0, defaultTrialDays:40, newSignupsToday:0, projectedRevenue:0, weeklySignups:[], tierCounts:{trial:0,regularPaid:0,franchisePaid:0,otherPaid:0,unlimitedTrial:0} };
     }
     state.hqDashboardStatsLoading = false;
     render();
@@ -4813,8 +4836,8 @@
     html += '<nav class="bottom-nav">';
     if(isHq || isFranchise){
       const hqNavActive = !state.showStoreManage && !state.showFranchiseManage && !state.showAdminSettings;
-      html += '<button class="'+(hqNavActive?"active":"")+'" id="hq-nav-search-btn">'+navIcon('chart')+'<span>매장검색</span></button>';
-      html += '<button class="'+(state.showStoreManage?"active":"")+'" id="hq-nav-store-manage-btn">'+navIcon('store')+'<span>매장관리</span></button>';
+      html += '<button class="'+(hqNavActive?"active":"")+'" id="hq-nav-search-btn">'+navIcon('chart')+'<span>대시보드</span></button>';
+      html += '<button class="'+(state.showStoreManage?"active":"")+'" id="hq-nav-store-manage-btn">'+navIcon('store')+'<span>매장검색</span></button>';
       if(isHq){
         html += '<button class="'+(state.showFranchiseManage?"active":"")+'" id="hq-nav-franchise-manage-btn">'+navIcon('people')+'<span>프랜차이즈</span></button>';
         html += '<button class="'+(state.showAdminSettings?"active":"")+'" id="hq-nav-admin-settings-btn">'+navIcon('bell')+'<span>스텝비번</span></button>';
@@ -5077,6 +5100,19 @@
       if(expanded){
         const hasLoc = state.storeLocationMap && state.storeLocationMap[s];
         html += '<div style="padding:0 0 10px 4px;">';
+        if(state.role==="hq" && state.hqDashboardStats){
+          const row = (state.hqDashboardStats.storeOwnerRows||[]).find(r=>r.name===s);
+          const o = row && row.ownerStat;
+          if(o){
+            const trialLabel = {trial:'체험중',active:'유료전환',overdue:'연체',cancelled:'해지'};
+            const trialDone = !o.unlimitedTrial && o.daysSinceSignup!=null && o.daysSinceSignup>=(state.hqDashboardStats.defaultTrialDays||40);
+            html += '<div style="background:var(--cream);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11.5px;color:var(--ink-soft);">';
+            html += '사장님 '+escapeHtml(o.displayName)+' · 매장 '+o.storeCount+'개 · '+(o.daysSinceSignup!=null?'가입 '+o.daysSinceSignup+'일째':'가입일 미상')+(o.unlimitedTrial?' · 무제한체험':(trialDone?' · 체험만료':''))+' · '+(trialLabel[o.billingStatus]||o.billingStatus)+' · '+o.effectivePrice.toLocaleString()+'원'+(o.priceIsOverride?' (개별)':'');
+            html += '</div>';
+          }else if(row){
+            html += '<div style="background:var(--cream);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:11.5px;color:var(--ink-soft);">소유자 '+escapeHtml(row.ownerDisplayName)+' (계정정보 없음)</div>';
+          }
+        }
         html += '<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px;">'+(hasLoc?'📍 위치 설정됨':'위치 미설정')+'</div>';
         html += '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"><button class="crew-code-btn" data-setloc="'+escapeHtml(s)+'">위치 설정</button><button class="crew-code-btn" data-renamestore="'+escapeHtml(s)+'">이름수정</button>'+(!MANEE_ADMIN_AUTH_ENABLED?'<button class="crew-del" data-delstore="'+escapeHtml(s)+'">삭제</button>':'')+'</div>';
         if(!MANEE_ADMIN_AUTH_ENABLED){
@@ -5995,79 +6031,88 @@
     let html = "";
     const isHqRole = state.role === "hq";
 
-    if(isHqRole){
-      if(state.hqDashboardStatsLoading || !state.hqDashboardStats){
-        html += '<div class="empty-note">데이터를 불러오는 중이에요…</div>';
-        return html;
-      }
-      const stats = state.hqDashboardStats;
-
+    if(!isHqRole){
       html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
-      html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('people')+'</svg></span>가입 현황</span>';
-      html += '<p style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;">사장님 '+stats.totalOwners+'명 · 매장 '+stats.totalStores+'개</p>';
-      html += '<p style="margin:0 0 4px;font-size:12px;color:var(--ink-soft);">금일 신규가입 '+stats.newSignupsToday+'건</p>';
-      html += '<p style="margin:0;font-size:12px;color:var(--ink-soft);">예상 월매출 '+stats.projectedRevenue.toLocaleString()+'원 (전원 유료전환 가정)</p>';
+      html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('store')+'</svg></span>'+escapeHtml(state.franchiseName||"프랜차이즈")+'</span>';
+      html += '<p style="margin:8px 0 0;font-size:22px;font-weight:800;letter-spacing:-0.01em;">매장 '+state.storeList.length+'개</p>';
       html += '</div>';
-
-      html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">사장님별 가입 현황 (기본가 '+stats.defaultPrice.toLocaleString()+'원 · 프랜차이즈 '+stats.defaultFranchisePrice.toLocaleString()+'원 · 매장추가 '+stats.additionalStorePrice.toLocaleString()+'원)</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
-      html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
-      if(stats.owners.length===0){
-        html += '<div class="empty-note" style="padding:12px 0;">가입된 사장님이 없어요.</div>';
-      }else{
-        const trialLabel = {trial:'체험중',active:'유료전환',overdue:'연체',cancelled:'해지'};
-        stats.owners.forEach((o,idx)=>{
-          const trialDone = !o.unlimitedTrial && o.daysSinceSignup!=null && o.daysSinceSignup>=stats.defaultTrialDays;
-          html += '<div style="padding:12px 0;'+(idx<stats.owners.length-1?'border-bottom:1px solid var(--line);':'')+'">';
-          html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
-          html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);">'+escapeHtml(o.displayName)+'</span>';
-          html += '<span style="font-size:13px;font-weight:800;color:var(--ink-soft);">매장 '+o.storeCount+'개</span>';
-          html += '</div>';
-          html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">';
-          html += '<span style="font-size:11.5px;color:'+(trialDone?'var(--danger)':'var(--ink-soft)')+';">'+(o.daysSinceSignup!=null?'가입 '+o.daysSinceSignup+'일째':'가입일 미상')+(o.unlimitedTrial?' · 무제한 체험':(trialDone?' · 체험 '+stats.defaultTrialDays+'일 경과':''))+' · '+(trialLabel[o.billingStatus]||o.billingStatus)+'</span>';
-          html += '<span style="font-size:11.5px;color:var(--ink-soft);">'+o.effectivePrice.toLocaleString()+'원'+(o.priceIsOverride?' (개별설정)':'')+'</span>';
-          html += '</div>';
-          html += '</div>';
-        });
-      }
-      html += '</div>';
-
-      html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">프랜차이즈별 매장 수</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
-      html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
-      if(!stats.franchiseStats.length){
-        html += '<div class="empty-note" style="padding:12px 0;">등록된 프랜차이즈가 없어요.</div>';
-      }else{
-        stats.franchiseStats.forEach((f,idx)=>{
-          html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;'+(idx<stats.franchiseStats.length-1?'border-bottom:1px solid var(--line);':'')+'">';
-          html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);">'+escapeHtml(f.name)+'</span>';
-          html += '<span style="font-size:13px;font-weight:800;color:var(--ink-soft);">매장 '+f.storeCount+'개 · '+f.monthlyPrice.toLocaleString()+'원</span>';
-          html += '</div>';
-        });
-      }
-      html += '</div>';
+      html += '<div class="empty-note">매장 검색·관리는 하단 "매장검색" 탭에서 할 수 있어요.</div>';
+      return html;
     }
 
-    html += '<div class="day-panel" style="margin-bottom:10px;">';
-    html += '<h3 style="margin:0 0 8px;">매장 검색</h3>';
-    html += '<div style="display:flex;gap:6px;"><input class="field-input" id="hq-sales-search-input" type="text" placeholder="매장 이름 검색" value="'+escapeHtml(state.hqSalesSearch||"")+'" style="margin:0;"><button class="crew-code-btn" id="hq-sales-search-btn" style="flex:0 0 auto;">검색</button></div>';
+    if(state.hqDashboardStatsLoading || !state.hqDashboardStats){
+      html += '<div class="empty-note">데이터를 불러오는 중이에요…</div>';
+      return html;
+    }
+    const stats = state.hqDashboardStats;
+    const tc = stats.tierCounts;
+
+    html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
+    html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('people')+'</svg></span>가입 현황</span>';
+    html += '<p style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;">사장님 '+stats.totalOwners+'명 · 매장 '+stats.totalStores+'개</p>';
+    html += '<p style="margin:0 0 4px;font-size:12px;color:var(--ink-soft);">금일 신규가입 '+stats.newSignupsToday+'건</p>';
+    html += '<p style="margin:0;font-size:12px;color:var(--ink-soft);">예상 월매출 '+stats.projectedRevenue.toLocaleString()+'원 (전원 유료전환 가정)</p>';
     html += '</div>';
 
-    const q = (state.hqSalesSearch||"").trim().toLowerCase();
-    const searchRows = isHqRole ? (state.hqDashboardStats?state.hqDashboardStats.storeOwnerRows:[]) : state.storeList.map(s=>({name:s, ownerDisplayName:null}));
-    const matched = q ? searchRows.filter(r=>r.name.toLowerCase().includes(q)) : [];
-    if(!q){
-      html += '<div class="empty-note" style="padding:8px 0;">매장 이름을 검색해 주세요. (전체 '+searchRows.length+'개)</div>';
-    }else if(matched.length===0){
-      html += '<div class="empty-note" style="padding:8px 0;">일치하는 매장이 없어요.</div>';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">금액별 가입 수</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+    html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
+    const tierRows = [
+      ['무료체험중', tc.trial],
+      ['정가 '+stats.defaultPrice.toLocaleString()+'원', tc.regularPaid],
+      ['프랜차이즈가 '+stats.defaultFranchisePrice.toLocaleString()+'원', tc.franchisePaid],
+      ['기타 개별금액', tc.otherPaid]
+    ];
+    tierRows.forEach((r,idx)=>{
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;'+(idx<tierRows.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+      html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);">'+r[0]+'</span>';
+      html += '<span style="font-size:13px;font-weight:800;color:var(--ink-soft);">'+r[1]+'명</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">무료체험 이용 현황 (기본 '+stats.defaultTrialDays+'일)</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+    html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
+    const trialExpired = stats.owners.filter(o=>!o.unlimitedTrial && o.billingStatus==='trial' && o.daysSinceSignup!=null && o.daysSinceSignup>=stats.defaultTrialDays).length;
+    const trialRows = [
+      ['무제한 체험 (기존 가입자)', tc.unlimitedTrial],
+      [stats.defaultTrialDays+'일 체험 진행중', Math.max(0, tc.trial - tc.unlimitedTrial - trialExpired)],
+      ['체험 기간 경과', trialExpired]
+    ];
+    trialRows.forEach((r,idx)=>{
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;'+(idx<trialRows.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+      html += '<span style="font-size:13.5px;font-weight:700;color:'+(idx===2&&r[1]>0?'var(--danger)':'var(--ink)')+';">'+r[0]+'</span>';
+      html += '<span style="font-size:13px;font-weight:800;color:var(--ink-soft);">'+r[1]+'명</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">주차별 신규가입 추이</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+    html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
+    const maxWeekly = Math.max.apply(null, stats.weeklySignups.map(w=>w.count).concat([1]));
+    html += '<div style="display:flex;align-items:flex-end;gap:8px;height:80px;">';
+    stats.weeklySignups.forEach(w=>{
+      const h = Math.max(4, Math.round((w.count/maxWeekly)*60));
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;">';
+      html += '<span style="font-size:10.5px;font-weight:800;color:var(--ink);">'+w.count+'</span>';
+      html += '<div style="width:100%;background:var(--brick-dim);border-radius:4px 4px 0 0;height:'+h+'px;"></div>';
+      html += '<span style="font-size:10px;color:var(--ink-soft);">'+w.label+'</span>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">프랜차이즈별 매장 수</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+    html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
+    if(!stats.franchiseStats.length){
+      html += '<div class="empty-note" style="padding:12px 0;">등록된 프랜차이즈가 없어요.</div>';
     }else{
-      html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
-      matched.forEach((r,idx)=>{
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;'+(idx<matched.length-1?'border-bottom:1px solid var(--line);':'')+'">';
-        html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);">'+escapeHtml(r.name)+'</span>';
-        if(r.ownerDisplayName) html += '<span style="font-size:12px;color:var(--ink-soft);">'+escapeHtml(r.ownerDisplayName)+'</span>';
+      stats.franchiseStats.forEach((f,idx)=>{
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;'+(idx<stats.franchiseStats.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+        html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);">'+escapeHtml(f.name)+'</span>';
+        html += '<span style="font-size:13px;font-weight:800;color:var(--ink-soft);">매장 '+f.storeCount+'개 · '+f.monthlyPrice.toLocaleString()+'원</span>';
         html += '</div>';
       });
-      html += '</div>';
     }
+    html += '</div>';
     return html;
   }
 
@@ -7788,12 +7833,6 @@
       if(MANEE_ADMIN_AUTH_ENABLED) try{await loadPasswordResetRequests();}catch(e){}
       render();
     });
-    const hqSalesSearchInput = document.getElementById("hq-sales-search-input");
-    const hqSalesSearchBtn = document.getElementById("hq-sales-search-btn");
-    const runHqSalesSearch = ()=>{ state.hqSalesSearch = hqSalesSearchInput.value; render(); };
-    if(hqSalesSearchBtn) hqSalesSearchBtn.addEventListener("click", runHqSalesSearch);
-    if(hqSalesSearchInput) hqSalesSearchInput.addEventListener("keydown", e=>{ if(e.key==="Enter") runHqSalesSearch(); });
-
     const franchiseStoreSearchInput = document.getElementById("franchise-store-search-input");
     const franchiseStoreSearchBtn = document.getElementById("franchise-store-search-btn");
     const runFranchiseStoreSearch = ()=>{ state.franchiseAssignSearch = franchiseStoreSearchInput.value; render(); };
