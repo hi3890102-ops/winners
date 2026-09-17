@@ -3049,10 +3049,27 @@
     });
   }
   function deleteExpenseEntry(id){
-    if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('expense_entries',id,()=>{state.expenseEntries=state.expenseEntries.filter(e=>e.id!==id);});
+    const entry = (state.expenseEntries||[]).find(e=>e.id===id);
+    const storeId = currentStoreId();
+    const notifyOwnerOfDelete = ()=>{
+      if(state.role==="storeOwner" || !storeId) return;
+      const person = state.crew.find(c=>c.id===state.myCrewId);
+      const actorName = person ? person.name : (state.role==="hq"?"본사 관리자":(state.role==="franchise"?(state.franchiseName+" 관리자"):"매니저"));
+      fetch("/.netlify/functions/send-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storeId, ownerOnly: true, excludeCrewId: state.myCrewId || null,
+          title: state.store+" 지출내역 삭제됨",
+          body: actorName+"님이 "+(entry?entry.date+" "+(entry.description||"지출내역")+" "+entry.amount.toLocaleString()+"원":"지출내역")+" 항목을 삭제했어요.",
+          url: "/", tag: "expense-entry-deleted-"+id
+        })
+      }).catch(()=>{});
+    };
+    if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('expense_entries',id,()=>{state.expenseEntries=state.expenseEntries.filter(e=>e.id!==id); notifyOwnerOfDelete();});
     state.expenseEntries = state.expenseEntries.filter(e=>e.id!==id);
     render();
-    (async ()=>{ try{ await db.from('expense_entries').delete().eq('id', id); }catch(e){} })();
+    (async ()=>{ try{ await db.from('expense_entries').delete().eq('id', id); notifyOwnerOfDelete(); }catch(e){} })();
   }
 
   async function loadAnnouncements(store){
