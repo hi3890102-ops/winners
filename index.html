@@ -2202,9 +2202,9 @@
 
   async function loadFranchises(){
     try{
-      const { data, error } = await db.from('franchises').select('id,name,username,created_at').order('created_at');
+      const { data, error } = await db.from('franchises').select('id,name,username,created_at,monthly_price').order('created_at');
       if(error) throw error;
-      state.franchises = (data||[]).map(r=>({ id:r.id, name:r.name, username:r.username }));
+      state.franchises = (data||[]).map(r=>({ id:r.id, name:r.name, username:r.username, monthlyPrice: r.monthly_price!=null ? Number(r.monthly_price) : null }));
     }catch(e){ state.franchises = []; }
   }
   async function loadHqDashboardStats(){
@@ -2216,25 +2216,52 @@
       const usernames = [...new Set(rows.map(r=>r.owner_username).filter(Boolean))];
       let profileMap = {};
       if(usernames.length){
-        const { data:profiles } = await db.from('profiles').select('username,display_name').in('username',usernames);
-        (profiles||[]).forEach(p=>{ profileMap[p.username] = p.display_name||p.username; });
+        const { data:profiles } = await db.from('profiles').select('username,display_name,created_at,monthly_price,billing_status').in('username',usernames);
+        (profiles||[]).forEach(p=>{ profileMap[p.username] = p; });
       }
       if(!state.franchises || state.franchises.length===0) await loadFranchises();
+      const { data:settingsRows } = await db.from('billing_settings').select('key,value');
+      const settings = {};
+      (settingsRows||[]).forEach(s=>{ settings[s.key] = Number(s.value); });
+      const defaultPrice = settings.default_price ?? 9900;
+      const defaultFranchisePrice = settings.default_franchise_price ?? 4900;
+      const franchisePriceMap = {};
+      (state.franchises||[]).forEach(f=>{ franchisePriceMap[f.id] = f.monthlyPrice; });
+
       const ownerCounts = {};
-      rows.forEach(r=>{ if(r.owner_username) ownerCounts[r.owner_username] = (ownerCounts[r.owner_username]||0)+1; });
-      const owners = Object.keys(ownerCounts).map(u=>({ username:u, displayName: profileMap[u]||u, storeCount: ownerCounts[u] }))
-        .sort((a,b)=> b.storeCount-a.storeCount || a.displayName.localeCompare(b.displayName));
+      const ownerFranchiseId = {};
+      rows.forEach(r=>{
+        if(!r.owner_username) return;
+        ownerCounts[r.owner_username] = (ownerCounts[r.owner_username]||0)+1;
+        if(r.franchise_id && !ownerFranchiseId[r.owner_username]) ownerFranchiseId[r.owner_username] = r.franchise_id;
+      });
+      const nowMs = Date.now();
+      const owners = Object.keys(ownerCounts).map(u=>{
+        const p = profileMap[u] || {};
+        const fid = ownerFranchiseId[u];
+        const fallbackPrice = fid ? (franchisePriceMap[fid] ?? defaultFranchisePrice) : defaultPrice;
+        const signupDate = p.created_at ? new Date(p.created_at) : null;
+        const daysSinceSignup = signupDate ? Math.floor((nowMs - signupDate.getTime())/86400000) : null;
+        return {
+          username:u, displayName: p.display_name||u, storeCount: ownerCounts[u],
+          signupDate, daysSinceSignup,
+          effectivePrice: (p.monthly_price!=null ? Number(p.monthly_price) : fallbackPrice),
+          priceIsOverride: p.monthly_price!=null,
+          billingStatus: p.billing_status || 'trial'
+        };
+      }).sort((a,b)=> b.storeCount-a.storeCount || a.displayName.localeCompare(b.displayName));
       const franchiseCounts = {};
       rows.forEach(r=>{ if(r.franchise_id) franchiseCounts[r.franchise_id] = (franchiseCounts[r.franchise_id]||0)+1; });
-      const franchiseStats = (state.franchises||[]).map(f=>({ name:f.name, storeCount: franchiseCounts[f.id]||0 })).sort((a,b)=>b.storeCount-a.storeCount);
+      const franchiseStats = (state.franchises||[]).map(f=>({ name:f.name, storeCount: franchiseCounts[f.id]||0, monthlyPrice: f.monthlyPrice ?? defaultFranchisePrice })).sort((a,b)=>b.storeCount-a.storeCount);
       state.hqDashboardStats = {
         totalStores: rows.length,
         totalOwners: owners.length,
         owners, franchiseStats,
-        storeOwnerRows: rows.map(r=>({ name:r.name, ownerDisplayName: r.owner_username ? (profileMap[r.owner_username]||r.owner_username) : "미배정" }))
+        defaultPrice, defaultFranchisePrice,
+        storeOwnerRows: rows.map(r=>({ name:r.name, ownerDisplayName: r.owner_username ? ((profileMap[r.owner_username]||{}).display_name||r.owner_username) : "미배정" }))
       };
     }catch(e){
-      state.hqDashboardStats = { totalStores:0, totalOwners:0, owners:[], franchiseStats:[], storeOwnerRows:[] };
+      state.hqDashboardStats = { totalStores:0, totalOwners:0, owners:[], franchiseStats:[], storeOwnerRows:[], defaultPrice:9900, defaultFranchisePrice:4900 };
     }
     state.hqDashboardStatsLoading = false;
     render();
@@ -5970,15 +5997,23 @@
       html += '<p style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;">사장님 '+stats.totalOwners+'명 · 매장 '+stats.totalStores+'개</p>';
       html += '</div>';
 
-      html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">사장님별 매장 수</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin:0 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">사장님별 가입 현황 (기본가 '+stats.defaultPrice.toLocaleString()+'원 · 프랜차이즈 '+stats.defaultFranchisePrice.toLocaleString()+'원)</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
       html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
       if(stats.owners.length===0){
         html += '<div class="empty-note" style="padding:12px 0;">가입된 사장님이 없어요.</div>';
       }else{
+        const trialLabel = {trial:'체험중',active:'유료전환',overdue:'연체',cancelled:'해지'};
         stats.owners.forEach((o,idx)=>{
-          html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;'+(idx<stats.owners.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+          const trialDone = o.daysSinceSignup!=null && o.daysSinceSignup>=40;
+          html += '<div style="padding:12px 0;'+(idx<stats.owners.length-1?'border-bottom:1px solid var(--line);':'')+'">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
           html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);">'+escapeHtml(o.displayName)+'</span>';
           html += '<span style="font-size:13px;font-weight:800;color:var(--ink-soft);">매장 '+o.storeCount+'개</span>';
+          html += '</div>';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">';
+          html += '<span style="font-size:11.5px;color:'+(trialDone?'var(--danger)':'var(--ink-soft)')+';">'+(o.daysSinceSignup!=null?'가입 '+o.daysSinceSignup+'일째':'가입일 미상')+(trialDone?' · 체험 40일 경과':'')+' · '+(trialLabel[o.billingStatus]||o.billingStatus)+'</span>';
+          html += '<span style="font-size:11.5px;color:var(--ink-soft);">'+o.effectivePrice.toLocaleString()+'원'+(o.priceIsOverride?' (개별설정)':'')+'</span>';
+          html += '</div>';
           html += '</div>';
         });
       }
@@ -5992,7 +6027,7 @@
         stats.franchiseStats.forEach((f,idx)=>{
           html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;'+(idx<stats.franchiseStats.length-1?'border-bottom:1px solid var(--line);':'')+'">';
           html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);">'+escapeHtml(f.name)+'</span>';
-          html += '<span style="font-size:13px;font-weight:800;color:var(--ink-soft);">매장 '+f.storeCount+'개</span>';
+          html += '<span style="font-size:13px;font-weight:800;color:var(--ink-soft);">매장 '+f.storeCount+'개 · '+f.monthlyPrice.toLocaleString()+'원</span>';
           html += '</div>';
         });
       }
