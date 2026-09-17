@@ -4666,11 +4666,23 @@
     updateCrewRow(id, { join_code: newCode });
     showToast("새 코드를 발급했어요");
   }
-  function toggleManager(id, checked){
+  async function toggleManager(id, checked){
     const c = state.crew.find(c=>c.id===id);
     if(!c) return;
+    const prev = c.isManager;
     c.isManager = checked;
-    updateCrewRow(id, { is_manager: checked });
+    render();
+    try{
+      if(MANEE_STAFF_AUTH_ENABLED){
+        // Also syncs store_memberships.role so canManageBusinessData() (which keys off
+        // membership role, not this flag) actually opens up for real managers.
+        const { error } = await db.rpc('set_crew_manager_flag', { target_crew_id: id, is_manager: checked });
+        if(error) throw error;
+      } else {
+        const ok = await updateCrewRow(id, { is_manager: checked });
+        if(!ok){ c.isManager = prev; render(); return; }
+      }
+    }catch(e){ c.isManager = prev; render(); showToast("저장에 실패했어요."); return; }
     showToast(checked ? (c.name+"님에게 매니저 권한을 줬어요") : (c.name+"님의 매니저 권한을 뺐어요"));
   }
   function toggleSalesAccess(id, checked){
