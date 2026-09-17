@@ -2677,8 +2677,12 @@
     });
   }
   async function updateCrewRow(id, patch){
-    try{ const { error } = await db.from('crew').update(patch).eq('id', id); if(error) throw error; }
-    catch(e){ showToast("저장에 실패했어요."); }
+    try{
+      const { data, error } = await db.from('crew').update(patch).eq('id', id).select('id');
+      if(error) throw error;
+      if(!data || data.length===0){ showToast("저장 권한이 없어서 반영되지 않았어요."); return false; }
+      return true;
+    }catch(e){ showToast("저장에 실패했어요."); return false; }
   }
 
   function monthDateRange(mKey){
@@ -4420,7 +4424,7 @@
     render();
     updateCrewRow(id, { wage_type: wageType });
   }
-  function saveCrewInfo(id){
+  async function saveCrewInfo(id){
     const c = state.crew.find(c=>c.id===id);
     if(!c) return;
     const nameInp = app.querySelector('[data-editname="'+id+'"]');
@@ -4432,9 +4436,11 @@
     const position = posSel ? posSel.value : c.position;
     const wage = Math.max(0, Number(wageInp ? wageInp.value : c.wage) || 0);
     const phone = String(phoneInp ? phoneInp.value : (c.phone||"")).trim();
+    const prev = { name:c.name, position:c.position, wage:c.wage, phone:c.phone };
     c.name = name; c.position = position; c.wage = wage; c.phone = phone;
     render();
-    updateCrewRow(id, { name, position, wage, phone });
+    const ok = await updateCrewRow(id, { name, position, wage, phone });
+    if(!ok){ Object.assign(c, prev); render(); return; }
     showToast("정보를 수정했어요.");
   }
   function togglePayrollFlag(id, flag, checked){
