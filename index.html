@@ -488,6 +488,7 @@
     salesEditingId: null,
     selectedSalesDate: null,
     expenseEntries: [],
+    editingExpenseEntryId: null,
     vendors: [],
     fixedExpenses: [],
     showFixedExpenseManage: false,
@@ -1480,8 +1481,9 @@
     return (state.authMemberships||[]).some(m=>m.store_id===currentStoreId() && ['owner','manager'].includes(m.role));
   }
   function canDeleteFinancialData(){
-    if(!MANEE_STAFF_AUTH_ENABLED) return canManageBusinessData();
-    return (state.authMemberships||[]).some(m=>m.store_id===currentStoreId() && m.role==='owner');
+    if(canManageBusinessData()) return true;
+    const me = state.crew.find(c=>c.id===state.myCrewId);
+    return !!(me && me.salesAccess);
   }
   function businessError(error){
     if(error && error.code==='42501'){clearStaffAuthView();render();}
@@ -3052,28 +3054,74 @@
       sendReservationCancelPush(res, storeIdForPush);
     });
   }
+  function renderExpenseEntryLine(e){
+    const canEdit = !MANEE_STAFF_AUTH_ENABLED || canDeleteFinancialData();
+    if(state.editingExpenseEntryId === e.id){
+      return '<div class="pay-list-item" style="flex-wrap:wrap;gap:6px;">'
+        +'<input type="text" data-editexpensedesc="'+e.id+'" value="'+escapeHtml(e.description)+'" style="flex:1;min-width:80px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;">'
+        +'<input type="number" min="0" inputmode="numeric" data-editexpenseamount="'+e.id+'" value="'+e.amount+'" style="width:90px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;">'
+        +'<button class="crew-code-btn" data-saveexpense="'+e.id+'">저장</button>'
+        +'<button class="switch-link" data-cancelexpense="1">취소</button>'
+        +'</div>';
+    }
+    return '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'</span><span>'+Number(e.amount).toLocaleString()+'원'
+      +(canEdit ? ' <button class="crew-code-btn" data-editexpense="'+e.id+'" style="margin-left:6px;padding:2px 8px;font-size:11.5px;">수정</button><button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button>' : '')
+      +'</span></div>';
+  }
+  function notifyOwnerOfExpenseChange(entry, actionLabel, actionTag){
+    const storeId = currentStoreId();
+    if(state.role==="storeOwner" || !storeId) return;
+    const person = state.crew.find(c=>c.id===state.myCrewId);
+    const actorName = person ? person.name : (state.role==="hq"?"본사 관리자":(state.role==="franchise"?(state.franchiseName+" 관리자"):"매니저"));
+    fetch("/.netlify/functions/send-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        storeId, ownerOnly: true, excludeCrewId: state.myCrewId || null,
+        title: state.store+" 지출내역 "+actionLabel,
+        body: actorName+"님이 "+(entry?entry.date+" "+(entry.description||"지출내역")+" "+entry.amount.toLocaleString()+"원":"지출내역")+" 항목을 "+actionLabel+"어요.",
+        url: "/", tag: "expense-entry-"+actionTag+"-"+entry.id
+      })
+    }).catch(()=>{});
+  }
   function deleteExpenseEntry(id){
     const entry = (state.expenseEntries||[]).find(e=>e.id===id);
-    const storeId = currentStoreId();
-    const notifyOwnerOfDelete = ()=>{
-      if(state.role==="storeOwner" || !storeId) return;
-      const person = state.crew.find(c=>c.id===state.myCrewId);
-      const actorName = person ? person.name : (state.role==="hq"?"본사 관리자":(state.role==="franchise"?(state.franchiseName+" 관리자"):"매니저"));
-      fetch("/.netlify/functions/send-push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          storeId, ownerOnly: true, excludeCrewId: state.myCrewId || null,
-          title: state.store+" 지출내역 삭제됨",
-          body: actorName+"님이 "+(entry?entry.date+" "+(entry.description||"지출내역")+" "+entry.amount.toLocaleString()+"원":"지출내역")+" 항목을 삭제했어요.",
-          url: "/", tag: "expense-entry-deleted-"+id
-        })
-      }).catch(()=>{});
-    };
-    if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('expense_entries',id,()=>{state.expenseEntries=state.expenseEntries.filter(e=>e.id!==id); notifyOwnerOfDelete();});
+    if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('expense_entries',id,()=>{state.expenseEntries=state.expenseEntries.filter(e=>e.id!==id); if(entry) notifyOwnerOfExpenseChange(entry,"삭제했","deleted");});
     state.expenseEntries = state.expenseEntries.filter(e=>e.id!==id);
     render();
-    (async ()=>{ try{ await db.from('expense_entries').delete().eq('id', id); notifyOwnerOfDelete(); }catch(e){} })();
+    (async ()=>{ try{ await db.from('expense_entries').delete().eq('id', id); if(entry) notifyOwnerOfExpenseChange(entry,"삭제했","deleted"); }catch(e){} })();
+  }
+  function startEditExpenseEntry(id){ state.editingExpenseEntryId = id; render(); }
+  function cancelEditExpenseEntry(){ state.editingExpenseEntryId = null; render(); }
+  async function saveExpenseEntry(id){
+    const entry = (state.expenseEntries||[]).find(e=>e.id===id);
+    if(!entry) return;
+    const descInp = app.querySelector('[data-editexpensedesc="'+id+'"]');
+    const amountInp = app.querySelector('[data-editexpenseamount="'+id+'"]');
+    const description = String(descInp ? descInp.value : entry.description).trim();
+    const amount = Math.max(0, Number(amountInp ? amountInp.value : entry.amount) || 0);
+    if(!description){ showToast("내용을 입력해주세요."); return; }
+    if(MANEE_STAFF_AUTH_ENABLED){
+      try{
+        const r = await checkedBusinessMutation(db.from('expense_entries').update({ description, amount }).eq('id', id).select('id,description,amount'));
+        entry.description = r.description; entry.amount = r.amount;
+        state.editingExpenseEntryId = null;
+        render();
+        showToast("지출 내역을 수정했어요.");
+        notifyOwnerOfExpenseChange(entry,"수정했","edited");
+      }catch(e){ businessError(e); }
+      return;
+    }
+    try{
+      const { data, error } = await db.from('expense_entries').update({ description, amount }).eq('id', id).select('id');
+      if(error) throw error;
+      if(!data || data.length===0){ showToast("저장 권한이 없어서 반영되지 않았어요."); return; }
+    }catch(e){ showToast("저장에 실패했어요."); return; }
+    entry.description = description; entry.amount = amount;
+    state.editingExpenseEntryId = null;
+    render();
+    showToast("지출 내역을 수정했어요.");
+    notifyOwnerOfExpenseChange(entry,"수정했","edited");
   }
 
   async function loadAnnouncements(store){
@@ -5880,7 +5928,7 @@
       html += '<p class="empty-note" style="padding:8px 0;">등록된 지출이 없어요.</p>';
     }else{
       dayExpensesForm.forEach(e=>{
-        html += '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'</span><span>'+Number(e.amount).toLocaleString()+'원 '+((!MANEE_STAFF_AUTH_ENABLED || canDeleteFinancialData())?'<button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button>':'')+'</span></div>';
+        html += renderExpenseEntryLine(e);
       });
       html += '<div class="pay-list-item" style="font-weight:800;"><span class="d">합계</span><span>'+dayExpenseSumForm.toLocaleString()+'원</span></div>';
     }
@@ -6740,7 +6788,7 @@
           html += '<div class="empty-note" style="padding:8px 0;">이 날 등록된 지출이 없어요.</div>';
         }else{
           dayExpenses.forEach(e=>{
-            html += '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'</span><span>'+Number(e.amount).toLocaleString()+'원 '+((!MANEE_STAFF_AUTH_ENABLED || canDeleteFinancialData())?'<button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button>':'')+'</span></div>';
+            html += renderExpenseEntryLine(e);
           });
           html += '<div class="pay-list-item" style="font-weight:800;"><span class="d">합계</span><span>'+dayExpenseSum.toLocaleString()+'원'+(dayRatio!==null?(' · 매출대비 '+dayRatio.toFixed(1)+'%'):'')+'</span></div>';
         }
@@ -7379,6 +7427,15 @@
     app.querySelectorAll("[data-delexpense]").forEach(btn=>{
       btn.addEventListener("click", ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense")));
     });
+    app.querySelectorAll("[data-editexpense]").forEach(btn=>{
+      btn.addEventListener("click", ()=> startEditExpenseEntry(btn.getAttribute("data-editexpense")));
+    });
+    app.querySelectorAll("[data-saveexpense]").forEach(btn=>{
+      btn.addEventListener("click", ()=> saveExpenseEntry(btn.getAttribute("data-saveexpense")));
+    });
+    app.querySelectorAll("[data-cancelexpense]").forEach(btn=>{
+      btn.addEventListener("click", cancelEditExpenseEntry);
+    });
     app.querySelectorAll("[data-confirmatt]").forEach(btn=>{
       btn.addEventListener("click", ()=> toggleAttendanceConfirm(btn.getAttribute("data-confirmatt")));
     });
@@ -7746,6 +7803,15 @@
     if(toggleLaborBtn) toggleLaborBtn.addEventListener("click", ()=>{ state.showLaborSection = !state.showLaborSection; render(); });
     app.querySelectorAll("[data-delexpense]").forEach(btn=>{
       btn.addEventListener("click", ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense")));
+    });
+    app.querySelectorAll("[data-editexpense]").forEach(btn=>{
+      btn.addEventListener("click", ()=> startEditExpenseEntry(btn.getAttribute("data-editexpense")));
+    });
+    app.querySelectorAll("[data-saveexpense]").forEach(btn=>{
+      btn.addEventListener("click", ()=> saveExpenseEntry(btn.getAttribute("data-saveexpense")));
+    });
+    app.querySelectorAll("[data-cancelexpense]").forEach(btn=>{
+      btn.addEventListener("click", cancelEditExpenseEntry);
     });
     const toggleVendorManageBtn = document.getElementById("toggle-vendor-manage-btn");
     if(toggleVendorManageBtn) toggleVendorManageBtn.addEventListener("click", ()=>{ state.showVendorManage = !state.showVendorManage; render(); });

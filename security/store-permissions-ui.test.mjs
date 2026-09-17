@@ -20,7 +20,7 @@ function harness(options={}){
 test('Manager controls use current membership rather than the old employee flag',()=>{
  const h=harness({state:{myCrewId:'crew',crew:[{id:'crew',isManager:true}],authMemberships:[{store_id:'store',role:'staff'}]}});
  assert.equal(h.context.canManageBusinessData(),false);
- h.state.authMemberships[0].role='manager';assert.equal(h.context.canManageBusinessData(),true);assert.equal(h.context.canDeleteFinancialData(),false);
+ h.state.authMemberships[0].role='manager';assert.equal(h.context.canManageBusinessData(),true);assert.equal(h.context.canDeleteFinancialData(),true);
  h.state.authMemberships[0].role='owner';assert.equal(h.context.canManageBusinessData(),true);assert.equal(h.context.canDeleteFinancialData(),true);
  h.state.store='Another';assert.equal(h.context.canManageBusinessData(),false);
 });
