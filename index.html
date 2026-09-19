@@ -336,6 +336,7 @@
   @media (prefers-reduced-motion: reduce){ *{ transition:none !important; } }
   .environment-banner{max-width:480px;margin:0 auto;padding:8px 12px;text-align:center;background:#fff3cd;color:#674c00;font-size:12px;}
 </style>
+<link rel="stylesheet" href="/owner-ui.css">
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="/app-config.js"></script>
@@ -1029,6 +1030,7 @@
     state.staffSignupUsernameCheck=null;state.ownerRequestUsernameCheck=null;
     state.items={};state.checks={};state.checklistLog={};state.homeChecklistItems={};state.homeChecklistChecks={};
     state.fixedExpenses=[];state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
+    state.staffPersonalProfile=null;
     state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
     state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
     state.crew=[]; state.attendance=[]; state.shifts=[]; state.salesReports=[]; state.expenseEntries=[];
@@ -1059,6 +1061,7 @@
     const snapshot=await staffPortal('session');
     if(!snapshot.profile || snapshot.profile.user_id!==userData.user.id) throw new Error('계정 정보를 확인하지 못했어요.');
     state.authProfile=snapshot.profile;
+    state.staffPersonalProfile=snapshot.personal_profile||null;
     state.authMemberships=snapshot.memberships||[];
     state.staffLinkRequests=snapshot.requests||[];
     state.myUsername=snapshot.profile.username;
@@ -1182,7 +1185,25 @@
       '<p id="staff-signup-username-status" class="crew-code-hint" style="margin:4px 0 0;color:'+statusColor+';">'+statusText+'</p>'+
       '<label for="staff-signup-password">비밀번호</label><input id="staff-signup-password" type="password" minlength="8" maxlength="72" autocomplete="new-password" placeholder="8자 이상">'+
       '<label for="staff-signup-confirm">비밀번호 확인</label><input id="staff-signup-confirm" type="password" maxlength="72" autocomplete="new-password">'+
+      '<div class="staff-personal-fields"><h3>매장에 전달할 내 정보</h3><p>사장님이 신규 직원으로 승인하면 연락처와 급여 계좌가 함께 등록돼요. 급여·근무조건은 사장님이 설정해요.</p>'+ 
+      '<label for="staff-signup-phone">연락처</label><input id="staff-signup-phone" type="tel" maxlength="24" autocomplete="tel" placeholder="010-0000-0000">'+
+      '<label for="staff-signup-bank">은행</label><input id="staff-signup-bank" maxlength="50" placeholder="은행명">'+
+      '<label for="staff-signup-account">계좌번호</label><input id="staff-signup-account" inputmode="numeric" maxlength="40" autocomplete="off" placeholder="계좌번호">'+
+      '<label for="staff-signup-holder">예금주</label><input id="staff-signup-holder" maxlength="50" autocomplete="name" placeholder="통장에 표시된 이름"></div>'+
       staffAuthButton('signup','가입하기')+'</div>'+staffAuthButton('login-screen','로그인 화면으로');
+  }
+  function renderStaffPersonalSummary(personal){
+    if(!personal) return '';
+    return '<div class="staff-personal-summary"><div><span>연락처</span>'+escapeHtml(personal.phone||'')+'</div><div><span>급여 계좌</span>'+escapeHtml(personal.bank_name||'')+' '+escapeHtml(personal.bank_account||'')+'</div><div><span>예금주</span>'+escapeHtml(personal.account_holder||'')+'</div></div>';
+  }
+  async function openApprovedEmployee(crewId,storeId){
+    const store=state.store;
+    if(state.role!=='storeOwner'||currentStoreId()!==storeId) return;
+    const people=await loadCrewRaw(store);
+    if(state.role!=='storeOwner'||currentStoreId()!==storeId) return;
+    if(!people.some(c=>c.id===crewId)){showToast('승인은 완료됐어요. 직원 목록을 새로 불러와 근무조건을 설정해 주세요.');return;}
+    state.crew=people;state.section='schedule';state.scheduleTab='crew';state.expandedCrewIds={[crewId]:true};state.showStaffLinkSection=false;render();
+    setTimeout(()=>{const input=app.querySelector('[data-editwage="'+crewId+'"]');if(input){input.scrollIntoView({block:'center',behavior:'smooth'});input.focus({preventScroll:true});}},0);
   }
   function renderStaffAuthAccount(){
     const p=state.authProfile||{};
@@ -1194,6 +1215,7 @@
       html+='<div class="code-box"><h3 style="margin-top:0;">매장을 확인해 주세요</h3>'+
         '<div class="day-panel" style="margin:10px 0;"><strong>'+escapeHtml(preview.store_name||'')+'</strong><br><span>이 매장으로 가입 요청을 보냅니다.</span></div>'+
         '<p>사장님이 승인하면 신규 직원으로 등록되거나 기존 직원기록과 연결돼요. 기존 기록을 연결하는 경우 출퇴근·급여·근무 기록이 그대로 이어집니다.</p>'+
+        renderStaffPersonalSummary(state.staffPersonalProfile)+
         staffAuthButton('request','가입 요청 보내기')+' '+staffAuthButton('link-code-change','다른 코드 입력')+'</div>';
     }else{
       html+='<div class="code-box"><label for="staff-link-code">매장 연결코드</label>'+
@@ -1217,7 +1239,7 @@
     }
     let html='<div class="day-panel">'+
       '<button type="button" data-staff-link-section-toggle="1" style="display:flex;width:100%;justify-content:space-between;align-items:center;background:none;border:none;padding:0;cursor:pointer;text-align:left;font:inherit;color:inherit;">'+
-      '<strong style="font-size:16px;">스텝 계정 연결</strong><span aria-hidden="true" style="display:inline-block;transition:transform .15s;transform:rotate('+(state.showStaffLinkSection?90:0)+'deg);font-size:18px;">›</span></button>';
+      '<strong style="font-size:16px;">스텝 계정 연결'+(access&&access.storeId===currentStoreId()&&(access.requests||[]).length?' · 가입 요청 '+access.requests.length+'건':'')+'</strong><span aria-hidden="true" style="display:inline-block;transition:transform .15s;transform:rotate('+(state.showStaffLinkSection?90:0)+'deg);font-size:18px;">›</span></button>';
     if(!state.showStaffLinkSection) return html+'</div>';
     html+='<p class="crew-code-hint" style="margin-top:8px;">1. 매장코드를 직원에게 전달 → 2. 직원이 가입 요청 → 3. 신규 직원 승인 또는 기존 직원기록 연결</p>';
     if(!access || access.storeId!==currentStoreId()){
@@ -1238,7 +1260,7 @@
         (!r.existing_crew_id || r.existing_crew_id===c.crew_id) && (!r.crew_id || r.crew_id===c.crew_id));
       let options='<option value="">연결할 기존 직원을 선택해 주세요</option>';
       for(const c of available) options+='<option value="'+escapeHtml(c.crew_id)+'">'+escapeHtml(c.crew_name)+(c.position?' · '+escapeHtml(c.position):'')+'</option>';
-      html+='<div class="day-panel"><strong>'+escapeHtml(r.display_name||r.username)+'</strong><p>가입 아이디: '+escapeHtml(r.username)+'</p>'+
+      html+='<div class="day-panel"><strong>'+escapeHtml(r.display_name||r.username)+'</strong><p>가입 아이디: '+escapeHtml(r.username)+'</p>'+renderStaffPersonalSummary(r.personal_profile)+
         '<div style="margin-top:10px;">'+staffAuthButton('approve-new','신규 직원으로 승인','data-request-id="'+escapeHtml(r.id)+'" style="width:100%;padding:13px;font-size:14px;font-weight:800;background:var(--ink);color:#fff;border:none;"')+'</div>'+
         '<p class="crew-code-hint">신규 직원은 직원기록을 새로 생성해 바로 연결합니다. 급여·근무파트 등은 승인 후 직원관리에서 입력해 주세요.</p>'+
         '<details style="margin-top:12px;"><summary style="cursor:pointer;font-size:13px;font-weight:700;">기존 직원기록 연결 <span style="font-weight:500;color:var(--ink-soft);">(기존 직원 전환용)</span></summary>'+
@@ -1355,7 +1377,9 @@
         const normalizedUsername=username.normalize('NFKC').trim().toLowerCase();
         const usernameCheck=state.staffSignupUsernameCheck;
         if(!usernameCheck || usernameCheck.username!==normalizedUsername || !usernameCheck.available) throw new Error('아이디 중복확인을 먼저 해주세요.');
-        const data=await callManeeAuthApi('manee-staff-signup',{username,display_name,password});
+        const personal={phone:read('staff-signup-phone').trim(),bank_name:read('staff-signup-bank').trim(),bank_account:read('staff-signup-account').trim(),account_holder:read('staff-signup-holder').trim()};
+        if(!/^[+0-9 ()-]{7,24}$/.test(personal.phone)||!/^[0-9 -]{5,40}$/.test(personal.bank_account)||personal.phone.replace(/[^0-9]/g,'').length<7||personal.phone.replace(/[^0-9]/g,'').length>15||personal.bank_account.replace(/[^0-9]/g,'').length<5||personal.bank_account.replace(/[^0-9]/g,'').length>30||!personal.bank_name||!personal.account_holder) throw new Error('연락처·은행·계좌번호·예금주를 확인해 주세요.');
+        const data=await callManeeAuthApi('manee-staff-signup',{username,display_name,password,personal});
         const session=data.session || (await callManeeAuthApi('manee-login',{username,password})).session;
         await applyManeeAuthSession(session); await restoreManeeAuthIdentity(null,true); showToast('스텝 계정을 만들었어요. 매장 연결코드를 입력해 주세요.');
       }else if(action==='preview-link'){
@@ -1386,8 +1410,10 @@
         await staffPortal('regenerate_store_code',{store_id:currentStoreId()});
         await refreshOwnerStaffAccess(); showToast('새 매장 연결코드를 발급했어요.');
       }else if(action==='approve-new'){
-        await staffPortal('approve_new',{request_id:button.dataset.requestId});
-        await refreshOwnerStaffAccess(); showToast('신규 직원으로 승인했어요. 직원정보를 확인해 주세요.');
+        const approved=await staffPortal('approve_new',{request_id:button.dataset.requestId});
+        await refreshOwnerStaffAccess();
+        await openApprovedEmployee(approved.crew_id,button.dataset.reviewStoreId);
+        showToast('신규 직원으로 승인했어요. 급여와 근무조건을 설정해 주세요.');
       }else if(['approve','reject','revoke'].includes(action)){
         const payload={request_id:button.dataset.requestId,membership_id:button.dataset.membershipId};
         if(action==='approve'){
@@ -2634,6 +2660,7 @@
       position: r.position||"홀", isManager: !!r.is_manager, salesAccess: !!r.sales_access, joinCode: r.join_code,
       tax33: !!r.tax33, weeklyAllowance: !!r.weekly_allowance, insurance4: !!r.insurance4, insurance2: !!r.insurance2,
       probation: !!r.probation, hireDate: r.hire_date||"", resignDate: r.resign_date||"",
+      selfServiceProfile: !!r.self_service_profile, employmentSetupRequired: !!r.employment_setup_required,
       workCondition: r.work_condition||"", weeklyHours: r.weekly_hours!=null?String(r.weekly_hours):"", residentNumber: r.resident_number||"", bankAccount: r.bank_account||"",
       healthCertExpiry: r.health_cert_expiry||"", contractSigned: !!r.contract_signed, notes: r.notes||"",
       customFields: Array.isArray(r.custom_fields) ? r.custom_fields : []
@@ -4491,16 +4518,21 @@
     const posSel = app.querySelector('[data-editposition="'+id+'"]');
     const wageInp = app.querySelector('[data-editwage="'+id+'"]');
     const phoneInp = app.querySelector('[data-editphone="'+id+'"]');
-    const name = String(nameInp ? nameInp.value : c.name).trim();
+    const name = c.selfServiceProfile ? c.name : String(nameInp ? nameInp.value : c.name).trim();
     if(!name){ showToast("이름을 입력해주세요."); return; }
     const position = posSel ? posSel.value : c.position;
     const wage = Math.max(0, Number(wageInp ? wageInp.value : c.wage) || 0);
-    const phone = String(phoneInp ? phoneInp.value : (c.phone||"")).trim();
+    const phone = c.selfServiceProfile ? (c.phone||"") : String(phoneInp ? phoneInp.value : (c.phone||"")).trim();
+    if(c.employmentSetupRequired && wage<=0){ showToast("급여 금액을 입력한 뒤 저장해 주세요."); return; }
     const prev = { name:c.name, position:c.position, wage:c.wage, phone:c.phone };
     c.name = name; c.position = position; c.wage = wage; c.phone = phone;
     render();
-    const ok = await updateCrewRow(id, { name, position, wage, phone });
+    const patch={ name, position, wage, phone };
+    if(c.selfServiceProfile){delete patch.name;delete patch.phone;}
+    if(c.employmentSetupRequired) patch.employment_setup_required=false;
+    const ok = await updateCrewRow(id, patch);
     if(!ok){ Object.assign(c, prev); render(); return; }
+    if(c.employmentSetupRequired){c.employmentSetupRequired=false;render();}
     showToast("정보를 수정했어요.");
   }
   function togglePayrollFlag(id, flag, checked){
@@ -4847,8 +4879,134 @@
     });
   }
 
+  // Owner navigation composes the existing forms; their business handlers stay intact.
+  function ownerRouteGroup(){
+    if(state.section==='dashboard') return 'home';
+    if(state.section==='schedule' || (state.section==='sales' && state.salesSectionTab==='pay')) return 'people';
+    if(state.section==='sales') return 'sales';
+    if(['checklist','announce','reservations'].includes(state.section)) return 'operations';
+    return 'more';
+  }
+  function ownerRouteButton(label,section,tab,active){
+    return '<button type="button" data-owner-route="'+section+'"'+(tab?' data-owner-tab="'+tab+'"':'')+' class="'+(active?'active':'')+'"'+(active?' aria-current="page"':'')+'>'+label+'</button>';
+  }
+  function ownerFortune(){
+    const messages=['작은 칭찬이 팀의 하루를 바꿔줄 거예요. 오늘은 먼저 고맙다고 말해보세요.','단골 손님의 한마디에 좋은 아이디어가 숨어 있을지도 몰라요.','바쁜 날일수록 잠깐의 정리가 힘이 됩니다. 오늘도 차근차근 해봐요.','어제보다 조금 나아진 것 하나를 찾아보세요. 이미 잘하고 있어요.','오늘의 행운은 따뜻한 인사에서 시작돼요. 웃으며 문을 열어볼까요?','잠깐 쉬어가는 시간도 사장님의 중요한 일정이에요.','준비해 둔 작은 배려가 기억에 남는 하루를 만들어줄 거예요.'];
+    const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    const seed=(state.authProfile&&state.authProfile.user_id||state.myUsername||'owner')+'|'+day;
+    let hash=0;for(const c of seed) hash=(Math.imul(hash,31)+c.charCodeAt(0))>>>0;
+    return {day,text:messages[hash%messages.length]};
+  }
+  function renderOwnerFortune(){
+    const fortune=ownerFortune(),open=state.ownerFortuneDay===fortune.day;
+    return '<button class="owner-fortune" id="owner-fortune-btn" aria-expanded="'+open+'"><span class="cookie" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11 20h22l-3 7H12z" fill="#FFFDF4" stroke="#C89B54"/><path d="M20 7C10 5 3 12 4 21c1 7 8 12 15 12-3-6-3-14 1-26Z" fill="#EDB964" stroke="#C68B35" stroke-width="1.4"/><path d="M20 7c10-2 17 5 16 14-1 7-8 12-15 12 3-6 3-14-1-26Z" fill="#F7CC7D" stroke="#C68B35" stroke-width="1.4"/><path d="m17 29 3-8 3 8" stroke="#A7752E" stroke-width="1.5" stroke-linecap="round"/></svg></span><span><strong>'+(open?'오늘의 포춘쿠키':'사장님, 오늘의 운세 열어볼까요?')+'</strong><small>'+(open?escapeHtml(fortune.text):'하루 한 번, 가볍게 만나는 응원의 한마디')+'</small></span><span class="arrow" aria-hidden="true">'+(open?'✓':'›')+'</span></button>';
+  }
+  function renderOwnerHome(){
+    let html='<div class="owner-greeting">'+renderRoleAvatar('owner',48)+'<div><h2>사장님, 오늘도 반가워요</h2><p>'+todayLabel()+' · 운영 현황을 확인해 보세요</p></div><button class="crew-code-btn" id="refresh-dashboard-btn" aria-label="운영 현황 새로고침">↻</button></div>';
+    html+=renderOwnerFortune();
+    html+='<div class="owner-quick">'+ownerRouteButton(navIcon('calendar')+'오늘 근무','schedule','attendance',false)+ownerRouteButton(navIcon('chart')+'매출보고','sales','sales',false)+ownerRouteButton(navIcon('check')+'체크리스트','checklist',null,false)+'</div>';
+    html+='<div class="owner-alerts">'+renderNotifSummaryBar()+'</div>';
+    return html+renderDashboard();
+  }
+  function renderOwnerPeople(){
+    const pay=state.section==='sales';
+    let html='<h2>직원</h2><div class="owner-tabs">'+ownerRouteButton('근태','schedule','attendance',!pay&&state.scheduleTab==='attendance')+ownerRouteButton('스케줄','schedule','calendar',!pay&&state.scheduleTab==='calendar')+ownerRouteButton('직원관리','schedule','crew',!pay&&state.scheduleTab==='crew')+ownerRouteButton('급여','sales','pay',pay)+'</div>';
+    if(pay) return html+renderPay();
+    if(state.scheduleTab==='crew') return html+renderCrewManage();
+    if(state.scheduleTab==='attendance'){
+      html+='<p class="owner-note">확인할 날짜를 선택해 출퇴근을 확인하거나 수정할 수 있어요.</p>';
+      // Same calendar and attendance editors: no second source of attendance data.
+      return html+'<div class="owner-attendance">'+renderCalendar('attendance')+'</div>';
+    }
+    return html+renderCalendar();
+  }
+  function renderOwnerSales(){
+    let html='<h2>매출</h2><div class="owner-tabs">'+ownerRouteButton('매출보고','sales','sales',state.salesSectionTab==='sales')+ownerRouteButton('지출','sales','expenses',state.salesSectionTab==='expenses')+ownerRouteButton('월간 리포트','sales','report',state.salesSectionTab==='report')+'</div>';
+    if(state.salesSectionTab==='expenses'){
+      html+='<div class="month-nav"><button id="prev-month" aria-label="이전 달">‹</button><span class="month-label">'+state.monthYear+'년 '+state.monthNum+'월</span><button id="next-month" aria-label="다음 달">›</button></div>'+renderOwnerExpenseSummary();
+      html+='<div class="day-panel"><h3>지출 내역</h3>';
+      [...state.expenseEntries].sort((a,b)=>b.date.localeCompare(a.date)).forEach(e=>{html+='<p class="crew-code-hint">'+escapeHtml(e.date)+'</p>'+renderExpenseEntryLine(e);});
+      if(!state.expenseEntries.length)html+='<p class="empty-note">이 달에 등록한 지출이 없어요.</p>';
+      return html+'</div><p class="owner-note">새 지출은 매출보고 작성 화면에서 거래처를 선택해 등록할 수 있어요.</p>'+ownerRouteButton('매출보고로 이동','sales','sales',false);
+    }
+    return html+(state.salesSectionTab==='report'?renderMonthlyReport():renderSalesReportsOwnerTab());
+  }
+  function renderOwnerOperations(){
+    let html='<h2>매장 운영</h2><div class="owner-tabs">'+ownerRouteButton('체크리스트','checklist',null,state.section==='checklist')+ownerRouteButton('예약','reservations',null,state.section==='reservations')+ownerRouteButton('공지','announce',null,state.section==='announce')+'</div>';
+    if(state.section==='announce') return html+renderAnnouncementsOwnerTab();
+    if(state.section==='reservations') return html+renderOwnerReservations();
+    return html+renderChecklist();
+  }
+  function renderOwnerMore(){
+    let html='<h2>더보기</h2>';
+    if(state.section==='settings') return html+ownerRouteButton('‹ 전체 메뉴','more',null,false)+renderCrewManage('settings');
+    if(state.section==='alerts') return html+ownerRouteButton('‹ 전체 메뉴','more',null,false)+renderNotifDetails();
+    return html+'<div class="owner-menu">'+ownerRouteButton(navIcon('store')+'매장 설정<span>›</span>','settings',null,false)+ownerRouteButton(navIcon('bell')+'알림 모아보기<span>›</span>','alerts',null,false)+'<button id="open-ai-chat-btn">✨ AI 물어보기<span>›</span></button><button id="add-store-request-btn">'+navIcon('store')+'매장 추가 신청<span>›</span></button><button id="switch-user-btn">다른 사용자로 전환<span>›</span></button></div>';
+  }
+  function renderOwnerShell(){
+    const group=ownerRouteGroup();
+    let html='<header class="owner-header"><div class="owner-topline"><div class="owner-wordmark">매니<i></i></div><span class="owner-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 4 5 5-7 5 7 4-5-2 13H5Z"/></svg>사장님</span></div><div class="owner-context"><label><span class="sr-only">매장 선택</span><select id="owner-store-select" aria-label="매장 선택">';
+    if(group==='home') html+='<option value="__all__">내 매장 전체 · '+state.myStores.length+'곳</option>';
+    state.myStores.forEach(s=>html+='<option value="'+escapeHtml(s)+'"'+(group!=='home'&&s===state.store?' selected':'')+'>'+escapeHtml(s)+'</option>');
+    html+='</select></label><button class="crew-code-btn" id="owner-alert-shortcut" aria-label="알림 모아보기">'+navIcon('bell')+'</button></div></header><main>';
+    if(!state.dashboardData&&!state.dashboardLoading) setTimeout(loadDashboardData,0);
+    if(state.showAddStoreForm) html+=renderAddStoreForm();
+    if(state.showOwnerSalesForm) html+='<div class="owner-sales-form">'+renderSalesReportForm()+'</div>';
+    else if(state.section==='ai') html+=renderAiChatSection();
+    else if(group==='home') html+=renderOwnerHome();
+    else if(group==='people') html+=renderOwnerPeople();
+    else if(group==='sales') html+=renderOwnerSales();
+    else if(group==='operations') html+=renderOwnerOperations();
+    else html+=renderOwnerMore();
+    html+='</main><nav class="bottom-nav" aria-label="주 메뉴">';
+    [['홈','chart','dashboard',null,'home'],['직원','people','schedule',state.scheduleTab||'attendance','people'],['매출','chart','sales','sales','sales'],['운영','check','checklist',null,'operations'],['더보기','store','more',null,'more']].forEach(([label,icon,section,tab,key])=>{html+=ownerRouteButton(navIcon(icon)+'<span>'+label+'</span>',section,tab,group===key);});
+    html+='</nav>'+renderConfirmOverlay()+renderLightbox()+renderInfoModal();
+    app.innerHTML=html;
+    bindOwnerEvents();bindOwnerUIEvents();bindConfirmOverlay();bindLightbox();bindInfoModal();
+  }
+  function bindOwnerUIEvents(){
+    app.querySelectorAll('.cal-day[data-date],.cal-day[data-salesdate],[data-storetoggle],.crew-toggle-row').forEach(el=>{
+      el.setAttribute('role','button');el.tabIndex=0;
+      if(el.dataset.date||el.dataset.salesdate)el.setAttribute('aria-label',(el.dataset.date||el.dataset.salesdate)+' 선택');
+      el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}});
+    });
+    app.querySelectorAll('[data-owner-route]').forEach(button=>button.addEventListener('click',()=>{
+      const go=async()=>{
+        state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;
+        state.section=button.dataset.ownerRoute;
+        if(state.section==='schedule'){
+          state.scheduleTab=button.dataset.ownerTab||'attendance';
+          if(state.scheduleTab==='attendance'){
+            state.selectedDate=bizToday();const [year,month]=state.selectedDate.split('-').map(Number);
+            if(year!==state.monthYear||month!==state.monthNum){state.monthYear=year;state.monthNum=month;state.dashboardData=null;await loadAllForStore(state.store);}
+          }
+        }
+        if(state.section==='sales')state.salesSectionTab=button.dataset.ownerTab||'sales';
+        render();window.scrollTo(0,0);
+      };
+      if(state.showOwnerSalesForm) askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else go();
+    }));
+    const selector=document.getElementById('owner-store-select');
+    if(selector)selector.addEventListener('change',()=>{
+      const target=selector.value,previous=state.store;
+      if(target==='__all__')return;
+      const go=()=>{state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.salesDraft=freshSalesDraft();state.selectedDate=null;state.selectedSalesDate=null;state.expandedCrewIds={};if(state.section==='dashboard'){state.section='sales';state.salesSectionTab='report';}switchOwnerStore(target).catch(()=>showToast('매장을 불러오지 못했어요. 다시 시도해 주세요.'));render();};
+      if(state.showOwnerSalesForm){selector.value=previous;askConfirm('매장을 바꾸면 작성 중인 보고를 닫습니다. 계속할까요?',go);}else go();
+    });
+    const day=document.getElementById('owner-attendance-date');if(day)day.addEventListener('change',async()=>{
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(day.value))return;
+      state.selectedDate=day.value;const [year,month]=day.value.split('-').map(Number);
+      if(year!==state.monthYear||month!==state.monthNum){state.monthYear=year;state.monthNum=month;state.dashboardData=null;await loadAllForStore(state.store);}else render();
+    });
+    const alerts=document.getElementById('owner-alert-shortcut');if(alerts)alerts.addEventListener('click',()=>{const go=()=>{state.section='alerts';state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;render();};if(state.showOwnerSalesForm)askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else go();});
+    const fortune=document.getElementById('owner-fortune-btn');if(fortune)fortune.addEventListener('click',()=>{state.ownerFortuneDay=ownerFortune().day;render();});
+    // Existing personal fields remain editable. Only new self-service records are read-only here.
+    state.crew.filter(c=>c.selfServiceProfile).forEach(c=>['editname','editphone','bank'].forEach(attr=>{const input=app.querySelector('[data-'+attr+'="'+c.id+'"]');if(input)input.readOnly=true;}));
+  }
+
   // ---------- render ----------
   function render(){
+    app.classList.toggle("owner-ui",state.role === "storeOwner");
     if(!state.splashDone){
       if(!state.splashTimerStarted){
         state.splashTimerStarted = true;
@@ -4877,6 +5035,8 @@
       bindOnboardingWizardEvents(); bindConfirmOverlay(); bindLightbox(); bindInfoModal();
       return;
     }
+
+    if(state.role === "storeOwner"){ app.classList.add("has-bottom-nav"); renderOwnerShell(); return; }
 
     // owner (hq or storeOwner)
     app.classList.add("has-bottom-nav");
@@ -5795,7 +5955,7 @@
     if(person.probation){
       html += '<div class="mp-row"><span>수습 적용</span><b>급여액 10% 차감됨</b></div>';
     }
-    html += '<div class="mp-row"><span>예상 급여</span><b>'+payInfo.pay.toLocaleString()+'원</b></div>';
+    html += '<div class="mp-row"><span>예상 급여</span><b>'+(person.employmentSetupRequired?'근무조건 설정 대기':payInfo.pay.toLocaleString()+'원')+'</b></div>';
     if(net.taxRate > 0){
       html += '<div class="mp-row"><span>세금 ('+net.taxLabel+')</span><b>(-)'+net.taxAmount.toLocaleString()+'원</b></div>';
       html += '<div class="mp-row" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.25);font-size:15px;"><span>최종 환산금액</span><b style="color:#fff;font-size:17px;">'+net.netPay.toLocaleString()+'원</b></div>';
@@ -6050,7 +6210,7 @@
       html += '<p class="mp-label">'+m+'월 총 근무 (근무확인 완료 기준)</p>';
       html += '<div class="mp-row"><span>근무일수</span><b>'+info.days+'일</b></div>';
       html += '<div class="mp-row"><span>총 근무시간</span><b>'+info.hours.toFixed(1)+'시간</b></div>';
-      html += '<div class="mp-row"><span>예상 급여</span><b>'+info.pay.toLocaleString()+'원</b></div>';
+      html += '<div class="mp-row"><span>예상 급여</span><b>'+(person.employmentSetupRequired?'근무조건 설정 대기':info.pay.toLocaleString()+'원')+'</b></div>';
       html += '</div>';
     }
     return html;
@@ -6226,31 +6386,8 @@
     return html;
   }
 
-  function renderDashboard(){
-    let html = "";
-
-    if(state.dashboardLoading || !state.dashboardData){
-      html += '<div class="empty-note">매장 '+state.storeList.length+'곳 데이터를 불러오는 중이에요…</div>';
-      return html;
-    }
-
-    const data = state.dashboardData;
-    let totalSales = 0, totalPay = 0, totalExpense = 0, totalDelivery = 0, totalPrevMonth = 0;
-    data.forEach(d=>{ totalSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); });
-    const overallRatio = totalSales>0 ? (totalPay/totalSales*100) : 0;
-    const overallExpenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : 0;
-    const deltaPct = totalPrevMonth>0 ? ((totalSales-totalPrevMonth)/totalPrevMonth*100) : null;
-
-    let greetName = "사장님";
-    if(state.role === "hq") greetName = "본사 관리자님";
-    else if(state.role === "franchise") greetName = (state.franchiseName||"프랜차이즈")+" 관리자님";
-    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
-    html += renderRoleAvatar('owner', 44);
-    html += '<div style="flex:1;"><p style="margin:0;font-size:15px;font-weight:800;">'+escapeHtml(greetName)+', 오늘도 오셨네요</p><p style="margin:2px 0 0;font-size:12px;color:var(--ink-soft);">'+state.monthYear+'년 '+state.monthNum+'월 · 매장 '+data.length+'개</p></div>';
-    html += '<button class="crew-code-btn" id="refresh-dashboard-btn">새로고침</button>';
-    html += '</div>';
-
-    if(state.role === "storeOwner"){
+  function renderOwnerReservations(){
+    let html="";
       const isMultiStore = state.myStores && state.myStores.length > 1;
       html += '<div class="day-panel" style="margin-bottom:14px;">';
       html += '<h3 style="margin:0 0 6px;display:flex;align-items:center;gap:8px;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('calendar')+'</svg></span>예약</h3>';
@@ -6295,7 +6432,35 @@
         html += '</div></div>';
       }
       html += '</div>';
+    return html;
+  }
+
+  function renderDashboard(){
+    let html = "";
+
+    if(state.dashboardLoading || !state.dashboardData){
+      html += '<div class="empty-note">매장 '+state.storeList.length+'곳 데이터를 불러오는 중이에요…</div>';
+      return html;
     }
+
+    const data = state.dashboardData;
+    let totalSales = 0, totalPay = 0, totalExpense = 0, totalDelivery = 0, totalPrevMonth = 0;
+    data.forEach(d=>{ totalSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); });
+    const overallRatio = totalSales>0 ? (totalPay/totalSales*100) : 0;
+    const overallExpenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : 0;
+    const deltaPct = totalPrevMonth>0 ? ((totalSales-totalPrevMonth)/totalPrevMonth*100) : null;
+
+    let greetName = "사장님";
+    if(state.role === "hq") greetName = "본사 관리자님";
+    else if(state.role === "franchise") greetName = (state.franchiseName||"프랜차이즈")+" 관리자님";
+    if(state.role!=="storeOwner"){
+    html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
+    html += renderRoleAvatar('owner', 44);
+    html += '<div style="flex:1;"><p style="margin:0;font-size:15px;font-weight:800;">'+escapeHtml(greetName)+', 오늘도 오셨네요</p><p style="margin:2px 0 0;font-size:12px;color:var(--ink-soft);">'+state.monthYear+'년 '+state.monthNum+'월 · 매장 '+data.length+'개</p></div>';
+    html += '<button class="crew-code-btn" id="refresh-dashboard-btn">새로고침</button>';
+    html += '</div>';
+    }
+
 
     html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
     html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('chart')+'</svg></span>'+state.monthNum+'월 합산 매출</span>';
@@ -6313,6 +6478,7 @@
     html += renderSalesTrendBars();
     html += '</div>';
 
+    if(state.role==='storeOwner') html+='<div class="owner-menu" style="margin:14px 0;">'+ownerRouteButton(navIcon('calendar')+'예약 확인 · 등록<span>›</span>','reservations',null,false)+'</div>';
     html += '<div style="display:flex;align-items:center;gap:8px;margin:18px 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">매장별 현황</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
     html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
     data.forEach((d, idx)=>{
@@ -6633,14 +6799,8 @@
     return null;
   }
 
-  function renderSalesReportsOwnerTab(){
-    if(state.showOwnerSalesForm){
-      return renderSalesReportForm();
-    }
-    const y=state.monthYear, m=state.monthNum;
-    const totalDays = daysInMonth(y,m);
-    const leadEmpty = firstWeekdayMon0(y,m);
-
+  function renderOwnerExpenseSummary(){
+    const y=state.monthYear,m=state.monthNum;
     let totalExpenseMonth = 0;
     state.expenseEntries.forEach(e=> totalExpenseMonth += Number(e.amount)||0);
     let totalSalesMonth = 0;
@@ -6671,6 +6831,22 @@
       });
     }
     html += '</div>';
+
+    return html;
+  }
+
+  function renderSalesReportsOwnerTab(){
+    if(state.showOwnerSalesForm){
+      return renderSalesReportForm();
+    }
+    const y=state.monthYear, m=state.monthNum;
+    const totalDays = daysInMonth(y,m);
+    const leadEmpty = firstWeekdayMon0(y,m);
+
+    let html="";
+    if(state.role!=='storeOwner') html+=renderOwnerExpenseSummary();
+    else if(bizToday().startsWith(y+'-'+pad(m))) html+='<button class="owner-primary" data-openownersales="'+bizToday()+'">오늘 매출보고 작성·수정</button>';
+    else html+='<p class="owner-note">날짜를 선택해 매출보고를 확인하거나 작성해 주세요.</p>';
 
     html += '<div class="month-nav"><button id="prev-month">‹</button><span class="month-label">'+y+'년 '+m+'월</span><button id="next-month">›</button></div>';
     html += '<div class="cal-grid">';
@@ -6826,12 +7002,18 @@
     return html;
   }
 
-  function renderCalendar(){
+  function renderCalendar(mode){
+    const attendanceOnly=mode==='attendance'&&state.role==='storeOwner';
     const y=state.monthYear, m=state.monthNum;
     const totalDays = daysInMonth(y,m);
     const leadEmpty = firstWeekdayMon0(y,m);
     const dows = ["월","화","수","목","금","토","일"];
-    let html = '<div class="month-nav"><button id="prev-month">‹</button><span class="month-label">'+y+'년 '+m+'월</span><button id="next-month">›</button></div>';
+    let html='';
+    if(attendanceOnly){
+      if(!state.selectedDate)state.selectedDate=bizToday();
+      html='<label class="field-label" for="owner-attendance-date">근무일</label><input class="field-input" id="owner-attendance-date" type="date" value="'+state.selectedDate+'" style="width:100%;margin-bottom:16px;">';
+    }else{
+    html = '<div class="month-nav"><button id="prev-month">‹</button><span class="month-label">'+y+'년 '+m+'월</span><button id="next-month">›</button></div>';
     html += '<div class="cal-grid">';
     dows.forEach(d=> html += '<div class="cal-dow">'+d+'</div>');
     for(let i=0;i<leadEmpty;i++) html += '<div class="cal-day empty"></div>';
@@ -6849,7 +7031,9 @@
     html += '<div style="display:flex;justify-content:flex-end;margin:-8px 0 16px;"><button class="crew-code-btn" id="open-fixed-btn">고정 근무 설정</button></div>';
     if(state.showFixedPanel) html += renderFixedPanel();
 
+    }
     if(state.selectedDate){
+      if(!attendanceOnly){
       const list = shiftsOnDate(state.selectedDate);
       const dObj = new Date(state.selectedDate);
       const dows2 = ["일","월","화","수","목","금","토"];
@@ -6870,6 +7054,7 @@
       }
       html += '</div>';
 
+      }
       html += '<div class="day-panel">';
       html += '<h3>출퇴근 기록</h3>';
       const dayAtt = state.attendance.filter(a=>a.date===state.selectedDate);
@@ -7053,7 +7238,7 @@
   function openInfoModal(type){ state.infoModalType = type; render(); }
   function closeInfoModal(){ state.infoModalType = null; render(); }
 
-  function renderCrewManage(){
+  function renderCrewManage(mode){
     const hasLoc = state.storeLocationMap && state.storeLocationMap[state.store];
     const isOwnerLevel = (state.role === "storeOwner" || state.role === "hq" || state.role === "franchise");
     let html = '<div class="day-panel" style="margin-bottom:12px;">';
@@ -7095,6 +7280,8 @@
     html += '<span class="crew-code-hint">까지는 전날 영업일</span>';
     html += '</div>';
     html += '</div>';
+    if(state.role==='storeOwner' && mode==='settings') return html;
+    if(state.role==='storeOwner') html='<p class="owner-note">이름·근무 파트·금액·전화번호는 수정 저장을 눌러 주세요. 나머지 조건은 변경 즉시 저장돼요.</p>';
     html += '<button class="crew-code-btn" id="export-crew-excel-btn" style="margin-bottom:12px;">스텝 전체 엑셀로 내보내기</button>';
     const activeCrew = state.crew.filter(isCrewActive);
     const resignedCrew = state.crew.filter(c=>!isCrewActive(c));
@@ -7116,8 +7303,11 @@
             const isOpen = !!(state.expandedCrewIds && state.expandedCrewIds[c.id]);
             html += '<div class="crew-card" data-crewname="'+escapeHtml(c.name)+'">';
             html += '<div class="crew-top crew-toggle-row" data-togglecrew="'+c.id+'" style="cursor:pointer;">'+renderAvatarBadge(c, 38)+'<div class="crew-info"><div class="name">'+c.name+' <span class="pos-badge '+posClass(c.position)+'">'+(c.position||"홀")+'</span>'+(c.isManager?' <span class="pos-badge mgr-badge">매니저</span>':'')+'</div><div class="wage">'+(MANEE_STAFF_AUTH_ENABLED?"매장코드로 계정 연결":"코드 "+(c.joinCode||"------"))+'</div></div><span style="color:var(--ink-soft);font-size:13px;">'+(isOpen?'▲':'▼')+'</span></div>';
+            if(c.employmentSetupRequired) html+='<span class="owner-pending">근무조건 설정 필요</span>';
             if(isOpen){
               html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
+              if(c.selfServiceProfile) html+='<p class="owner-note">이름·전화번호·계좌정보는 직원이 가입할 때 입력한 정보예요. 사장님은 급여와 근무조건을 설정해 주세요.</p>';
+              if(c.employmentSetupRequired) html+='<p class="owner-warning">급여를 입력하고 수정 저장을 눌러 설정을 완료해 주세요.</p>';
               html += '<div class="row2"><div><label class="field-label">이름</label><input class="field-input" type="text" value="'+escapeHtml(c.name)+'" data-editname="'+c.id+'"></div><div class="narrow"><label class="field-label">근무 파트</label><select class="field-input" data-editposition="'+c.id+'"><option value="홀"'+((c.position||"홀")==="홀"?' selected':'')+'>홀</option><option value="주방"'+(c.position==="주방"?' selected':'')+'>주방</option><option value="그 외"'+(c.position==="그 외"?' selected':'')+'>그 외</option></select></div></div>';
               html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">금액 (원)</label><input class="field-input" type="number" min="0" step="100" value="'+c.wage+'" data-editwage="'+c.id+'"></div><div><label class="field-label">전화번호</label><input class="field-input" type="text" value="'+escapeHtml(c.phone||"")+'" placeholder="전화번호" data-editphone="'+c.id+'"></div></div>';
               html += '<div style="margin-top:12px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
@@ -7180,6 +7370,8 @@
 
   function renderPay(){
     let html = "";
+    const pendingSetup=state.crew.filter(c=>c.employmentSetupRequired);
+    if(pendingSetup.length) html+='<p class="owner-warning">근무조건을 설정하지 않은 직원 '+pendingSetup.length+'명이 있어요. 표시된 급여 합계는 확정 금액이 아니에요.</p>';
     if(state.crew.length===0){
       html += '<div class="empty-note">먼저 "스텝 관리"에서 스텝을 등록해 주세요.</div>';
       return html;

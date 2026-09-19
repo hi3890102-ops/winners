@@ -1,0 +1,75 @@
+/* Owner-only presentation. Staff, manager and HQ views retain their own styles. */
+.app.owner-ui{--ink:#18342C;--ink-soft:#66736E;--brick:#16774C;--brick-dim:#EAF5ED;--olive:#237B51;--danger:#C23B40;--line:#E1E8E3;--cream:#F5F7F4;max-width:480px;font-size:15px;line-height:1.55;letter-spacing:-.02em}
+.owner-ui button,.owner-ui input,.owner-ui select,.owner-ui textarea{font-family:inherit}
+.owner-ui button:focus-visible,.owner-ui input:focus-visible,.owner-ui select:focus-visible,.owner-ui textarea:focus-visible{outline:3px solid #80BDA0;outline-offset:3px}
+.owner-ui button{touch-action:manipulation}
+.owner-ui input,.owner-ui select,.owner-ui textarea{font-size:16px!important;min-height:46px;border-radius:12px!important}
+.owner-ui input[type=checkbox],.owner-ui input[type=radio]{min-height:24px;width:24px;height:24px;accent-color:var(--brick)}
+.owner-ui input[readonly]{background:#EDF2EE!important;color:#52615A!important}
+.owner-ui .owner-header{padding:18px 20px 14px;background:#fff;border:0;position:relative;z-index:4}
+.owner-topline{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.owner-wordmark{font-size:25px;font-weight:850;letter-spacing:-1.1px;display:flex;align-items:center;gap:7px}
+.owner-wordmark i{width:8px;height:8px;background:#4FA54B;border-radius:50%;display:inline-block}
+.owner-badge{display:inline-flex;gap:6px;align-items:center;padding:6px 11px;border-radius:999px;color:#725119;background:#FFF3D9;border:1px solid #EDD8AC;font-size:12px;font-weight:750}
+.owner-badge svg{width:15px;height:15px}
+.owner-context{display:flex;gap:10px;align-items:center}
+.owner-context label{flex:1;min-width:0}
+.owner-context select{width:100%;border:1px solid var(--line);padding:10px 32px 10px 12px;background:#F6F8F5;color:var(--ink);font-weight:650}
+.owner-context .crew-code-btn{min-height:46px;white-space:nowrap}
+.owner-ui main{padding:18px 20px 110px!important}
+.owner-ui h2{font-size:22px;line-height:1.35;margin:0 0 16px;font-weight:750;letter-spacing:-.04em}
+.owner-ui h3{font-size:17px!important;line-height:1.45}
+.owner-ui .day-panel,.owner-ui .category,.owner-ui .s-card,.owner-ui .crew-card{border:1px solid var(--line);box-shadow:0 2px 6px #17352704;border-radius:18px;margin-bottom:14px;padding:18px}
+.owner-ui .crew-card .crew-top{padding:0}
+.owner-ui .crew-card .name{font-size:16px}
+.owner-ui .crew-code-hint,.owner-ui .field-label{color:var(--ink-soft);font-size:13px;line-height:1.6}
+.owner-ui .field-label{display:block;font-weight:650;margin:8px 0 6px}
+.owner-ui .crew-code-btn,.owner-ui .shift-del{min-height:40px;padding:8px 12px;font-size:13px;border-radius:10px}
+.owner-ui .crew-del{min-height:40px;padding:6px;font-size:13px}
+.owner-ui .pay-list-item{font-size:14px;padding:12px 0;align-items:flex-start}
+.owner-ui .pay-list-item .d{min-width:0;overflow-wrap:anywhere}
+.owner-ui .pay-list-item>span:last-child{white-space:normal;text-align:right;font-variant-numeric:tabular-nums;max-width:64%}
+.owner-ui .pay-summary{border-radius:18px;padding:22px;background:#E8F3EB!important;color:#173D2C!important}
+.owner-ui .pay-summary .label,.owner-ui .pay-summary .meta{opacity:1;color:#52685A}
+.owner-ui .pay-summary .amount{font-size:29px;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.owner-ui .bottom-nav{padding-top:9px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));background:#fffffff5;backdrop-filter:blur(14px)}
+.owner-ui .bottom-nav button{font-size:12px;gap:5px;min-height:50px;font-weight:650;color:#6B776F}
+.owner-ui .bottom-nav button.active{color:#146D44}
+.owner-ui .bottom-nav button.active svg{background:#E5F1E7;border-radius:8px;box-shadow:0 0 0 5px #E5F1E7}
+.owner-tabs{display:flex;gap:4px;overflow-x:auto;background:#EAF0EA;padding:4px;border-radius:13px;margin-bottom:18px;scrollbar-width:none}
+.owner-tabs button{flex:1;min-height:43px;white-space:nowrap;padding:9px 10px;border:0;border-radius:10px;background:none;color:#58685E;font-size:14px;font-weight:650}
+.owner-tabs button.active{background:#fff;color:#174E34;box-shadow:0 1px 5px #13362312}
+.owner-greeting{display:flex;align-items:center;gap:12px;margin:3px 0 17px}
+.owner-greeting>div{flex:1;min-width:0}.owner-greeting h2{font-size:22px;margin:0 0 4px}.owner-greeting p{margin:0;font-size:13px;color:var(--ink-soft)}
+.owner-fortune{width:100%;display:flex;align-items:center;gap:12px;text-align:left;background:#FFF6E5;border:1px solid #EDDFC3;border-radius:16px;padding:14px 16px;margin:0 0 18px;color:#76582C}
+.owner-fortune .cookie{font-size:28px;flex:none}.owner-fortune strong{display:block;font-size:14px}.owner-fortune small{display:block;font-size:12px;line-height:1.5;margin-top:3px}.owner-fortune .arrow{margin-left:auto}
+.owner-quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 18px}
+.owner-quick button{border:1px solid var(--line);border-radius:13px;background:#fff;min-height:70px;padding:12px 5px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;font-size:13px;color:var(--ink);font-weight:650}
+.owner-quick svg{width:21px;height:21px;color:var(--brick)}
+.owner-primary{width:100%;min-height:48px;background:var(--brick);color:white;border:0;border-radius:12px;font-size:15px;font-weight:700;padding:12px 16px}
+.owner-menu{display:grid;gap:10px}.owner-menu button{display:flex;align-items:center;gap:12px;text-align:left;background:#fff;border:1px solid var(--line);padding:16px;border-radius:14px;font-size:15px;color:var(--ink);font-weight:650}.owner-menu svg{width:22px;height:22px}.owner-menu span:last-child{margin-left:auto}
+.owner-note{padding:12px 14px;background:#ECF3ED;border-radius:12px;font-size:13px;line-height:1.6;margin:0 0 16px;color:#425E4B}
+.owner-pending{display:inline-block;background:#FFF2D7;color:#805715;font-size:12px;font-weight:700;border-radius:6px;padding:3px 7px;margin-top:6px}
+.owner-warning{padding:12px;background:#FFF2D7;color:#755012;border-radius:10px;margin:10px 0;font-size:13px}
+.owner-ui .month-nav{margin:16px 0}.owner-ui .cal-grid{gap:5px}.owner-ui .cal-day{border-radius:12px;min-height:45px;cursor:pointer}
+.owner-ui .row2{gap:10px}.owner-ui .row2>div{min-width:0}.owner-ui .time-selects{gap:4px}.owner-ui .time-selects select{min-width:0;padding-left:5px;padding-right:2px}
+.owner-ui #notif-summary-toggle-btn{padding:12px 14px!important;background:#FFF9F1!important;border-color:#EDDFC9!important}
+.owner-ui .owner-alerts{margin:0 0 16px}.owner-ui .owner-alerts #notif-summary-toggle-btn>p:last-child{display:none}
+.owner-ui .owner-sales-form .s-label{font-size:16px;font-weight:750;color:var(--ink);margin-bottom:14px}
+.owner-ui .owner-sales-form label{font-size:13px!important;font-weight:650!important;color:#526259!important}
+.owner-ui .owner-sales-form .add-row{flex-wrap:wrap;gap:6px}.owner-ui .owner-sales-form .add-row button{min-height:44px}
+.owner-ui .owner-sales-form .shift-row{gap:8px}.owner-ui .owner-sales-form .att-time-edit{width:64px!important;min-height:40px}
+.owner-ui .owner-sales-form #submit-sales-report-btn{min-height:52px;background:var(--brick);font-size:16px}
+.owner-ui .crew-form{border-radius:16px}.owner-ui .mgr-toggle-row{padding:12px;background:#F0F4EF;border-radius:12px}.owner-ui .mgr-toggle-row label{font-size:14px}
+.owner-ui .payroll-flag{min-height:48px;border-radius:12px}.owner-ui .toggle-opt{min-height:44px}.owner-ui .subnav button.active{border-bottom-color:var(--brick)}
+.staff-personal-fields{border-top:1px solid var(--line);padding-top:16px;margin-top:20px}.staff-personal-fields p{font-size:13px;line-height:1.6;color:var(--ink-soft)}
+.staff-personal-summary{display:grid;gap:7px;font-size:14px;overflow-wrap:anywhere;background:#F1F6F1;padding:14px;border-radius:12px;margin:12px 0}
+.staff-personal-summary span{font-weight:600;color:#526B5B;margin-right:8px}
+.toast{bottom:calc(90px + env(safe-area-inset-bottom,0px));max-width:calc(100vw - 32px);width:max-content;text-align:center;white-space:normal}
+@media(max-width:359px){.owner-ui main{padding-left:14px!important;padding-right:14px!important}.owner-ui .owner-header{padding:14px}.owner-tabs button{font-size:13px;padding:8px 7px}.owner-ui .row2{flex-wrap:wrap}.owner-ui .row2>div{min-width:120px}.owner-quick button{font-size:12px}}
+
+.owner-ui .sr-only{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.owner-ui #owner-alert-shortcut svg{width:22px;height:22px}
+.owner-ui #owner-alert-shortcut{padding:10px;min-width:44px}
+.owner-ui .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}.owner-ui .cal-day,.owner-ui .cal-dow{min-width:0;width:auto}.owner-ui .cal-day{font-size:14px}
+.owner-ui input[type=file]{max-width:100%;width:100%;font-size:13px!important;padding:8px 0;min-width:0}

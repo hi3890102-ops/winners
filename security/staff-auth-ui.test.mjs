@@ -82,7 +82,7 @@ test('Failed clock-out keeps existing record unchanged, while revoked access cle
   await revoked.context.clockAuthStaff('out');assert.equal(revoked.state.attendance.length,0);assert.equal(revoked.state.role,'landing');
 });
 test('Staff signup calls only the employee endpoint and then opens connection portal',async()=>{
-  const h=harness({inputs:{'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password'}});
+  const h=harness({inputs:{'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password','staff-signup-phone':'010-0000-0000','staff-signup-bank':'테스트은행','staff-signup-account':'000-000-0000','staff-signup-holder':'Worker'}});
   const checkButton={dataset:{staffAuthAction:'check-staff-username'},disabled:false};checkButton.closest=()=>checkButton;
   await h.context.handleStaffAuthClick({target:checkButton});
   const button={dataset:{staffAuthAction:'signup'},disabled:false};button.closest=()=>button;
@@ -91,14 +91,14 @@ test('Staff signup calls only the employee endpoint and then opens connection po
   assert.equal(h.state.landingMode,'auth-account');
 });
 test('Signup is blocked until the username duplicate check passes for the current value',async()=>{
-  const h=harness({inputs:{'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password'}});
+  const h=harness({inputs:{'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password','staff-signup-phone':'010-0000-0000','staff-signup-bank':'테스트은행','staff-signup-account':'000-000-0000','staff-signup-holder':'Worker'}});
   const button={dataset:{staffAuthAction:'signup'},disabled:false};button.closest=()=>button;
   await h.context.handleStaffAuthClick({target:button});
   assert.equal(h.calls.some(c=>c.edge==='manee-staff-signup'),false);
   assert.ok(h.calls.some(c=>c.toast&&c.toast.includes('중복확인')));
 });
 test('Signup is blocked when the username changes after a successful check',async()=>{
-  const inputs={'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password'};
+  const inputs={'staff-signup-name':'Worker','staff-signup-username':'worker','staff-signup-password':'synthetic-password','staff-signup-confirm':'synthetic-password','staff-signup-phone':'010-0000-0000','staff-signup-bank':'테스트은행','staff-signup-account':'000-000-0000','staff-signup-holder':'Worker'};
   const h=harness({inputs});
   const checkButton={dataset:{staffAuthAction:'check-staff-username'},disabled:false};checkButton.closest=()=>checkButton;
   await h.context.handleStaffAuthClick({target:checkButton});

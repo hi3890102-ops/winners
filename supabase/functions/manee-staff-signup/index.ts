@@ -75,6 +75,23 @@ Deno.serve(async (req) => {
       return json({ error: 'invalid_display_name', message: '이름을 확인해주세요.' }, 400)
     }
 
+    // Only new clients send personal. Existing signup clients retain their path.
+    let personal: Record<string, string> | null = null
+    if (Object.hasOwn(body, 'personal')) {
+      if (!body.personal || typeof body.personal !== 'object' || Array.isArray(body.personal)) {
+        return json({ error: 'invalid_personal_profile', message: '연락처와 계좌정보를 확인해주세요.' }, 400)
+      }
+      personal = Object.fromEntries(['phone', 'bank_name', 'bank_account', 'account_holder']
+        .map(key => [key, String(body.personal[key] ?? '').normalize('NFKC').trim()]))
+      if (!/^[+0-9 ()-]{7,24}$/.test(personal.phone) || !/^[0-9 -]{5,40}$/.test(personal.bank_account) ||
+          personal.phone.replace(/[^0-9]/g, '').length < 7 || personal.phone.replace(/[^0-9]/g, '').length > 15 ||
+          personal.bank_account.replace(/[^0-9]/g, '').length < 5 || personal.bank_account.replace(/[^0-9]/g, '').length > 30 ||
+          !personal.bank_name || personal.bank_name.length > 50 || unsafeDisplayText(personal.bank_name) ||
+          !personal.account_holder || personal.account_holder.length > 50 || unsafeDisplayText(personal.account_holder)) {
+        return json({ error: 'invalid_personal_profile', message: '연락처·은행·계좌번호·예금주를 확인해주세요.' }, 400)
+      }
+    }
+
     const ipHash = await sha256(clientIp(req))
     const userHash = await sha256(username)
     const { data: ipAllowed, error: ipLimitError } = await admin.rpc('consume_auth_rate_limit', {
@@ -103,11 +120,10 @@ Deno.serve(async (req) => {
     const { data: created, error: createError } = await admin.auth.admin.createUser({ email: internalEmail, password, email_confirm: true })
     if (createError || !created.user) return json({ error: 'auth_create_failed', message: '계정을 만들 수 없습니다. 잠시 후 다시 시도해주세요.' }, 500)
 
-    const { data: staffId, error: bootstrapError } = await admin.rpc('bootstrap_staff_account', {
-      p_user_id: created.user.id,
-      p_username: username,
-      p_display_name: displayName,
-    })
+    const bootstrapArgs = { p_user_id: created.user.id, p_username: username, p_display_name: displayName }
+    const { data: staffId, error: bootstrapError } = personal
+      ? await admin.rpc('bootstrap_staff_account_with_profile', { ...bootstrapArgs, p_personal: personal })
+      : await admin.rpc('bootstrap_staff_account', bootstrapArgs)
 
     if (bootstrapError || !staffId) {
       // A lost RPC response must not delete an account whose bootstrap committed.

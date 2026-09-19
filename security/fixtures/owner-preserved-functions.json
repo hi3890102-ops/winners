@@ -1,0 +1,11 @@
+{
+  "renderSalesReportForm": "070b30453f05b3101a18319b9d874d61d25099cfc2b2b3b734eaee9ebfafcfc5",
+  "submitSalesReport": "e6efb72183558937b6d0b4815ef097399c891a396f7a031f08f049a505e6ffba",
+  "calcCrewPayFrom": "3f8bffbc62453707ad81a1112f2241118e6118414e81514a2102977b3d1d7303",
+  "calcCrewPay": "63a5a92eb8ca1ed1b2655e3c68fec00160c816a7e2ea029e53da7edc50c0044f",
+  "addCrewMember": "19960cc0f6d9176d53ecde0633817d2966e8ccc0c6b45c465b00adb727951e09",
+  "renderExtraCrewFields": "bc8aa208c19d93a509e4f48fc0ef11d279d62d931c6ddf9c1fe87d108ff8d136",
+  "renderPayrollFlags": "cf3340c68ba0d22b653271dcbcfcba1ea4a436b1ff6986a021190e57ed18f23b",
+  "renderHireDates": "51dcd8aec35084d6e89a2306f17e93797a6f5b4b1b541393612d5d846193e10d",
+  "renderProbationToggle": "d498bce0c49e307434c4acd1585c3fbe620fb126d59700b6137604caa991b133"
+}
