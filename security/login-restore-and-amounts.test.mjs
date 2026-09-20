@@ -156,8 +156,8 @@ function dashHarness(data,extraState={}){
     dashboardDailyTrend:{'2026-09-19':1000000},dashboardTrendActiveDate:null},extraState);
   const ctx=vm.createContext({state,console,escapeHtml:s=>String(s),navIcon:()=> '',renderRoleAvatar:()=> '',ownerRouteButton:()=> '',pad:n=>String(n).padStart(2,'0'),
     bizDateObj:()=>new Date(2026,8,19),OWNER_STATUS_TEXT:{attention:'관리 필요',ok:'안정',norevenue:'매출 없음',pending:'집계 전',error:'확인 필요'}});
-  const names=['ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary','renderSalesTrendBars','renderDashboard'];
-  vm.runInContext(line(/  const LABOR_RATIO_LIMIT[^\n]*\n/)+fnText('formatLimit')+names.map(n=>fnText(n,n==='ownerSalesUnreadable')).join('\n')+';this.api={renderDashboard};',ctx);
+  const names=['ownerFoodReadable','ownerLaborLimit','ownerLaborReadable','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary','renderSalesTrendBars','renderDashboard'];
+  vm.runInContext(line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/)+fnText('formatLimit')+names.map(n=>fnText(n,n==='ownerSalesUnreadable')).join('\n')+';this.api={renderDashboard};',ctx);
   return ctx.api.renderDashboard();
 }
 const store=(name,over)=>Object.assign({store:name,salesSum:0,salesReportCount:0,deliverySum:0,laborPay:0,laborLabor:0,laborRatio:null,expenseSum:0,expenseRatio:null,

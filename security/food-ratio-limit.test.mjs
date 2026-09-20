@@ -29,13 +29,13 @@ function harness({storeRow,storeError,rpcResult,rpcError,role='storeOwner'}={}){
   const state={role,store:'A',myStores:['A'],storeIdMap:{A:'sid-A'},storeFoodLimitMap:{},authProfile:{user_id:'user-A'},dashboardData:{old:true}};
   const ctx=vm.createContext({state,db,console,showToast:m=>log.toast.push(m),render(){log.render++;},loadDashboardData(){log.dashLoads++;}});
   vm.runInContext([line(/  let maneeViewEpoch[^\n]*\n/),'let maneeRestoreSeq=0;',line(/  const maneeLoadSeq[^\n]*\n/),fnText('maneeLoadGuard'),
-    line(/  const LABOR_RATIO_LIMIT[^\n]*\n/),line(/  function formatLimit\([^\n]*\n/),...['foodRatioLimit','loadFoodLimit','saveFoodLimit'].map(fnText),
+    line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/),line(/  function formatLimit\([^\n]*\n/),...['foodRatioLimit','loadFoodLimit','saveFoodLimit'].map(fnText),
     ';this.api={foodRatioLimit,formatLimit,loadFoodLimit,saveFoodLimit,setLimit:(s,v)=>{state.storeFoodLimitMap[s]=v;}};'].join('\n'),ctx);
   return {h,state,log,api:ctx.api};
 }
 
 test('Constants: labor 22, food default 40',()=>{
-  assert.match(html,/const LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;/);
+  assert.match(html,/const DEFAULT_LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;/);
 });
 test('foodRatioLimit: unset -> 40; saved number -> that number; unreadable -> null (unknown, never a verdict); junk -> 40',()=>{
   const r=harness();
@@ -102,20 +102,20 @@ test('saveFoodLimit: a save that finishes after an account switch is not applied
 });
 
 // ---- the same value is used by every screen ----
-test('Owner dashboard, owner monthly report and manager home all use foodRatioLimit / LABOR_RATIO_LIMIT (no per-screen copies)',()=>{
+test('Owner dashboard, owner monthly report and manager home all use the per-store food and labor limits (no per-screen copies)',()=>{
   const mgr=fnText('renderManagerSummaryCard'),report=fnText('renderMonthlyReport'),dash=fnText('renderDashboard'),status=fnText('ownerStoreStatus');
-  assert.ok(mgr.includes('foodRatioVerdict(state.store')&&mgr.includes('LABOR_RATIO_LIMIT'));
-  assert.ok(report.includes('foodRatioVerdict(state.store')&&report.includes('LABOR_RATIO_LIMIT'));
-  assert.ok(dash.includes('LABOR_RATIO_LIMIT')&&dash.includes('formatLimit(rowFoodLimit)'));
-  assert.ok(status.includes('LABOR_RATIO_LIMIT')&&status.includes('formatLimit(foodLimit)'));
+  assert.ok(mgr.includes('foodRatioVerdict(state.store')&&mgr.includes('laborRatioVerdict(state.store'));
+  assert.ok(report.includes('foodRatioVerdict(state.store')&&report.includes('laborRatioVerdict(state.store'));
+  assert.ok(dash.includes('rowLaborLimit')&&dash.includes('formatLimit(rowFoodLimit)'));
+  assert.ok(status.includes('laborLimit')&&status.includes('formatLimit(foodLimit)'));
   // both the owner flow and the staff/manager flow load the limit of the store they show
-  assert.ok(fnText('loadAllForStore').includes('loadFoodLimit(store)'));
-  assert.ok(fnText('loadAuthStaffHome').includes('loadFoodLimit(store)'));
+  assert.ok(fnText('loadAllForStore').includes('loadRatioLimits(store)'));
+  assert.ok(fnText('loadAuthStaffHome').includes('loadRatioLimits(store)'));
 });
 test('Only the owner sees the setting; it is stored through the RPC, not a direct table update',()=>{
-  const start=html.indexOf('식자재비율 경고 기준</h3>');
+  const start=html.indexOf('비율 경고 기준</h3>');
   assert.ok(start>0);
-  const before=html.slice(Math.max(0,start-500),start);
+  const before=html.slice(Math.max(0,start-2600),start);
   assert.ok(/state\.role === "storeOwner"/.test(before));
   assert.ok(fnText('saveFoodLimit').includes("db.rpc('manee_set_store_food_ratio'"));
   assert.equal(/from\('stores'\)\s*\.update\([^)]*food_ratio/.test(html),false);

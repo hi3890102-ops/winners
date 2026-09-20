@@ -728,6 +728,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     homeStore: "__all__",
     dashboardDailyTrend: {},
     storeFoodLimitMap: {},
+    storeLaborLimitMap: {},
     dashboardTrendActiveDate: null,
     hqDashboardStats: null,
     hqDashboardStatsLoading: false,
@@ -1059,15 +1060,28 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       catch(e){ showToast("설정 저장에 실패했어요."); }
     })();
   }
-  // Warning thresholds (label only; pay, wage and amounts are never touched). Labor: fixed 22%. Food: 40% unless the store's owner
-  // saved another value (stores.food_ratio_threshold; the same value is used by owner, manager and staff screens of that store).
+  // Warning thresholds (label only; pay, wage and amounts are never touched). Both are set per store by that store's owner and read by the
+  // owner, manager and staff screens of the store: labor stores.labor_ratio_threshold (default 22% while not set), food
+  // stores.food_ratio_threshold (default 40%). The defaults are used ONLY for "not set"; a value that could not be read is never a default.
   // "over" means strictly greater than the limit.
-  const LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;
+  const DEFAULT_LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;
   // state.storeFoodLimitMap[store]: number = saved by the owner, null = not set (default), false = could not be read.
   function foodRatioLimit(store){
     const v = state.storeFoodLimitMap ? state.storeFoodLimitMap[store] : null;
     if(v === false) return null;
     return (typeof v === "number" && isFinite(v) && v > 0 && v <= 100) ? v : DEFAULT_FOOD_RATIO_LIMIT;
+  }
+  // state.storeLaborLimitMap[store]: number = saved by the owner, null = not set (default 22), false = could not be read.
+  function laborRatioLimit(store){
+    const v = state.storeLaborLimitMap ? state.storeLaborLimitMap[store] : null;
+    if(v === false) return null;
+    return (typeof v === "number" && isFinite(v) && v > 0 && v <= 100) ? v : DEFAULT_LABOR_RATIO_LIMIT;
+  }
+  function laborRatioVerdict(store, ratio){
+    if(ratio === null || ratio === undefined) return { state:"none", limit:null };
+    const limit = laborRatioLimit(store);
+    if(limit === null) return { state:"unknown", limit:null };
+    return { state: ratio > limit ? "over" : "ok", limit:limit };
   }
   // ONE verdict for a food ratio against the store's limit, used by the manager home and the owner's monthly report (the dashboard reads the
   // same limit per store). "unknown" = the limit could not be read: the ratio may be shown, but it is never green ("안정"), never red.
@@ -1093,6 +1107,51 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!alive()) return;
     if(!state.storeFoodLimitMap) state.storeFoodLimitMap = {};
     state.storeFoodLimitMap[store] = value;
+  }
+  async function loadLaborLimit(store){
+    const storeId = state.storeIdMap[store];
+    if(!storeId) return;
+    const alive = maneeLoadGuard("laborLimit:"+store);
+    let value;
+    try{
+      const { data, error } = await db.from('stores').select('labor_ratio_threshold').eq('id', storeId).maybeSingle();
+      if(error && error.code !== "42703") throw error;   // 42703 = column not there yet (server not prepared): same as "not set"
+      value = (!error && data && data.labor_ratio_threshold != null) ? Number(data.labor_ratio_threshold) : null;
+    }catch(e){ value = false; }
+    if(!alive()) return;
+    if(!state.storeLaborLimitMap) state.storeLaborLimitMap = {};
+    state.storeLaborLimitMap[store] = value;
+  }
+  // both limits of one store, read independently (one failing never hides the other)
+  function loadRatioLimits(store){ return Promise.all([loadFoodLimit(store), loadLaborLimit(store)]); }
+  async function saveLaborLimit(store, raw){
+    const storeId = state.storeIdMap[store];
+    if(!storeId){ showToast("매장 정보를 확인하지 못했어요."); return false; }
+    const alive = maneeLoadGuard("laborLimitSave");
+    let value = null;
+    if(raw !== null){
+      const text = String(raw).trim();
+      value = Number(text);
+      if(!text || !isFinite(value) || value < 1 || value > 100){ showToast("1에서 100 사이의 숫자로 입력해 주세요."); return false; }
+      value = Math.round(value*10)/10;
+    }
+    try{
+      const { data, error } = await db.rpc('manee_set_store_labor_ratio', { p_store_id: storeId, p_threshold: value });
+      if(error) throw error;
+      if(!data || data.ok !== true) throw new Error("rejected");
+    }catch(e){
+      if(!alive()) return false;
+      showToast(e && (e.code === "42883" || e.code === "PGRST202") ? "이 기능은 서버 준비가 끝난 뒤에 쓸 수 있어요." : "기준을 저장하지 못했어요. 사장님 계정인지 확인하고 다시 시도해 주세요.");
+      return false;
+    }
+    if(!alive()) return false;
+    if(!state.storeLaborLimitMap) state.storeLaborLimitMap = {};
+    state.storeLaborLimitMap[store] = value;
+    state.dashboardData = null;
+    render();
+    if(state.myStores && state.myStores.length) loadDashboardData();
+    showToast(value === null ? "인건비율 기준을 기본값("+DEFAULT_LABOR_RATIO_LIMIT+"%)으로 되돌렸어요" : "인건비율 기준을 "+formatLimit(value)+"%로 저장했어요");
+    return true;
   }
   async function saveFoodLimit(store, raw){
     const storeId = state.storeIdMap[store];
@@ -1126,7 +1185,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   // The manager's "이번 달 매장 요약" card (own function so the same output can be tested directly).
   function renderManagerSummaryCard(sum){
     let html = "";
-    const ratioColor = sum.laborRatio===null ? "var(--ink-soft)" : (sum.laborRatio>LABOR_RATIO_LIMIT ? "var(--danger)" : "var(--olive)");
+    const laborV = laborRatioVerdict(state.store, sum.laborRatio);
+    const ratioColor = (laborV.state==="none" || laborV.state==="unknown") ? "var(--ink-soft)" : (laborV.state==="over" ? "var(--danger)" : "var(--olive)");
     const foodV = foodRatioVerdict(state.store, sum.expenseRatio);
     const foodColor = (foodV.state==="none" || foodV.state==="unknown") ? "var(--ink-soft)" : (foodV.state==="over" ? "var(--danger)" : "var(--olive)");
     html += '<div class="s-card">';
@@ -1134,7 +1194,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<p class="s-main">'+sum.salesSum.toLocaleString()+'원</p>';
     html += '<p class="crew-code-hint" style="margin-top:2px;">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>';
     html += '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;">';
-    html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">인건비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+ratioColor+';">'+(sum.laborRatio===null?'—':sum.laborRatio.toFixed(1)+'%')+'</div></div>';
+    html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">인건비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+ratioColor+';">'+(sum.laborRatio===null?'—':sum.laborRatio.toFixed(1)+'%')+'</div>'+(laborV.state==="unknown"?'<div class="labor-limit-unknown" style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_LIMIT_UNKNOWN_TEXT+'</div>':'')+'</div>';
     html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">식자재비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+foodColor+';">'+(sum.expenseRatio===null?'—':sum.expenseRatio.toFixed(1)+'%')+'</div>'+(foodV.state==="unknown"?'<div class="food-limit-unknown" style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_LIMIT_UNKNOWN_TEXT+'</div>':'')+'</div>';
     html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">오늘 체크리스트</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;">'+(sum.checklistPct===null?'—':sum.checklistPct+'%')+'</div></div>';
     html += '</div></div>';
@@ -1358,7 +1418,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.crew=[]; state.attendance=[]; state.shifts=[]; state.salesReports=[]; state.expenseEntries=[];
     state.attConfirmPrompt=null; state.onboardingStep=null; state.announcements=[]; state.todayReservations=[]; state.vendors=[];
     // The owner home caches per-account data; without this the next account briefly sees the previous one's.
-    state.dashboardData=null; state.dashboardLoading=false; state.expandedStoreRows={}; state.expandedCrewIds={}; state.storeFoodLimitMap={};
+    state.dashboardData=null; state.dashboardLoading=false; state.expandedStoreRows={}; state.expandedCrewIds={}; state.storeFoodLimitMap={}; state.storeLaborLimitMap={};
     state.dashboardReservations=[]; state.section='dashboard'; state.showOwnerSalesForm=false; state.salesEditingId=null;
     state.salesEditDate=null; state.showAddStoreForm=false; state.selectedDate=null; state.selectedSalesDate=null;
     state.role='landing'; state.landingMode='default'; state.loading=false;
@@ -1450,7 +1510,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(!alive()) return;
       state.crew=crewRows;
       const me=state.crew.find(c=>c.id===state.myCrewId);
-      const tasks=[loadFoodLimit(store),loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
+      const tasks=[loadRatioLimits(store),loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
       if(me && (me.salesAccess || me.isManager)) tasks.push(loadSalesReports(store,monthKey()),loadExpenseEntries(store,monthKey()),loadVendors(store));
       else { state.salesReports=[]; state.expenseEntries=[]; state.vendors=[]; }
       await Promise.all(tasks);
@@ -4022,7 +4082,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       loadTodayReservations(store),
       loadUpcomingReservations(store),
       loadPayAdjustments(store, monthKey()),
-      loadFoodLimit(store)
+      loadRatioLimits(store)
     ]);
     if(!alive()) return;
     state.loading = false;
@@ -4510,6 +4570,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
           if(!error && data && data.food_ratio_threshold != null) foodThreshold = Number(data.food_ratio_threshold);
         }
       }catch(e){ failed.push("식자재 기준"); foodThreshold = null; }
+      let laborThreshold = DEFAULT_LABOR_RATIO_LIMIT;
+      try{
+        if(storeId){
+          const { data, error } = await db.from('stores').select('labor_ratio_threshold').eq('id', storeId).maybeSingle();
+          if(error && error.code !== '42703') throw error;
+          if(!error && data && data.labor_ratio_threshold != null) laborThreshold = Number(data.labor_ratio_threshold);
+        }
+      }catch(e){ failed.push("인건비 기준"); laborThreshold = null; }
       let prevMonthSalesSum = 0, prevMonthFailed = false;
       try{
         if(storeId){
@@ -4522,7 +4590,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const dailySales = {};
       salesArr.forEach(s=>{ dailySales[s.date] = (dailySales[s.date]||0) + (Number(s.totalSales)||0); });
 
-      return { store, foodThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
+      return { store, foodThreshold, laborThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
     }));
     if(!alive()) return;
     results.sort((a,b)=> b.salesSum - a.salesSum);
@@ -5496,10 +5564,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         const st=ownerStoreStatus(d), unreadable=ownerSalesUnreadable(d);
         const amount=unreadable?'<strong class="oh-muted">조회 실패</strong>':((d.salesReportCount||0)===0?'<strong class="oh-muted">집계 전</strong>':'<strong>'+Math.round(d.salesSum/10000).toLocaleString()+'<small>만원</small></strong>');
         html+='<div class="oh-sales"><span>'+state.monthNum+'월 누적 매출</span>'+amount+'</div>';
-        if(st.kind==="attention") html+='<p class="oh-reason bad"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.8v5M12 16.2v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>관리 필요 · '+st.reasons.join(" · ")+'</p>';
+        if(st.kind==="attention") html+='<p class="oh-reason bad"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.8v5M12 16.2v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>관리 필요 · '+st.reasons.join(" · ")+'</p>'+(st.failures.length?'<p class="oh-reason warn">판정 불가 · 읽지 못한 항목: '+st.failures.join("·")+'</p>':'');
         else if(st.failures.length) html+='<p class="oh-reason warn">판정 불가 · 읽지 못한 항목: '+st.failures.join("·")+'</p>';
         else if(st.kind==="pending"||st.kind==="norevenue") html+='<p class="oh-reason">'+(st.kind==="pending"?'매출 집계 전이라 비율은 판정하지 않아요':'매출이 없어 비율은 판정하지 않아요')+'</p>';
-        else html+='<p class="oh-reason ok"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M8.3 12.4l2.5 2.5 4.9-5.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>안정 · 인건비 '+LABOR_RATIO_LIMIT+'% · 식자재 '+(d.foodThreshold==null?'기준 확인 불가':formatLimit(d.foodThreshold)+'%')+' 이내</p>';
+        else html+='<p class="oh-reason ok"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M8.3 12.4l2.5 2.5 4.9-5.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>안정 · 인건비 '+(ownerLaborLimit(d)===null?'기준 확인 불가':formatLimit(ownerLaborLimit(d))+'%')+' · 식자재 '+(d.foodThreshold==null?'기준 확인 불가':formatLimit(d.foodThreshold)+'%')+' 이내</p>';
       }
       html+='</div>';
       if(open){
@@ -5518,7 +5586,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         else v.sched.people.forEach(x=>{html+='<p class="ow-item">'+escapeHtml(x.name)+' · '+x.times.map(t=>escapeHtml(t.start+"–"+t.end)).join(", ")+'</p>';});
         if(d&&!ownerSalesUnreadable(d)){
           const lb=d.laborRatio, fb=d.expenseRatio;
-          html+='<p class="ow-h">이번 달 비율</p><p class="ow-item">인건비율 '+(lb===null?'—':lb.toFixed(1)+'%')+' (기준 '+LABOR_RATIO_LIMIT+'%) · 식자재비율 '+(fb===null?'—':fb.toFixed(1)+'%')+' (기준 '+(d.foodThreshold==null?'확인 불가':formatLimit(d.foodThreshold)+'%')+') · 배달매출 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만원(별도 집계)</p>';
+          html+='<p class="ow-h">이번 달 비율</p><p class="ow-item">인건비율 '+(lb===null?'—':lb.toFixed(1)+'%')+' (기준 '+(ownerLaborLimit(d)===null?'확인 불가':formatLimit(ownerLaborLimit(d))+'%')+') · 식자재비율 '+(fb===null?'—':fb.toFixed(1)+'%')+' (기준 '+(d.foodThreshold==null?'확인 불가':formatLimit(d.foodThreshold)+'%')+') · 배달매출 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만원(별도 집계)</p>';
         }
         html+='<div class="team-actions"><button type="button" class="crew-code-btn ow-go" data-ow-att="'+esc+'">근태 보기</button><button type="button" class="crew-code-btn ow-go" data-ow-sales="'+esc+'">매출 보기</button></div></div>';
       }
@@ -5643,12 +5711,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(state.dashboardLoading||!state.dashboardData) return '<section class="category oh-overview" aria-label="월 매출 요약"><p class="oh-muted">'+scope.length+'개 매장의 매출을 불러오는 중이에요…</p></section>';
     const data=state.dashboardData.filter(d=>scope.includes(d.store));
     const has=(d,k)=>(d.loadFailures||[]).indexOf(k)>=0;
-    let total=0,readable=0,foodUnknown=false;
-    const lab={sales:0,pay:0,n:0}, food={sales:0,exp:0,n:0,over:false}, failedItems={};
+    let total=0,readable=0,foodUnknown=false,laborUnknown=false;
+    const lab={sales:0,pay:0,n:0,over:false}, food={sales:0,exp:0,n:0,over:false}, failedItems={};
     data.forEach(d=>{
       if(!ownerSalesUnreadable(d)){ total+=d.salesSum; readable++; }
       const laborOk=!has(d,"직원")&&!has(d,"근태")&&!has(d,"매출"), foodOk=!has(d,"지출")&&!has(d,"매출");
-      if(laborOk){ lab.sales+=d.salesSum; lab.pay+=d.laborPay; lab.n++; }
+      if(laborOk){
+        lab.sales+=d.salesSum; lab.pay+=d.laborPay; lab.n++;
+        const ll=ownerLaborLimit(d);
+        if(ll===null) laborUnknown=true;                                   // limit not readable: not judged, never the default
+        else if(d.laborRatio!==null&&d.laborRatio>ll) lab.over=true;   // each store against its OWN limit
+      }
       if(foodOk){
         food.sales+=d.salesSum; food.exp+=(d.expenseSum||0); food.n++;
         if(d.foodThreshold===null) foodUnknown=true;
@@ -5659,17 +5732,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const unknown=data.length>0&&readable===0, partial=readable>0&&readable<data.length;
     const entered=data.some(d=>!ownerSalesUnreadable(d)&&(d.salesReportCount||0)>0);   // at least one sales report exists (0 won is a real number, "집계 전" is not)
     const labor=lab.sales>0?lab.pay/lab.sales*100:null, foodR=food.sales>0?food.exp/food.sales*100:null;
-    const laborFull=lab.n===data.length, foodFull=food.n===data.length&&!foodUnknown;
-    const laborCls=labor===null?'':(labor>LABOR_RATIO_LIMIT?'bad':(laborFull?'ok':''));
+    const laborFull=lab.n===data.length&&!laborUnknown, foodFull=food.n===data.length&&!foodUnknown;
+    const laborCls=labor===null?'':(lab.over?'bad':(laborFull?'ok':''));
     const foodCls=foodR===null?'':(food.over?'bad':(foodFull?'ok':''));
     let html='<section class="category oh-overview" aria-label="월 매출 요약"><div class="oh-ov-head"><span class="oh-label">'+state.monthNum+'월 누적 매출 · '+(scope.length===(state.myStores||[]).length?'전체 '+scope.length+'곳':escapeHtml(scope[0]||''))+'</span>'+ownerRouteButton('상세 ›','sales','report',false)+'</div>';
     if(unknown) html+='<p class="oh-big oh-muted">— <small>조회 실패</small></p><p class="oh-note">매출을 조회하지 못했어요. <button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button></p>';
     else if(!entered) html+='<p class="oh-big oh-muted">집계 전</p><p class="oh-note">아직 입력된 매출보고가 없어요.</p>';
     else html+='<p class="oh-big">'+total.toLocaleString()+'<small>원</small></p>'+(partial?'<p class="owner-amount-partial oh-note">조회 성공 '+readable+'/'+data.length+'곳 합계 (조회 실패 매장 제외)</p>':'');
     const scopeNote=(n)=>(n<data.length?'<small class="oh-of">'+n+'/'+data.length+'곳</small>':'');
-    html+='<p class="oh-ratios"><span>인건비율 <b class="'+laborCls+'">'+(labor===null?'—':labor.toFixed(1)+'%')+'</b>'+(labor===null?'':scopeNote(lab.n))+'</span><span>식자재비율 <b class="'+foodCls+'">'+(foodR===null?'—':foodR.toFixed(1)+'%')+'</b>'+(foodR===null?'':scopeNote(food.n))+'</span>'+(foodUnknown?'<span class="oh-note">식자재 기준 확인 불가</span>':'')+'</p>';
+    html+='<p class="oh-ratios"><span>인건비율 <b class="'+laborCls+'">'+(labor===null?'—':labor.toFixed(1)+'%')+'</b>'+(labor===null?'':scopeNote(lab.n))+'</span><span>식자재비율 <b class="'+foodCls+'">'+(foodR===null?'—':foodR.toFixed(1)+'%')+'</b>'+(foodR===null?'':scopeNote(food.n))+'</span>'+(laborUnknown?'<span class="oh-note">인건비 기준 확인 불가</span>':'')+(foodUnknown?'<span class="oh-note">식자재 기준 확인 불가</span>':'')+'</p>';
     const failKeys=Object.keys(failedItems);
-    if(failKeys.length&&!unknown) html+='<p class="owner-status-fail oh-partial">일부 항목을 읽지 못했어요 · '+failKeys.map(k=>escapeHtml(k)+' 조회 실패('+failedItems[k].map(escapeHtml).join(", ")+')').join(" · ")+'. 위 비율은 읽은 매장만으로 계산했어요. <button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button></p>';
+    if(failKeys.length&&!unknown) html+='<p class="owner-status-fail oh-partial">일부 항목을 읽지 못했어요 · '+failKeys.map(k=>escapeHtml(k)+' 조회 실패('+failedItems[k].map(escapeHtml).join(", ")+')').join(" · ")+'. 위 비율은 읽은 매장만으로 계산했고, 기준을 읽지 못한 항목은 판정하지 않아요. <button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button></p>';
     html+=renderOwnerTrend(scope)+'</section>';
     return html;
   }
@@ -6716,13 +6789,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return '<div class="team-ratio '+kind+'"><span class="team-ratio-label">'+label+'</span><strong>'+(value===null?'—':value.toFixed(1)+'%')+'</strong><span class="team-verdict">'+(icons[kind]||icons.none)+word+'</span><small>'+limitText+'</small></div>';
   }
   function renderTeamSummaryCard(sum){
-    const laborKind = sum.laborRatio===null ? 'none' : (sum.laborRatio>LABOR_RATIO_LIMIT ? 'over' : 'ok');
+    const lv = laborRatioVerdict(state.store, sum.laborRatio);
+    const laborKind = lv.state;
+    const laborLimitText = lv.state==='unknown' ? '기준을 조회하지 못했어요' : formatLimit(laborRatioLimit(state.store)===null?DEFAULT_LABOR_RATIO_LIMIT:laborRatioLimit(state.store))+'% 이하 안정';
     const fv = foodRatioVerdict(state.store, sum.expenseRatio);
     const foodKind = fv.state==='unknown' ? 'unknown' : fv.state;
     const foodLimit = fv.state==='unknown' ? '기준을 조회하지 못했어요' : (fv.limit!==null ? formatLimit(fv.limit)+'% 이하 안정' : formatLimit(foodRatioLimit(state.store)===null?DEFAULT_FOOD_RATIO_LIMIT:foodRatioLimit(state.store))+'% 이하 안정');
     return '<section class="category team-card" aria-label="이번 달 매장 요약"><div class="team-card-head"><span class="team-card-title team-title-lg">이번 달 매장 요약</span><span class="team-sub team-mo">'+state.monthNum+'월 누적</span></div>'+
       '<p class="team-sub" style="margin-top:10px">누적 매출</p><p class="team-big">'+sum.salesSum.toLocaleString()+'원</p><p class="team-sub">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>'+
-      '<div class="team-ratios">'+teamRatioCard('인건비율',sum.laborRatio,laborKind,LABOR_RATIO_LIMIT+'% 이하 안정')+teamRatioCard('식자재비율',sum.expenseRatio,foodKind,foodLimit)+'</div>'+
+      '<div class="team-ratios">'+teamRatioCard('인건비율',sum.laborRatio,laborKind,laborLimitText)+teamRatioCard('식자재비율',sum.expenseRatio,foodKind,foodLimit)+'</div>'+
       '<p class="team-legend"><span class="ok"><i></i>안정</span><span class="over"><i></i>관리 필요</span><span class="none"><i></i>집계 전·판정 불가</span></p></section>';
   }
   function teamPayPill(person){
@@ -7785,7 +7860,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   // Owner-home status. Color always comes with text and an icon, never color alone.
-  // Verdicts: labor > 22% and food > the store's limit (default 40%, saved per store by its owner). Nothing else is invented.
+  // Verdicts: labor > the store's labor limit (default 22%) and food > the store's food limit (default 40%), both saved per store by its owner.
+  // A limit that could not be read is never replaced by the default: that item is not judged. Nothing else is invented.
   //   attention  = one of those two rules is broken (using only inputs that were actually read)
   //   error      = an input of the verdict could not be read (permission/network error) - NOT an empty result
   //   ok         = sales exist, every input was read, and neither rule is broken
@@ -7813,10 +7889,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   function ownerStoreStatus(d){
     const foodLimit = d.foodThreshold===undefined ? DEFAULT_FOOD_RATIO_LIMIT : d.foodThreshold;   // null = the store's limit could not be read
-    const laborBad = d.laborRatio!==null && d.laborRatio>LABOR_RATIO_LIMIT;
+    const laborLimit = ownerLaborLimit(d);   // null = the store's limit could not be read
+    const laborBad = d.laborRatio!==null && laborLimit!==null && d.laborRatio>laborLimit;
     const foodBad = d.expenseRatio!==null && foodLimit!==null && d.expenseRatio>foodLimit;
     const reasons = [];
-    if(laborBad) reasons.push("인건비율 "+LABOR_RATIO_LIMIT+"% 초과");
+    if(laborBad) reasons.push("인건비율 "+formatLimit(laborLimit)+"% 초과");
     if(foodBad) reasons.push("식자재비율 "+formatLimit(foodLimit)+"% 초과");
     const failures = (d.loadFailures||[]).slice();
     let kind;
@@ -7828,6 +7905,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return {kind, reasons, failures, costNote: (kind==="pending"||kind==="norevenue") ? ownerCostNote(d.laborPay, d.expenseSum) : ""};
   }
   // A store whose sales lookup failed has an UNKNOWN amount, not 0. Other failed lookups (crew, attendance, expenses) do not make its sales unknown.
+  // Which inputs each ratio needs (a failure of one item never blocks the verdict of another).
+  // The store's labor limit as the dashboard row carries it: a number, null = could not be read (never the default), undefined = row without the field (default).
+  function ownerLaborLimit(d){ return d.laborThreshold===undefined ? DEFAULT_LABOR_RATIO_LIMIT : d.laborThreshold; }
+  function ownerLaborReadable(d){ const f=d.loadFailures||[]; return f.indexOf("직원")<0 && f.indexOf("근태")<0 && f.indexOf("매출")<0; }
+  function ownerFoodReadable(d){ const f=d.loadFailures||[]; return f.indexOf("지출")<0 && f.indexOf("매출")<0; }
   function ownerSalesUnreadable(d){ return (d.loadFailures||[]).indexOf("매출")>=0; }
   // Combined judgement (existing conditions, computed from stores that could be read). It never turns into a
   // all-clear, "no sales" or "not yet entered" while a store could not be read.
@@ -7939,7 +8021,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const overallExpenseRatio = ratioSales>0 ? (totalExpense/ratioSales*100) : 0;
     const overallKind = ownerOverallKind(data);
     // Combined food colour: red only if some readable store is over ITS OWN limit (limits differ per store).
-    const anyFoodBad = data.some(d=>!(d.loadFailures&&d.loadFailures.length) && d.expenseRatio!==null && d.foodThreshold!=null && d.expenseRatio>d.foodThreshold);
+    const anyFoodBad = data.some(d=>ownerFoodReadable(d) && d.expenseRatio!==null && d.foodThreshold!=null && d.expenseRatio>d.foodThreshold);
+    // Labor colour: red if some store is over ITS OWN limit; grey while any store's limit could not be read (never the default); else green.
+    const anyLaborBad = data.some(d=>ownerLaborReadable(d) && d.laborRatio!==null && ownerLaborLimit(d)!==null && d.laborRatio>ownerLaborLimit(d));
+    const anyLaborUnknown = data.some(d=>ownerLaborLimit(d)===null);
     // Nothing readable contributed to the combined ratios: show "—", never a green 0.0%.
     const ratioUnknown = ownerView && !(ratioSales>0) && data.some(d=>d.loadFailures && d.loadFailures.length);
     const salesUnknown = ownerView && data.length>0 && salesReadable===0;               // no store's sales could be read
@@ -7980,7 +8065,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }
     html += '<p style="margin:0 0 12px;font-size:12px;color:var(--ink-soft);">배달매출 '+(salesUnknown?'— (조회 실패)':totalDelivery.toLocaleString()+'원 (별도 집계)')+'</p>';
     html += '<div style="display:flex;gap:16px;margin-bottom:40px;">';
-    html += '<div><span style="font-size:11px;color:var(--ink-soft);">인건비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(ratioUnknown?'var(--ink-soft)':(overallRatio>LABOR_RATIO_LIMIT?'var(--danger)':'var(--olive)'))+';">'+(ratioUnknown?'—':overallRatio.toFixed(1)+'%')+'</span></div>';
+    html += '<div><span style="font-size:11px;color:var(--ink-soft);">인건비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(ratioUnknown?'var(--ink-soft)':(anyLaborBad?'var(--danger)':(anyLaborUnknown?'var(--ink-soft)':'var(--olive)')))+';">'+(ratioUnknown?'—':overallRatio.toFixed(1)+'%')+'</span></div>';
     html += '<div><span style="font-size:11px;color:var(--ink-soft);">식자재비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(ratioUnknown?'var(--ink-soft)':(anyFoodBad?'var(--danger)':(data.some(d=>d.foodThreshold===null)?'var(--ink-soft)':'var(--olive)')))+';">'+(ratioUnknown?'—':overallExpenseRatio.toFixed(1)+'%')+'</span></div>';
     html += '</div>';
     html += renderSalesTrendBars(salesUnknown);
@@ -7991,7 +8076,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
     data.forEach((d, idx)=>{
       const rowFoodLimit = d.foodThreshold===undefined ? DEFAULT_FOOD_RATIO_LIMIT : d.foodThreshold;
-      const laborBad = d.laborRatio!==null && d.laborRatio>LABOR_RATIO_LIMIT;
+      const rowLaborLimit = ownerLaborLimit(d);
+      const laborBad = d.laborRatio!==null && rowLaborLimit!==null && d.laborRatio>rowLaborLimit;
       const foodBad = d.expenseRatio!==null && rowFoodLimit!==null && d.expenseRatio>rowFoodLimit;
       const hasIssue = laborBad || foodBad;
       const expanded = !!state.expandedStoreRows[d.store];
@@ -8015,7 +8101,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         const ratioText = d.laborRatio===null ? "—" : d.laborRatio.toFixed(1)+"%";
         const foodText = d.expenseRatio===null ? "—" : d.expenseRatio.toFixed(1)+"%";
         html += '<div style="padding:0 0 14px 20px;display:flex;gap:28px;">';
-        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">인건비율</div><div style="font-size:16px;font-weight:800;color:'+(laborBad?'var(--danger)':((ownerView&&d.laborRatio===null)?'var(--ink-soft)':'var(--olive)'))+';">'+ratioText+'</div>'+(laborBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">'+LABOR_RATIO_LIMIT+'% 초과</div>':'')+'</div>';
+        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">인건비율</div><div style="font-size:16px;font-weight:800;color:'+(laborBad?'var(--danger)':((rowLaborLimit===null||(ownerView&&d.laborRatio===null))?'var(--ink-soft)':'var(--olive)'))+';">'+ratioText+'</div>'+(laborBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">'+formatLimit(rowLaborLimit)+'% 초과</div>':(rowLaborLimit===null&&d.laborRatio!==null?'<div class="labor-limit-unknown" style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_LIMIT_UNKNOWN_TEXT+'</div>':''))+'</div>';
         html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">식자재비율</div><div style="font-size:16px;font-weight:800;color:'+(foodBad?'var(--danger)':((rowFoodLimit===null||(ownerView&&d.expenseRatio===null))?'var(--ink-soft)':'var(--olive)'))+';">'+foodText+'</div>'+(foodBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">'+formatLimit(rowFoodLimit)+'% 초과</div>':'')+'</div>';
         html += '</div>';
       }
@@ -8236,7 +8322,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(state.showFixedExpenseManage) html += renderFixedExpenseManage();
 
     const netProfit = totalSales - totalExpense - totalLabor - totalFixed;
-    const laborDanger = laborRatio!==null && laborRatio>LABOR_RATIO_LIMIT;
+    const laborV = laborRatioVerdict(state.store, laborRatio);
     const foodV = foodRatioVerdict(state.store, expenseRatio);
     html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
     html += '<p class="label">이번 달 순수익 (예상) · 종합비율</p>';
@@ -8244,8 +8330,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<p class="meta">매출 '+totalSales.toLocaleString()+'원 − 지출 '+totalExpense.toLocaleString()+'원 − 인건비 '+totalLabor.toLocaleString()+'원 − 고정지출 '+totalFixed.toLocaleString()+'원</p>';
     html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.25);">';
     html += '<p class="meta">인건비율 '+(laborRatio!==null?laborRatio.toFixed(1):"0.0")+'% · 식자재비율 '+(expenseRatio!==null?expenseRatio.toFixed(1):"0.0")+'%</p>';
-    if(laborRatio!==null){
-      html += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+(laborDanger?'#FF8A8F':'#7CE6A6')+';margin-top:6px;margin-right:14px;"><span style="width:6px;height:6px;border-radius:50%;background:'+(laborDanger?'#FF8A8F':'#7CE6A6')+';display:inline-block;"></span>인건비 '+(laborDanger?'관리필요':'안정')+'</span>';
+    if(laborV.state!=="none"){
+      const laborTone = laborV.state==="over" ? '#FF8A8F' : (laborV.state==="unknown" ? '#F3D9A4' : '#7CE6A6');
+      const laborWord = laborV.state==="over" ? '관리필요' : (laborV.state==="unknown" ? FOOD_LIMIT_UNKNOWN_TEXT : '안정');
+      html += '<span class="labor-verdict" data-state="'+laborV.state+'" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+laborTone+';margin-top:6px;margin-right:14px;"><span style="width:6px;height:6px;border-radius:50%;background:'+laborTone+';display:inline-block;"></span>인건비 '+laborWord+'</span>';
     }
     if(foodV.state!=="none"){
       const foodTone = foodV.state==="over" ? '#FF8A8F' : (foodV.state==="unknown" ? '#F3D9A4' : '#7CE6A6');
@@ -8777,18 +8865,24 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '</div>';
     }
     if(state.role === "storeOwner"){
-      const savedLimit = state.storeFoodLimitMap ? state.storeFoodLimitMap[state.store] : null;
+      const ratioRow=(label,kind,map,fallback,def)=>{
+        const saved = map ? map[state.store] : null;
+        let r = '<div class="ratio-limit-row" style="margin-top:12px;"><p style="margin:0 0 6px;font-size:13px;font-weight:700;">'+label+'</p>';
+        if(saved === false){
+          r += '<p class="crew-code-hint" style="color:var(--danger);">저장된 기준을 읽지 못했어요. 잠시 후 다시 확인해 주세요.</p>';
+        }else{
+          r += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><input class="field-input" type="number" inputmode="decimal" min="1" max="100" step="0.5" id="'+kind+'-limit-input" aria-label="'+label+'" style="max-width:110px;" value="'+formatLimit(typeof saved==="number"?saved:def)+'"><span class="crew-code-hint">%</span>';
+          r += '<button class="crew-code-btn" id="'+kind+'-limit-save-btn">저장</button>';
+          if(typeof saved === "number") r += '<button class="crew-code-btn" id="'+kind+'-limit-reset-btn">기본값('+def+'%)으로</button>';
+          r += '</div>';
+        }
+        return r + '</div>';
+      };
       html += '<div class="day-panel" style="margin-bottom:12px;">';
-      html += '<h3 style="margin:0 0 6px;">식자재비율 경고 기준</h3>';
-      html += '<p class="crew-code-hint" style="margin-bottom:8px;">이번 달 식자재비가 매출의 이 비율을 넘으면 "관리 필요"로 표시해요. 기본은 '+DEFAULT_FOOD_RATIO_LIMIT+'%이고, 이 매장의 사장님·매니저 화면에 같은 기준이 적용돼요. 인건비율 기준은 '+LABOR_RATIO_LIMIT+'%예요.</p>';
-      if(savedLimit === false){
-        html += '<p class="crew-code-hint" style="color:var(--danger);">저장된 기준을 읽지 못했어요. 잠시 후 다시 확인해 주세요.</p>';
-      }else{
-        html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><input class="field-input" type="number" inputmode="decimal" min="1" max="100" step="0.5" id="food-limit-input" style="max-width:110px;" value="'+formatLimit(foodRatioLimit(state.store))+'"><span class="crew-code-hint">%</span>';
-        html += '<button class="crew-code-btn" id="food-limit-save-btn">저장</button>';
-        if(typeof savedLimit === "number") html += '<button class="crew-code-btn" id="food-limit-reset-btn">기본값('+DEFAULT_FOOD_RATIO_LIMIT+'%)으로</button>';
-        html += '</div>';
-      }
+      html += '<h3 style="margin:0 0 6px;">비율 경고 기준</h3>';
+      html += '<p class="crew-code-hint" style="margin-bottom:0;">설정한 비율을 넘으면 관리 필요로 표시해요. 이 매장의 사장님·매니저 화면에 같은 기준이 적용돼요.</p>';
+      html += ratioRow('인건비율 경고 기준','labor',state.storeLaborLimitMap,laborRatioLimit,DEFAULT_LABOR_RATIO_LIMIT);
+      html += ratioRow('식자재비율 경고 기준','food',state.storeFoodLimitMap,foodRatioLimit,DEFAULT_FOOD_RATIO_LIMIT);
       html += '</div>';
       html += '<div class="day-panel" style="margin-bottom:12px;">';
       html += '<h3 style="margin:0 0 6px;">알림</h3>';
@@ -9278,6 +9372,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     });
     const foodLimitSaveBtn = document.getElementById("food-limit-save-btn");
     if(foodLimitSaveBtn) foodLimitSaveBtn.addEventListener("click", ()=>{ saveFoodLimit(state.store, (document.getElementById("food-limit-input")||{}).value); });
+    const laborLimitSaveBtn = document.getElementById("labor-limit-save-btn");
+    if(laborLimitSaveBtn) laborLimitSaveBtn.addEventListener("click", ()=>{ saveLaborLimit(state.store, (document.getElementById("labor-limit-input")||{}).value); });
+    const laborLimitResetBtn = document.getElementById("labor-limit-reset-btn");
+    if(laborLimitResetBtn) laborLimitResetBtn.addEventListener("click", ()=>{ saveLaborLimit(state.store, null); });
     const foodLimitResetBtn = document.getElementById("food-limit-reset-btn");
     if(foodLimitResetBtn) foodLimitResetBtn.addEventListener("click", ()=>{ saveFoodLimit(state.store, null); });
     const ownerPushToggleBtn = document.getElementById("owner-push-toggle-btn");

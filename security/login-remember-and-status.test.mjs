@@ -209,14 +209,14 @@ test('The login screen uses the app\'s existing logo and character, byte-for-byt
 // ---------- owner-home status ----------
 function statusCtx(){
   const ctx=vm.createContext({escapeHtml:s=>String(s)});
-  vm.runInContext(html.match(/  const OWNER_STATUS_TEXT[\s\S]*?\n  function ownerStatusChip/)[0].replace(/\n  function ownerStatusChip$/,'')+html.match(/  const LABOR_RATIO_LIMIT[^\n]*\n/)[0]+fn('formatLimit')+fn('ownerStatusChip')+fn('ownerCostNote')+fn('ownerStoreStatus')+fn('ownerOverallKind')+fn('renderOwnerStatusSummary')+';this.ownerOverallKind=ownerOverallKind;',ctx);
+  vm.runInContext(html.match(/  const OWNER_STATUS_TEXT[\s\S]*?\n  function ownerStatusChip/)[0].replace(/\n  function ownerStatusChip$/,'')+html.match(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/)[0]+fn('formatLimit')+fn('ownerStatusChip')+fn('ownerCostNote')+fn('ownerLaborLimit')+fn('ownerStoreStatus')+fn('ownerOverallKind')+fn('renderOwnerStatusSummary')+';this.ownerOverallKind=ownerOverallKind;',ctx);
   return ctx;
 }
 const store=(o)=>({store:'S',salesSum:0,salesReportCount:0,laborPay:0,laborRatio:null,expenseSum:0,expenseRatio:null,...o});
-test('Thresholds (owner decision): labor 22% fixed, food 40% by default or the store\'s own value; the old 25% / 35% are gone',()=>{
-  assert.match(html,/const LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;/);
+test('Thresholds (owner decision 2026-09-21): labor 22% and food 40% are only the DEFAULTS of per-store settings; the old 25% / 35% are gone',()=>{
+  assert.match(html,/const DEFAULT_LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;/);
   const dash=fn('renderDashboard');
-  assert.ok(dash.includes('const laborBad = d.laborRatio!==null && d.laborRatio>LABOR_RATIO_LIMIT;'));
+  assert.ok(dash.includes('const laborBad = d.laborRatio!==null && rowLaborLimit!==null && d.laborRatio>rowLaborLimit;'));
   assert.ok(dash.includes('const foodBad = d.expenseRatio!==null && rowFoodLimit!==null && d.expenseRatio>rowFoodLimit;'));
   assert.ok(dash.includes('const hasIssue = laborBad || foodBad;'));
   // no hard-coded ratio thresholds remain in any verdict / colour / label code
@@ -225,7 +225,7 @@ test('Thresholds (owner decision): labor 22% fixed, food 40% by default or the s
   assert.deepEqual([...numbers].filter(n=>n!=='0'),[],'hard-coded ratio threshold(s): '+[...numbers]);
   assert.ok(!/>\s*25\b|>\s*35\b|25%|35%/.test(code.replace(/\/\/[^\n]*/g,'')),'no 25% / 35% left');
   // owner, manager and detail screens all use the same helpers
-  assert.ok(fn('renderManagerSummaryCard').includes('sum.laborRatio>LABOR_RATIO_LIMIT'));
+  assert.ok(fn('renderManagerSummaryCard').includes('laborRatioVerdict(state.store')&&fn('renderMonthlyReport').includes('laborRatioVerdict(state.store'));
   assert.ok(fn('renderManagerSummaryCard').includes('foodRatioVerdict(state.store'));
   assert.ok(fn('renderMonthlyReport').includes('foodRatioVerdict(state.store'));
   assert.ok(fn('renderStaffHomeContent').includes('renderManagerSummaryCard('));

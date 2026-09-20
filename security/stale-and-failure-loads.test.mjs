@@ -9,7 +9,7 @@ const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 function fnText(name){const a=html.indexOf('  function '+name+'(');const b=html.indexOf('  async function '+name+'(');const s=a>=0?a:b;if(s<0)return '';const e=html.indexOf('\n  }\n',s);return html.slice(s,e+5);}
 function optional(re){const m=html.match(re);return m?m[0]:'';}
 const NAMES=['monthKey','monthDateRange','rowToCrew','prevMonthKey','clearStaffAuthView','loadDashboardData','loadDashboardReservations','loadCrewRaw','loadCrew','loadShifts','loadAttendance','loadFixed','loadSalesReports','loadExpenseEntries','loadVendors','loadFixedExpenses','loadTodayReservations','loadUpcomingReservations','loadAnnouncements','loadPayAdjustments','loadChecklist','loadChecklistLog','loadAllForStore',
-  'formatLimit','foodRatioLimit','loadFoodLimit','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary'];
+  'formatLimit','foodRatioLimit','loadFoodLimit','loadLaborLimit','loadRatioLimits','ownerLaborLimit','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary'];
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 // A fake Supabase query builder. `respond(table,{storeId,gte})` may return {data,error}, throw, or return a promise.
 function harness(respond,extra={}){
@@ -33,7 +33,7 @@ function harness(respond,extra={}){
     bizToday:()=> '2026-09-19',todayKey:()=> '2026-09-19',yesterdayKey:()=> '2026-09-18',
     calcCrewPayFrom:(c,att)=>({pay:att.length*8*(c.wage||0)}),rowToSalesReport:r=>r,canManageBusinessData:()=>true,MANEE_STAFF_AUTH_ENABLED:true,
     loadDashboardReservations:async()=>{log.reservationLoads++;},escapeHtml:s=>String(s),refreshPushSubStatus(){},DEFAULT_ITEMS:{},callAuthChecklist:async()=>{},businessError(){},console});
-  vm.runInContext('let maneeRestoreSeq=0;\n'+optional(/  const LABOR_RATIO_LIMIT[^\n]*\n/)+optional(/  let maneeViewEpoch[^\n]*\n/)+optional(/  const OWNER_STATUS_TEXT[^\n]*\n/)+optional(/  const maneeLoadSeq[^\n]*\n/)+fnText('maneeLoadGuard')+NAMES.map(fnText).join('\n')
+  vm.runInContext('let maneeRestoreSeq=0;\n'+optional(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/)+optional(/  let maneeViewEpoch[^\n]*\n/)+optional(/  const OWNER_STATUS_TEXT[^\n]*\n/)+optional(/  const maneeLoadSeq[^\n]*\n/)+fnText('maneeLoadGuard')+NAMES.map(fnText).join('\n')
     +';this.api={'+NAMES.filter(n=>fnText(n)).join(',')+'};',ctx);
   return {state,log,api:ctx.api,ctx};
 }
