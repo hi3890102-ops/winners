@@ -10,8 +10,8 @@ test('owner work block exists', ()=>{ assert.ok(start>0&&end>start&&block.length
 test('owner work code only reads', ()=>{
   assert.deepEqual(block.match(/\.(insert|update|delete|upsert|rpc)\(/g)||[],[]);
   const tables=[...block.matchAll(/db\.from\("([a-z_]+)"\)/g)].map(m=>m[1]).sort();
-  assert.deepEqual(tables,['attendance','crew','shifts']);
-  assert.equal((block.match(/db\.from\(/g)||[]).length,3);
+  assert.deepEqual(tables,['attendance','crew','sales_reports','shifts']);   // sales_reports: last 7 days of the stores in view, SELECT only
+  assert.equal((block.match(/db\.from\(/g)||[]).length,4);
   for(const m of block.matchAll(/db\.from\("[a-z_]+"\)\.select\("([^"]*)"\)/g)) assert.ok(!/(phone|bank|resident|\*)/.test(m[1]),'no personal columns: '+m[1]);
 });
 test('uses a fresh clock, not the page-level frozen now', ()=>{

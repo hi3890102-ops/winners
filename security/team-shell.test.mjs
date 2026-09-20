@@ -93,7 +93,7 @@ test('personal info: masked or malformed values are rejected before saving; conf
   assert.deepEqual(tpParseBank('가상은행 / 123-456-789012 / 홍길동'),{bank:'가상은행',account:'123-456-789012',holder:'홍길동'});
   assert.equal(tpParseBank('123456789 국민 홍길동'),null);   // not clearly separable -> never guessed
   const build=slice('  function tpBuildEdit(data){','  function tpStoreChanges(ed){');
-  const tpBuildEdit=new Function('tpParseBank',slice('  const TP_FIELDS =','  function tpParseBank(t){')+build+';return tpBuildEdit;')(tpParseBank);
+  const tpBuildEdit=new Function(tpSrc()+build+';return tpBuildEdit;')();
   const ed=tpBuildEdit({profile:null,stores:[{store_name:'A',name:'김',phone:'010-1',bank_text:'X / 11111 / 김'},{store_name:'B',name:'김철수',phone:'010-1',bank_text:'원문만 있음 987654'}]});
   assert.equal(ed.form.name,'');assert.equal(ed.conflict.name,true);      // stores disagree -> the person must choose
   assert.equal(ed.form.phone,'010-1');                                   // one consistent store value -> proposed, still confirmed by the person
@@ -193,6 +193,93 @@ test('owner home: the header selection only filters the home cards, numbers and 
   assert.deepEqual(scope(),['A','B','C']);st.homeStore='B';assert.deepEqual(scope(),['B']);st.homeStore='Z';assert.deepEqual(scope(),['A','B','C']);   // unknown value falls back to all
   assert.ok(html.includes("if(ownerRouteGroup()==='home'){ state.homeStore=target; render(); return; }"));
   const ov=slice('  function renderOwnerOverview(){','  function renderOwnerHome(){');
-  assert.ok(ov.includes('scope.includes(d.store)')&&ov.includes('renderSalesTrendBars(unknown,trend)'));
+  assert.ok(ov.includes('scope.includes(d.store)')&&ov.includes('renderOwnerTrend(scope)'));
   assert.ok(ov.includes('집계 전')&&ov.includes('조회 실패'));   // "not yet entered" and "lookup failed" are separate from 0 won
+});
+
+// ---- re-review findings V2-01..V2-04 and the owner UI follow-ups (real functions from index.html, stubbed data)
+const tpAll=()=>new Function(tpSrc()+slice('  function tpBuildEdit(data){','  async function teamEditSave(){')+';return {tpBuildEdit,tpStoreChanges,tpBankComplete,tpBankAny};')();
+test('V2-02: bank / account / holder are one bundle - a partial own bundle is never completed from a store', ()=>{
+  const {tpBuildEdit}=tpAll();
+  const store={store_name:'A',crew_id:'c1',name:'김',phone:'010-1',bank_text:'QA Legacy Bank / 0000011111 / QA Legacy Holder'};
+  // own profile: account number only (bank and holder empty) -> exactly that, nothing borrowed
+  let ed=tpBuildEdit({profile:{person_name:'김',phone:'010-1',bank_name:null,bank_account:'0000022222',account_holder:null,revision:2,source:'self'},stores:[store]});
+  assert.deepEqual([ed.form.bank,ed.form.account,ed.form.holder],['','0000022222','']);
+  assert.ok(!ed.fromStore.bank&&!ed.conflict.bank);
+  assert.equal(ed.bundles.length,1);                     // the store's bundle is only OFFERED, as a whole
+  // no own bank data + one store bundle -> proposed as a whole, marked as coming from the store
+  ed=tpBuildEdit({profile:null,stores:[store]});
+  assert.deepEqual([ed.form.bank,ed.form.account,ed.form.holder],['QA Legacy Bank','0000011111','QA Legacy Holder']);assert.equal(ed.fromStore.bank,true);
+  // stores disagree -> nothing filled in, the person picks one whole bundle
+  ed=tpBuildEdit({profile:null,stores:[store,{...store,store_name:'B',crew_id:'c2',bank_text:'Other / 22222 / Someone'}]});
+  assert.deepEqual([ed.form.bank,ed.form.account,ed.form.holder],['','','']);assert.equal(ed.conflict.bank,true);assert.equal(ed.bundles.length,2);
+  // choosing a store's bundle copies all three fields at once
+  assert.ok(html.includes('data-tp-bundle')&&/ed\(\)\.form\.bank=c\.bank; ed\(\)\.form\.account=c\.account; ed\(\)\.form\.holder=c\.holder/.test(html));
+});
+test('V2-01 client: a confirmation is required per field that was not taken over yet (same rule as the server)', ()=>{
+  const {tpStoreChanges}=tpAll();
+  const row=(ad)=>({store_name:'A',crew_id:'c1',name:'옛이름',phone:'010-0',bank_text:'옛 / 11111 / 옛',adopted:ad,self_managed:Object.values(ad).some(Boolean)});
+  const ed=(r)=>({form:{name:'새이름',phone:'010-9',bank:'새',account:'22222',holder:'새'},stores:[r]});
+  assert.equal(tpStoreChanges(ed(row({name:false,phone:false,bank_account:false})))[0].needsConfirm,true);
+  // name and phone taken over, bank not: the bank text still needs a confirmation although the record is "managed"
+  const half=tpStoreChanges(ed(row({name:true,phone:true,bank_account:false})))[0];
+  assert.equal(half.needsConfirm,true);assert.equal(half.diffs.find(d=>d.field==='bank_account').needs,true);assert.equal(half.diffs.find(d=>d.field==='phone').needs,false);
+  assert.equal(tpStoreChanges(ed(row({name:true,phone:true,bank_account:true})))[0].needsConfirm,false);   // fully taken over: later edits flow
+});
+const ovSrc=()=>slice('  function ownerYmdAdd(ymd,n){','  function renderOwnerHome(){');
+test('V2-03: sales, labor and food are judged on their own inputs (a failed expense lookup does not hide a readable labor cost)', ()=>{
+  const st={monthNum:9,dashboardLoading:false,myStores:['A','B'],ownerWork:{loadedOnce:false,stores:{}},dashboardData:[
+    {store:'A',salesSum:1000000,salesReportCount:1,laborPay:100000,expenseSum:100000,foodThreshold:40,expenseRatio:10,loadFailures:[],dailySales:{}},
+    {store:'B',salesSum:1000000,salesReportCount:1,laborPay:600000,expenseSum:0,foodThreshold:40,expenseRatio:null,loadFailures:['지출'],dailySales:{}}]};
+  const f=new Function('state','ownerHomeScope','ownerSalesUnreadable','LABOR_RATIO_LIMIT','ownerRouteButton','escapeHtml','pad','ownerWorkYmd',ovSrc()+';return renderOwnerOverview;')(st,()=>['A','B'],d=>(d.loadFailures||[]).includes('매출'),22,()=>'',x=>String(x),n=>String(n).padStart(2,'0'),()=>'2026-09-20');
+  const out=f();
+  assert.ok(/인건비율 <b class="bad">35\.0%<\/b>/.test(out),out.slice(0,600));           // (100k+600k)/(2M) - not 10 %
+  assert.ok(/식자재비율 <b class="">10\.0%<\/b><small class="oh-of">1\/2곳/.test(out));   // food: only store A, neutral (never green when partial), range shown
+  assert.ok(out.includes('지출 조회 실패(B)')&&out.includes('읽은 매장만으로 계산'));
+  // every input readable: green "ok" is allowed again
+  st.dashboardData[1]={...st.dashboardData[1],expenseSum:100000,expenseRatio:10,loadFailures:[],laborPay:100000};
+  const ok=f();assert.ok(/인건비율 <b class="ok">10\.0%/.test(ok)&&/식자재비율 <b class="ok">10\.0%/.test(ok)&&!ok.includes('조회 실패('));
+  // sales failed for B: B leaves every ratio, "조회 성공 1/2곳" is shown, nothing is turned into 0
+  st.dashboardData[1]={store:'B',salesSum:0,salesReportCount:0,laborPay:0,expenseSum:0,foodThreshold:40,expenseRatio:null,loadFailures:['매출'],dailySales:{}};
+  const sf=f();assert.ok(sf.includes('조회 성공 1/2곳')&&/인건비율 <b class="">10\.0%<\/b><small class="oh-of">1\/2곳/.test(sf));
+});
+test('V2-04: the last 7 days use one business day, separate "not entered" / 0 won / failed, and do not depend on the month view', ()=>{
+  const st={ownerWork:{loadedOnce:true,stores:{}},dashboardTrendActiveDate:null};
+  const {ownerHomeTrend,ownerTrendLabel,renderOwnerTrend}=new Function('state','pad','ownerWorkYmd','escapeHtml',ovSrc()+';return {ownerHomeTrend,ownerTrendLabel,renderOwnerTrend};')(st,n=>String(n).padStart(2,'0'),()=>'2026-10-03',x=>String(x));
+  const store=(name,biz,days,ok=true)=>({store:name,bizDate:biz,sales:{ok,days}});
+  // month start (Oct 2): Sept 30 comes from the stores' own last-7-days lookup; no report on Oct 1 is "미입력", a reported 0 won is 0
+  st.ownerWork.stores={A:store('A','2026-10-02',{'2026-09-30':1500000,'2026-10-02':0}),B:store('B','2026-10-02',{'2026-09-30':500000})};
+  let t=ownerHomeTrend(['A','B']);
+  assert.equal(t.days[0].key,'2026-09-26');assert.equal(t.days[6].key,'2026-10-02');assert.equal(t.mixed,false);
+  const by=k=>t.days.find(d=>d.key===k);
+  assert.equal(ownerTrendLabel(by('2026-09-30')),'200만원');
+  assert.equal(ownerTrendLabel(by('2026-10-01')),'미입력');                       // nobody reported: not 0
+  assert.equal(ownerTrendLabel(by('2026-10-02')),'0만원');                        // A reported 0 won: a real number
+  // failed lookup: partial failure keeps the readable store and says so; total failure is a failure, not 0
+  st.ownerWork.stores.B=store('B','2026-10-02',{},false);
+  t=ownerHomeTrend(['A','B']);assert.equal(ownerTrendLabel(t.days.find(d=>d.key==='2026-09-30')),'150만원 (일부 조회 실패)');assert.equal(ownerTrendLabel(t.days.find(d=>d.key==='2026-10-01')),'조회 실패');
+  st.ownerWork.stores.A=store('A','2026-10-02',{},false);t=ownerHomeTrend(['A','B']);assert.equal(ownerTrendLabel(t.days[0]),'조회 실패');
+  // different cutoffs: A is still on Oct 1, B already on Oct 2 -> title, bars and the selected amount all end on Oct 1
+  st.ownerWork.stores={A:store('A','2026-10-01',{'2026-10-01':1000000}),B:store('B','2026-10-02',{'2026-10-01':1000000,'2026-10-02':300000})};
+  t=ownerHomeTrend(['A','B']);assert.equal(t.ref,'2026-10-01');assert.equal(t.mixed,true);assert.equal(t.days[6].key,'2026-10-01');assert.equal(ownerTrendLabel(t.days[6]),'200만원');
+  const out=renderOwnerTrend(['A','B']);
+  assert.ok(out.includes('9.25–10.1')&&out.includes('10월 1일')&&out.includes('영업일 기준 오늘'));   // title range, selected day and note agree
+  assert.ok(!out.includes('10월 2일'));
+  // not loaded yet: no invented zeros
+  st.ownerWork.loadedOnce=false;assert.ok(renderOwnerTrend(['A','B']).includes('불러오는 중'));
+  // the lookup itself is the stores' own last-7-days query, not the month view
+  assert.ok(html.includes('sales_reports").select("date,total_sales").eq("store_id",id).gte("date",ownerYmdAdd(bizDate,-6)).lte("date",bizDate)'));
+});
+test('owner header follows the mockup and AI / store-request are independent detail screens', ()=>{
+  const shell=slice('  function renderOwnerShell(){','  function bindOwnerUIEvents(){');
+  assert.ok(shell.indexOf('owner-bell')<shell.indexOf('class="owner-picker"'));                       // bell is in the top row, the picker is the second row
+  assert.ok(/if\(state\.showAddStoreForm\) html\+=renderAddStoreForm\(\);\s*else if\(state\.showOwnerSalesForm\)/.test(shell));   // one body at a time
+  assert.ok(shell.includes("else if(state.section==='ai') html+=renderAiChatSection()"));
+  assert.ok(slice('  function renderAiChatSection(){','  function renderAdminSettingsSection(){').includes("ownerDetailHeader('AI 물어보기'"));
+  assert.ok(slice('  function renderAddStoreForm(){','  function getExpiringHealthCerts(){').includes("ownerDetailHeader('매장 추가 신청'"));
+  // leaving through a menu, the store selector or the bell closes the request form; opening it never saves anything
+  assert.ok(html.includes("state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.showAddStoreForm=false;"));
+  assert.ok(html.includes("state.showAddStoreForm=false;\n      if(ownerRouteGroup()==='home')"));
+  const open=slice('    const addStoreRequestBtn = document.getElementById("add-store-request-btn");','    const closeAddStoreBtn');
+  assert.ok(!/insert|update|submitAdditionalStoreRequest/.test(open));
 });

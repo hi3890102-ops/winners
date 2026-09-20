@@ -6,7 +6,7 @@
 .owner-ui input,.owner-ui select,.owner-ui textarea{font-size:16px!important;min-height:46px;border-radius:12px!important}
 .owner-ui input[type=checkbox],.owner-ui input[type=radio]{min-height:24px;width:24px;height:24px;accent-color:var(--brick)}
 .owner-ui input[readonly]{background:#EDF2EE!important;color:#52615A!important}
-.owner-ui .owner-header{padding:18px 20px 14px;background:#fff;border:0;position:relative;z-index:4}
+.owner-ui .owner-header{padding:15px 20px 14px;background:#fff;border:0;position:relative;z-index:4}
 .owner-topline{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
 .owner-wordmark{font-size:25px;font-weight:850;letter-spacing:-1.1px;display:flex;align-items:center;gap:7px}
 .owner-wordmark i{width:8px;height:8px;background:#4FA54B;border-radius:50%;display:inline-block}
@@ -288,3 +288,15 @@
   .owner-ui .oh-dot{background:#96D2AB}.owner-ui .oh-live.none{color:#B2C3B8}
   .owner-ui .oh-overview,.owner-ui .oh-trend{border-color:#42594B}
 }
+
+/* owner header: row 1 = logo | badge + bell, row 2 = store picker (approved mockup) */
+.owner-ui .owner-topline{margin-bottom:0}
+.owner-ui .owner-header-right{display:flex;align-items:center;gap:10px}
+.owner-ui .owner-header .owner-bell{position:relative;width:44px;height:44px;min-height:44px;padding:0;display:grid;place-items:center;border-radius:12px}
+.owner-ui .owner-picker{display:flex;align-items:center;gap:9px;margin-top:9px;padding:0 12px;min-height:44px;border-radius:12px;background:#F6F8F5;color:var(--ink)}
+.owner-ui .owner-picker>svg{flex:none;width:17px;height:17px}
+.owner-ui .owner-picker select{appearance:none;-webkit-appearance:none;flex:1;min-width:0;width:auto;height:44px;padding:0;border:0;border-radius:0;background:transparent;color:inherit;font-size:14px;font-weight:650;text-overflow:ellipsis}
+.owner-ui .owner-picker select:focus-visible{outline:2px solid var(--brick);outline-offset:3px;border-radius:8px}
+@media (prefers-color-scheme: dark){.owner-ui .owner-picker{background:#22362B;color:#EAF4ED}.owner-ui .owner-picker select option{background:#22362B;color:#EAF4ED}}
+@media(max-width:359px){.owner-ui .owner-picker{padding:0 10px}}
+.owner-ui .oh-of{margin-left:4px;font-weight:600;color:var(--ink-soft);font-size:11px}

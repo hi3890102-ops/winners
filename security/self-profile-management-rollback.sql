@@ -2,7 +2,14 @@
 -- Keeps private.staff_self_profiles, private.profile_change_events and every crew value (nothing is deleted or reverted).
 -- Removes the way in: the three public RPCs are revoked, the guard trigger is dropped (stores can edit the basic fields again),
 -- and the staff-portal wrapper is restored to the previous version of new-staff-self-profile.sql.
--- Re-apply later: run security/self-profile-management.sql again.
+-- Also kept: private.profile_adoption (which stored value each person has taken over, v3) - it is what keeps a re-applied version from
+-- treating already protected values as free to overwrite. Nothing in this file touches it.
+-- Re-apply later, IN THIS ORDER (each file is repeatable and none of them changes stored values):
+--   1. security/self-profile-management.sql      (v1: tables, RPCs, guard trigger, portal wrapper)
+--   2. security/self-profile-management-v2.sql   (per-store confirmation, masking, bank bundle)
+--   3. security/self-profile-management-v3.sql   (per-field take-over records, per-person lock)
+-- Running only step 1 would bring back the v1 rules (approval can overwrite an existing record); always finish with step 3, then
+-- security/self-profile-management-verify.sql (problems must be 0).
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='60s';
