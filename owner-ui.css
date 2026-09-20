@@ -73,3 +73,19 @@
 .owner-ui #owner-alert-shortcut{padding:10px;min-width:44px}
 .owner-ui .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}.owner-ui .cal-day,.owner-ui .cal-dow{min-width:0;width:auto}.owner-ui .cal-day{font-size:14px}
 .owner-ui input[type=file]{max-width:100%;width:100%;font-size:13px!important;padding:8px 0;min-width:0}
+
+/* Owner-home status: color always paired with text + icon. Judgement rules live in index.html (renderDashboard). */
+.owner-status{display:inline-flex;align-items:center;gap:4px;padding:3px 9px 3px 7px;border-radius:999px;font-size:12px;font-weight:750;line-height:1.4;white-space:nowrap}
+.owner-status svg{width:14px;height:14px;flex:none}
+.owner-status.ok{color:#146D44;background:#E3F1E8}
+.owner-status.attention{color:#A82228;background:#FCE8E8}
+.owner-status.none{color:#55635C;background:#EEF1EE}
+.owner-status-line{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;margin:6px 0 0 20px}
+.owner-status-why{font-size:12px;color:#8F1D22;font-weight:600}
+.owner-ui .category>span>.owner-status{margin-left:auto}
+.owner-status-summary{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 2px}
+.owner-status-names{margin:6px 0 0;font-size:12px;line-height:1.5;color:#52615A}
+.owner-status-cost{font-size:12px;font-weight:650;color:#3F4F47}
+.owner-status.warn{color:#805715;background:#FFF2D7}
+.owner-status-fail{font-size:12px;font-weight:650;color:#805715}
+.owner-retry{min-height:40px;padding:6px 14px;border:1px solid #C9B27C;border-radius:10px;background:#fff;color:#5E4210;font-size:13px;font-weight:700;vertical-align:middle}

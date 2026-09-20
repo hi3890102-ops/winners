@@ -26,6 +26,7 @@ function harness(options={}){
     localGet:k=>storage.has(k)?{value:storage.get(k)}:null,localSet:(k,v)=>storage.set(k,v),localDelete:k=>storage.delete(k),
     render(){calls.push('render');},showToast(message){calls.push({toast:message});},
     restoreManeeAuthOwner:async name=>{calls.push({owner:name});state.role='storeOwner';return true;},
+    restoreManeeAuthOwnerRun:async name=>{calls.push({owner:name});state.role='storeOwner';return true;},
     loadStaffHome:async(name,cid)=>{calls.push({staff:name,crewId:cid});state.loading=false;},
     currentStoreId:()=>state.storeIdMap[state.store],
     findOpenAttendance:cid=>state.attendance.find(a=>a.crewId===cid && !a.checkOut),
@@ -36,7 +37,8 @@ function harness(options={}){
       return {session:{access_token:'test-access',refresh_token:'test-refresh'}};},
     applyManeeAuthSession:async()=>{calls.push('setSession');},switchUser:()=>{calls.push('switchUser');},
   });
-  new Script(code).runInContext(context);
+  // The region reads the view-epoch counter that lives just outside it (in-flight lookups of a previous account are discarded).
+  new Script('let maneeViewEpoch=0;let maneeRestoreSeq=0;function maneeRestoreGuard(){const seq=++maneeRestoreSeq;return ()=>seq===maneeRestoreSeq;}\n'+code).runInContext(context);
   return {context,state,calls,storage,snapshot};
 }
 test('Unlinked Auth profile reaches approval portal without restoring a legacy crew link',async()=>{

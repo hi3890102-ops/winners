@@ -97,34 +97,61 @@
   .input-icon svg{ width:100%; height:100%; }
 
   /* ---------- login-v2 (GPT 디자인 이식) ---------- */
-  .landing .login-v2{ margin:-60px -24px; padding:30px 28px 20px; text-align:left; }
-  .login-v2 .brand2{ display:flex; flex-direction:column; align-items:center; width:130px; }
-  .login-v2 .brand2-logo{ display:block; width:130px; height:auto; object-fit:contain; }
-  .login-v2 .brand2-subtitle{ margin-top:3px; color:#71807D; font-size:13px; font-weight:600; letter-spacing:-0.4px; text-align:center; }
-  .login-v2 .hero2{ position:relative; min-height:180px; margin-top:16px; }
-  .login-v2 .hero2-copy{ position:relative; z-index:2; padding-top:14px; max-width:52%; }
-  .login-v2 .hero2-title{ font-size:25px; line-height:1.25; letter-spacing:-1.4px; font-weight:800; color:#0F3D2E; margin:0; }
-  .login-v2 .hero2-description{ margin-top:10px; font-family:'Gowun Batang',serif; font-weight:700; font-size:14.5px; line-height:1.55; letter-spacing:-0.2px; color:#82908E; }
-  .login-v2 .mascot2{ position:absolute; width:195px; height:195px; object-fit:contain; right:-18px; top:-14px; z-index:1; }
-  .login-v2 .role-selector2{ display:grid; grid-template-columns:1fr 1fr; height:50px; border:1px solid var(--line); border-radius:15px; overflow:hidden; margin:0 0 12px; background:#fff; }
-  .login-v2 .role-button2{ border:0; background:transparent; font-family:inherit; font-size:15px; font-weight:700; color:#8A9593; cursor:pointer; }
-  .login-v2 .role-button2.active{ background:var(--brick); color:#fff; }
+  /* Login screen: same green tokens, system Korean font and control sizes as the owner UI (owner-ui.css).
+     Dark values follow the approved mockup; the rest of the app has no dark theme, so they only apply here. */
+  .landing .login-v2{ --ml-bg:#F5F7F4; --ml-surface:#FFFFFF; --ml-ink:#18342C; --ml-muted:#66736E; --ml-line:#DCE5DE; --ml-green:#16774C; --ml-on-green:#FFFFFF; --ml-soft:#E6EFE8; --ml-error:#B3343A; --ml-art:transparent;
+    margin:-60px -24px; padding:32px 26px 26px; min-height:100vh; min-height:100dvh; text-align:left; background:var(--ml-bg); color:var(--ml-ink); color-scheme:light dark;
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif; font-size:14px; line-height:1.5; letter-spacing:-.035em; }
+  @media (prefers-color-scheme: dark){ .landing .login-v2{ --ml-bg:#17261F; --ml-surface:#22362B; --ml-ink:#EAF4ED; --ml-muted:#B2C3B8; --ml-line:#42594B; --ml-green:#96D2AB; --ml-on-green:#163424; --ml-soft:#2B4435; --ml-error:#FFADB0; --ml-art:#E9F1E8; } }
+  .login-v2 *{ box-sizing:border-box; }
+  .login-v2 [hidden]{ display:none!important; }
+  .login-v2 button,.login-v2 input{ font:inherit; }
+  .login-v2 button{ color:inherit; cursor:pointer; }
+  .login-v2 svg{ stroke-width:1.7; }
+  .login-v2 .ml-brand{ display:flex; align-items:center; gap:14px; padding:0; border-bottom:0; }
+  .login-v2 .ml-logo-wrap{ background:var(--ml-art); border-radius:10px; padding:3px; }
+  .login-v2 .ml-logo{ display:block; width:91px; height:auto; }
+  .login-v2 .ml-tagline{ font-size:12px; font-weight:600; color:var(--ml-muted); border-left:1px solid var(--ml-line); padding-left:14px; letter-spacing:-.03em; }
+  .login-v2 .ml-hero{ display:grid; grid-template-columns:minmax(0,1fr) 137px; align-items:center; margin:29px 0 26px; gap:0; }
+  .login-v2 .ml-hero h1{ font-size:25px; line-height:1.38; letter-spacing:-.06em; margin:0 0 11px; font-weight:750; color:var(--ml-ink); }
+  .login-v2 .ml-description{ margin:0!important; font-size:13px!important; line-height:1.65; color:var(--ml-muted)!important; font-weight:400; word-break:keep-all; }
+  .login-v2 .ml-art-wrap{ background:var(--ml-art); border-radius:50%; width:137px; height:137px; }
+  .login-v2 .ml-mascot{ width:100%; height:100%; object-fit:contain; display:block; }
+  .login-v2 .ml-roles{ display:grid; grid-template-columns:1fr 1fr; padding:4px; gap:4px; border-radius:14px; background:var(--ml-soft); margin-bottom:23px; }
+  .login-v2 .ml-role{ border:0; background:transparent; border-radius:10px; min-height:43px; font-size:14px; font-weight:650; color:var(--ml-muted); display:flex; align-items:center; justify-content:center; gap:7px; }
+  .login-v2 .ml-role[aria-pressed="true"]{ color:var(--ml-green); background:var(--ml-surface); box-shadow:0 1px 4px #18342C0D; }
+  .login-v2 .ml-role svg{ width:17px; height:17px; flex:none; }
+  .login-v2 .ml-field{ display:block; margin:0 0 17px; }
+  .login-v2 .ml-label{ display:block; font-size:13px; font-weight:650; margin:0 0 7px; color:var(--ml-ink); }
+  .login-v2 .ml-input-row{ display:flex; align-items:center; min-height:53px; border:1px solid var(--ml-line); background:var(--ml-surface); border-radius:12px; padding:0 14px; gap:10px; }
+  .login-v2 .ml-input-row:focus-within{ border-color:var(--ml-green); }
+  .login-v2 .ml-input-row>svg{ color:var(--ml-muted); width:18px; height:18px; flex:none; }
+  .login-v2 .ml-input{ border:0; background:transparent; width:100%; min-width:0; font-size:16px; line-height:1.4; height:49px; padding:0; color:var(--ml-ink); letter-spacing:-.03em; outline:none; }
+  .login-v2 .ml-input::placeholder{ color:var(--ml-muted); font-size:14px; opacity:1; }
+  .login-v2 .ml-input[aria-invalid="true"]{ color:var(--ml-error); }
+  .login-v2 .ml-eye{ display:grid; place-items:center; flex:none; width:40px; height:44px; margin-right:-9px; border:0; background:transparent; color:var(--ml-muted); padding:0; border-radius:8px; }
+  .login-v2 .ml-eye svg{ width:19px; height:19px; }
+  .login-v2 .ml-options{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:-8px; margin-bottom:13px; min-height:44px; }
+  .login-v2 .ml-remember{ display:flex; align-items:center; gap:7px; min-height:44px; font-size:12px; color:var(--ml-muted); white-space:nowrap; cursor:pointer; }
+  .login-v2 .ml-remember input{ width:18px; height:18px; margin:0; accent-color:var(--ml-green); }
+  .login-v2 .ml-link{ border:0; background:transparent; padding:0; min-height:44px; color:var(--ml-muted); font-size:12px; font-weight:500; white-space:nowrap; text-decoration:underline; text-underline-offset:3px; text-decoration-color:var(--ml-line); }
+  .login-v2 .ml-submit{ display:flex; align-items:center; justify-content:center; position:relative; width:100%; min-height:53px; border:0; border-radius:12px; background:var(--ml-green); color:var(--ml-on-green); font-size:16px; font-weight:700; padding:12px 44px; }
+  .login-v2 .ml-submit svg{ position:absolute; right:16px; width:19px; height:19px; }
+  .login-v2 .ml-message{ font-size:12px!important; color:var(--ml-error)!important; margin:0 0 12px!important; line-height:1.6; word-break:keep-all; }
+  .login-v2 .ml-signup{ display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:6px; margin-top:13px; font-size:12px; color:var(--ml-muted); }
+  .login-v2 .ml-signup-button{ display:inline-flex; align-items:center; gap:2px; color:var(--ml-green); font-weight:700; min-height:44px; background:transparent; border:0; font-size:13px; padding:0; }
+  .login-v2 .ml-signup-button svg{ width:14px; height:14px; }
+  .login-v2 .ml-footer{ margin:23px 0 0!important; text-align:center; font-size:11px!important; font-weight:400; letter-spacing:.01em; color:var(--ml-muted)!important; }
+  .login-v2 button:focus-visible,.login-v2 input:focus-visible{ outline:3px solid var(--ml-green); outline-offset:2px; }
+  .login-v2 .ml-input:focus-visible{ outline:none; }
+  /* Legacy join-code entry (only when staff Auth is off) */
   .login-v2 .field-box2{ margin-bottom:9px; }
-  .login-v2 .input-box2{ position:relative; width:100%; height:50px; display:flex; align-items:center; background:#F8F9F8; border:1px solid transparent; border-radius:14px; }
-  .login-v2 .input-icon2{ width:48px; flex-shrink:0; display:flex; align-items:center; justify-content:center; color:#9AA5A3; }
-  .login-v2 .input-icon2 svg{ width:18px; height:18px; }
-  .login-v2 .input-box2 input{ flex:1; height:100%; border:0; outline:none; background:transparent; padding-right:16px; font-family:inherit; font-size:14px; color:#123C32; }
-  .login-v2 .input-box2 input::placeholder{ color:#B9C0BF; }
+  .login-v2 .input-box2{ position:relative; width:100%; min-height:53px; display:flex; align-items:center; background:var(--ml-surface); border:1px solid var(--ml-line); border-radius:12px; }
+  .login-v2 .input-box2 input{ flex:1; height:49px; border:0; outline:none; background:transparent; padding-right:16px; font-family:inherit; font-size:16px; color:var(--ml-ink); }
   .login-v2 .code-input2{ text-align:center; letter-spacing:0.2em; font-weight:800; }
-  .login-v2 .login-options2{ display:flex; align-items:center; justify-content:space-between; margin:2px 3px 12px; }
-  .login-v2 .remember2{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:#71807D; cursor:pointer; }
-  .login-v2 .checkbox2{ width:20px; height:20px; border-radius:50%; border:none; flex:none; cursor:pointer; display:flex; align-items:center; justify-content:center; background:var(--line); color:#fff; font-size:12px; font-weight:700; padding:0; }
-  .login-v2 .checkbox2.checked2{ background:var(--brick); }
-  .login-v2 .forgot-password2{ color:#73817F; font-size:12.5px; text-decoration:underline; text-underline-offset:4px; background:none; border:none; cursor:pointer; padding:0; }
-  .login-v2 .login-button2{ width:100%; height:50px; border:0; border-radius:16px; background:var(--brick); color:#fff; font-family:inherit; font-size:16px; font-weight:800; display:flex; align-items:center; justify-content:center; position:relative; cursor:pointer; }
+  .login-v2 .login-button2{ width:100%; min-height:53px; border:0; border-radius:12px; background:var(--ml-green); color:var(--ml-on-green); font-family:inherit; font-size:16px; font-weight:700; display:flex; align-items:center; justify-content:center; position:relative; }
   .login-v2 .login-arrow2{ position:absolute; right:22px; font-size:24px; font-weight:300; }
-  .login-v2 .signup2{ margin-top:14px; text-align:center; font-size:13px; color:#8A9694; letter-spacing:-0.3px; background:none; border:none; padding:0; cursor:pointer; display:block; width:100%; }
-  .login-v2 .signup2 b{ margin-left:4px; color:var(--brick); font-weight:700; text-decoration:underline; text-underline-offset:4px; }
+  @media(max-width:360px){ .landing .login-v2{ padding:26px 20px 23px; } .login-v2 .ml-hero{ grid-template-columns:minmax(0,1fr) 86px; margin-top:27px; } .login-v2 .ml-art-wrap{ width:86px; height:120px; } .login-v2 .ml-hero h1{ font-size:20px; } .login-v2 .ml-description{ font-size:12px!important; } .login-v2 .ml-options{ gap:4px; } .login-v2 .ml-remember,.login-v2 .ml-link{ font-size:11px; } }
   .login-v2 .admin-link2{ display:block; text-align:center; margin-top:12px; font-size:12px; color:var(--ink-soft); background:none; border:none; cursor:pointer; padding:0; }
   .landing h1{ font-size:22px; font-weight:800; margin:0 0 8px; letter-spacing:-0.02em; }
   .landing p{ font-size:14px; color:var(--ink-soft); margin:0 0 36px; line-height:1.5; }
@@ -334,11 +361,13 @@
   .lightbox-close{ position:absolute; top:20px; right:20px; width:36px; height:36px; border-radius:50%; border:none; background:rgba(255,255,255,0.15); color:#fff; font-size:20px; line-height:1; cursor:pointer; }
 
   @media (prefers-reduced-motion: reduce){ *{ transition:none !important; } }
-  .environment-banner{max-width:480px;margin:0 auto;padding:8px 12px;text-align:center;background:#fff3cd;color:#674c00;font-size:12px;}
+  /* Staging only: the banner is a flex item of <body>; stack it above the app instead of squeezing the app beside it. */
+body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:center}
+.environment-banner{width:100%;max-width:480px;margin:0 auto;padding:8px 12px;text-align:center;background:#fff3cd;color:#674c00;font-size:12px;}
 </style>
 <link rel="stylesheet" href="/owner-ui.css">
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style/dist/xlsx.bundle.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js"></script>
 <script src="/app-config.js"></script>
 </head>
 <body>
@@ -368,17 +397,199 @@
   }
   const SUPABASE_URL = MANEE_CONFIG.supabaseUrl;
   const SUPABASE_ANON_KEY = MANEE_CONFIG.publishableKey;
+  // Sign-in persistence ("로그인 상태 유지"). Only a boolean preference is stored here, never a
+  // password. The Supabase session is written to localStorage when the login is kept and to
+  // sessionStorage otherwise (survives a reload, ends when the tab/browser closes).
+  //  - Each tab remembers where ITS sign-in lives (maneeTabMode) and which account it is (maneeTabUser).
+  //    Token refreshes and store-id writes keep going to that place and NEVER delete anything elsewhere.
+  //  - An explicit sign-in (maneeSetRememberLogin -> the first session write) or a logout may tidy the OTHER
+  //    storage area, but only when it holds no sign-in at all (orphan leftovers) or the SAME account's
+  //    duplicate. Another account's session is never deleted by this tab.
+  //  - A signed-in tab reads only its own area, so it can never silently become another account if its own
+  //    session disappears. A fresh page derives its area from where a session exists (session first).
+  //  - The storage key is unchanged, so sessions created before this option existed keep working.
+  //  - The last selected store id ("auth-store-id") follows the same rules via this adapter.
+  //  - If a storage area is blocked, the value stays in memory only (never persisted).
+  const MANEE_REMEMBER_KEY = MANEE_LOCAL_PREFIX+"remember-login";
+  const MANEE_AUTH_KEY = MANEE_IS_STAGING ? "manee-"+MANEE_CONFIG.projectRef+"-auth" : "sb-"+MANEE_CONFIG.projectRef+"-auth-token";
+  const MANEE_STORE_KEY = MANEE_LOCAL_PREFIX+"auth-store-id";
+  // ONE ACCOUNT PER BROWSER (decided by the owner of the service): a small marker in localStorage names the account that signed in
+  // last (an account id only, never a token). An explicit sign-in of another account makes every other tab of this browser
+  // profile drop its own session and return to the login screen, whatever the "로그인 상태 유지" choice was. A failed sign-in
+  // writes nothing. A superseded tab can neither refresh, overwrite nor delete the new account's session or store id.
+  // Other browsers/devices, other browser profiles, private windows and the other environment are separate storage and unaffected.
+  const MANEE_ACTIVE_KEY = MANEE_LOCAL_PREFIX+"active-account";
+  const maneeMemorySession = new Map();
+  let maneeTabMode = null;          // "local" | "session": where this tab's sign-in is stored
+  let maneeTabUser = null;          // account id of the session this tab holds
+  let maneeLastMode = null, maneeLastUser = null;   // kept across a logout so the store id can be tidied right after
+  let maneePendingLogin = false;    // an explicit sign-in is being applied; consumed by the first session write OF THE TARGET ACCOUNT
+  let maneePendingUser = null;      // the account that explicit sign-in is for (a write of any other account never uses or consumes it)
+  let maneeSuperseded = false;      // set when this tab found that another account took over the browser (read by the UI once)
+  let maneeSignedOut = false;       // this tab logged out: it must not silently adopt another account's session until it signs in again
+  let maneeOwnAuthUntil = 0;        // this tab's own sign-in/out/refresh just touched storage (see multi-tab sync)
+  function maneeArea(name){ try{ return window[name]; }catch(e){ return null; } }
+  function maneeRead(name, key){ try{ const area = maneeArea(name); return area ? area.getItem(key) : null; }catch(e){ return null; } }
+  function maneeDrop(name, key){ try{ const area = maneeArea(name); if(area) area.removeItem(key); }catch(e){} }
+  function maneeUserOf(value){ try{ const s = JSON.parse(value); return s && s.user && s.user.id ? String(s.user.id) : null; }catch(e){ return null; } }
+  function maneeAreaName(mode){ return mode === "local" ? "localStorage" : "sessionStorage"; }
+  function maneeOtherName(mode){ return mode === "local" ? "sessionStorage" : "localStorage"; }
+  function maneeRememberLogin(){
+    try{ return localStorage.getItem(MANEE_REMEMBER_KEY) !== "0"; }catch(e){ return true; }
+  }
+  function maneeSetRememberLogin(remember){
+    maneeTabMode = remember ? "local" : "session";
+    try{ localStorage.setItem(MANEE_REMEMBER_KEY, remember ? "1" : "0"); }catch(e){}
+  }
+  // An explicit sign-in exists only while applyManeeAuthSession() stores the new session. Everything else that writes the auth key
+  // (token refresh, late refresh of a superseded/logged-out tab) is NOT a sign-in and can never revive a session.
+  // The permission is bound to the TARGET account: a token refresh of the previous account that finishes meanwhile is a plain
+  // refresh (checked against the browser's active account), it neither uses nor consumes the sign-in.
+  function maneeArmLogin(user){ maneePendingLogin = true; maneePendingUser = user || null; }
+  function maneeEndPendingLogin(user){ if(user === undefined || maneePendingUser === (user || null)){ maneePendingLogin = false; maneePendingUser = null; } }
+  // Account id of a session, read from the access token (base64url JWT payload; no atob/Buffer needed) or its user object.
+  function maneeSessionUser(session){
+    try{
+      const part = String(session && session.access_token || "").split(".")[1];
+      if(part){
+        const T = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let bits = 0, acc = 0, out = "";
+        for(const ch of part){ const v = T.indexOf(ch); if(v < 0) continue; acc = (acc << 6) | v; bits += 6; if(bits >= 8){ bits -= 8; out += String.fromCharCode((acc >> bits) & 255); } }
+        const sub = JSON.parse(out).sub;
+        if(sub) return String(sub);
+      }
+    }catch(e){}
+    return session && session.user && session.user.id ? String(session.user.id) : null;
+  }
+  function maneeTakeSuperseded(){ const v = maneeSuperseded; maneeSuperseded = false; return v; }
+  function maneeCurrentMode(){
+    if(maneeTabMode) return maneeTabMode;
+    if(maneeRead("sessionStorage", MANEE_AUTH_KEY) !== null) return "session";
+    if(maneeRead("localStorage", MANEE_AUTH_KEY) !== null) return "local";
+    return maneeRememberLogin() ? "local" : "session";
+  }
+  // The other area may be tidied only if it holds no sign-in (orphans) or the SAME account's duplicate.
+  function maneeActiveUser(){
+    try{ const v = JSON.parse(localStorage.getItem(MANEE_ACTIVE_KEY)); return v && v.user ? String(v.user) : null; }catch(e){ return null; }
+  }
+  function maneeSetActiveUser(user){ try{ localStorage.setItem(MANEE_ACTIVE_KEY, JSON.stringify({user:user, at:Date.now()})); }catch(e){} }
+  function maneeClearActiveUser(user){ try{ if(user && maneeActiveUser() === user) localStorage.removeItem(MANEE_ACTIVE_KEY); }catch(e){} }
+  // True when the sign-in stored in this area belongs to a different account than the one this tab holds (this tab was superseded).
+  function maneeSlotOwnedByOther(name, me){
+    const u = maneeUserOf(maneeRead(name, MANEE_AUTH_KEY));
+    return !!(u && me && u !== me);
+  }
+  function maneeOtherIsTidyable(otherName, user){
+    const other = maneeRead(otherName, MANEE_AUTH_KEY);
+    return other === null || (user !== null && maneeUserOf(other) === user);
+  }
+  const maneeAuthStorage = {
+    getItem(key){
+      if(key === MANEE_AUTH_KEY && maneeSignedOut) return null;
+      const names = maneeTabMode ? [maneeAreaName(maneeTabMode)] : ["sessionStorage","localStorage"];
+      for(const name of names){
+        const value = maneeRead(name, key);
+        if(value !== null){
+          if(key === MANEE_AUTH_KEY){
+            const user = maneeUserOf(value), active = maneeActiveUser();
+            // This tab's own account was replaced in the shared slot: it has no session any more (never adopt the new one).
+            if(maneeTabUser && user && user !== maneeTabUser){ maneeSuperseded = true; maneeSignedOut = true; continue; }
+            // The browser's active account is someone else: this stored sign-in is stale. Drop it only from a tab-private area.
+            if(active && user && user !== active){
+              maneeSuperseded = true; maneeSignedOut = true;
+              // A stale tab-private sign-in of another account: drop it and stay signed out (do not fall through to the active account's shared session).
+              if(name === "sessionStorage"){ maneeDrop(name, key); return null; }
+              continue;
+            }
+            if(!active && user) maneeSetActiveUser(user);   // sessions from before this rule: the first reader claims the browser
+            if(!maneeTabMode){ maneeTabMode = name === "localStorage" ? "local" : "session"; maneeTabUser = user; }
+          }else if(maneeSlotOwnedByOther(name, maneeTabUser)){
+            continue;   // e.g. the last selected store id of another account
+          }
+          return value;
+        }
+      }
+      return maneeMemorySession.has(key) ? maneeMemorySession.get(key) : null;
+    },
+    setItem(key, value){
+      const isAuth = key === MANEE_AUTH_KEY;
+      const newUser = isAuth ? maneeUserOf(value) : null;
+      const explicit = isAuth && maneePendingLogin && (maneePendingUser === null || newUser === maneePendingUser);
+      if(isAuth && !explicit){
+        // Not an explicit sign-in: a tab that logged out or was superseded stays without a session (also when the marker is gone),
+        // a refresh may only store the account this tab holds, and never an account that is not the browser's active one.
+        if(maneeSignedOut) return;
+        // A refresh replaces the session that is still stored. If it is gone (another account signed in or out, or this one was cleared),
+        // or belongs to someone else, the refresh has nothing to refresh and is dropped.
+        const stored = maneeRead(maneeAreaName(maneeCurrentMode()), key), inMemory = maneeMemorySession.get(key);
+        if(stored === null && inMemory === undefined){ maneeSignedOut = true; return; }
+        if(stored !== null && newUser && maneeUserOf(stored) !== newUser) return;
+        const active = maneeActiveUser();
+        if(maneeTabUser && newUser && newUser !== maneeTabUser) return;
+        if(active && newUser && newUser !== active){ maneeSuperseded = true; maneeSignedOut = true; return; }
+      }
+      if(!isAuth && maneeSlotOwnedByOther(maneeAreaName(maneeCurrentMode()), maneeTabUser)) return;   // do not write into another account's slot
+      if(isAuth) maneeOwnAuthUntil = Date.now()+2500;
+      if(explicit && newUser) maneeSetActiveUser(newUser);   // BEFORE the session value, so a late refresh of the old account is refused at once
+      const mode = maneeCurrentMode(), target = maneeAreaName(mode), other = maneeOtherName(mode);
+      let saved = false;
+      try{ window[target].setItem(key, value); saved = true; }catch(e){}
+      if(!saved){ maneeMemorySession.set(key, value); return; }
+      maneeMemorySession.delete(key);
+      if(isAuth){
+        maneeSignedOut = false;
+        maneeTabMode = mode; maneeTabUser = maneeUserOf(value) || maneeTabUser;
+        if(explicit){
+          maneePendingLogin = false; maneePendingUser = null;   // only the explicit sign-in tidies; refreshes never do
+          // One account per browser: no other sign-in may remain in the other storage area (tabs holding it notice the marker and leave).
+          maneeDrop(other, MANEE_AUTH_KEY); maneeDrop(other, MANEE_STORE_KEY);
+        }
+      }
+    },
+    removeItem(key){
+      if(key === MANEE_AUTH_KEY){
+        maneeOwnAuthUntil = Date.now()+2500;
+        const mode = maneeCurrentMode(), own = maneeAreaName(mode), other = maneeOtherName(mode);
+        const stored = maneeRead(own, key);
+        // Who this tab is: the account it holds, else the one it held before its last cleanup. NEVER the account found in the shared
+        // slot, so a second cleanup of a superseded tab cannot be mistaken for a cleanup of the new account.
+        const user = maneeTabUser || maneeLastUser;
+        const tidyOther = user !== null && maneeOtherIsTidyable(other, user);
+        maneeMemorySession.delete(key);
+        // Only this tab's own sign-in may be deleted (or an empty slot). Another account's sign-in, or an unknown owner, is left alone.
+        if(stored === null || maneeUserOf(stored) === user) maneeDrop(own, key);
+        if(tidyOther) maneeDrop(other, key);
+        maneeClearActiveUser(user);   // only clears the marker if it names this account
+        maneeLastMode = mode; maneeLastUser = user !== null ? user : maneeLastUser; maneeTabMode = null; maneeTabUser = null; maneePendingLogin = false; maneePendingUser = null; maneeSignedOut = true;
+        return;
+      }
+      maneeMemorySession.delete(key);
+      const mode = maneeTabMode || maneeLastMode || maneeCurrentMode(), user = maneeTabUser || maneeLastUser;
+      const own = maneeAreaName(mode), other = maneeOtherName(mode);
+      if(maneeSlotOwnedByOther(own, user)) return;   // the store id in this slot belongs to another account now
+      maneeDrop(own, key);
+      if(maneeOtherIsTidyable(other, user)) maneeDrop(other, key);
+    }
+  };
   const db = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY,
-    MANEE_IS_STAGING ? {auth:{storageKey:"manee-"+MANEE_CONFIG.projectRef+"-auth"}} : undefined) : null;
+    {auth:Object.assign({storage:maneeAuthStorage}, MANEE_IS_STAGING ? {storageKey:"manee-"+MANEE_CONFIG.projectRef+"-auth"} : {})}) : null;
   // END MANEE_ENVIRONMENT
 
   // ---------- 개인 세션 저장 (이 기기/브라우저 전용, localStorage) ----------
+  // Keys that belong to the signed-in session follow the "로그인 상태 유지" choice (see maneeAuthStorage).
+  const MANEE_SESSION_SCOPED_KEYS = ["auth-store-id"];
   function localGet(key){
-    const v = localStorage.getItem(MANEE_LOCAL_PREFIX+key);
+    const v = MANEE_SESSION_SCOPED_KEYS.includes(key) ? maneeAuthStorage.getItem(MANEE_LOCAL_PREFIX+key) : localStorage.getItem(MANEE_LOCAL_PREFIX+key);
     return v===null ? null : { key, value:v };
   }
-  function localSet(key, value){ localStorage.setItem(MANEE_LOCAL_PREFIX+key, value); return { key, value }; }
-  function localDelete(key){ localStorage.removeItem(MANEE_LOCAL_PREFIX+key); return { key, deleted:true }; }
+  function localSet(key, value){
+    if(MANEE_SESSION_SCOPED_KEYS.includes(key)) maneeAuthStorage.setItem(MANEE_LOCAL_PREFIX+key, value); else localStorage.setItem(MANEE_LOCAL_PREFIX+key, value);
+    return { key, value };
+  }
+  function localDelete(key){
+    if(MANEE_SESSION_SCOPED_KEYS.includes(key)) maneeAuthStorage.removeItem(MANEE_LOCAL_PREFIX+key); else localStorage.removeItem(MANEE_LOCAL_PREFIX+key);
+    return { key, deleted:true };
+  }
 
   const DEFAULT_STORES = ["대전봉명점","전주서신점","광주전남대점"];
   const TABS = [
@@ -430,6 +641,18 @@
 
   const now = new Date();
 
+  // Lookups are applied only while the account/screen they were started for is still current.
+  let maneeViewEpoch = 0;            // bumped on logout/forced clear and whenever the signed-in account changes
+  const maneeLoadSeq = {};           // per-loader request counter: the latest request wins (also orders month/store answers)
+  // Identity/owner restore is one multi-step flow. Any newer restore, logout or account clear invalidates the older one,
+  // so a slow response of the previous account can never write profile, personal data or stores into the current view.
+  let maneeRestoreSeq = 0;
+  function maneeRestoreGuard(){ const seq=++maneeRestoreSeq; return ()=> seq===maneeRestoreSeq; }
+  function maneeLoadGuard(name){
+    const epoch = maneeViewEpoch, uid = state.authProfile && state.authProfile.user_id;
+    const seq = maneeLoadSeq[name] = (maneeLoadSeq[name]||0)+1;
+    return ()=> epoch === maneeViewEpoch && (state.authProfile && state.authProfile.user_id) === uid && seq === maneeLoadSeq[name];
+  }
   let state = {
     role: "loading", // loading | landing | owner | staff
     store: DEFAULT_STORES[0],
@@ -500,6 +723,7 @@
     notifBarExpanded: false,
     expandedStoreRows: {},
     dashboardDailyTrend: {},
+    storeFoodLimitMap: {},
     dashboardTrendActiveDate: null,
     hqDashboardStats: null,
     hqDashboardStatsLoading: false,
@@ -639,7 +863,8 @@
   }
 
   // ---------- store list ----------
-  async function loadStoreList(ownerUsername, franchiseId, authorizedStoreIds){
+  // alive (optional): returns false and leaves state untouched when the caller's flow was superseded while the lookup was in flight.
+  async function loadStoreList(ownerUsername, franchiseId, authorizedStoreIds, alive){
     let rows = [];
     try{
       let q = db.from('stores').select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour').is('archived_at', null).order('created_at');
@@ -650,6 +875,7 @@
       if(error) throw error;
       rows = data || [];
     }catch(e){ rows = []; }
+    if(alive && !alive()) return false;
     if(rows.length === 0 && !ownerUsername && !franchiseId && !Array.isArray(authorizedStoreIds)){
       try{
         const { data, error } = await db.from('stores').insert(DEFAULT_STORES.map(name=>({name}))).select('id,name,lat,lng,onboarding_done,manager_dashboard_enabled,business_day_cutoff_hour');
@@ -665,6 +891,7 @@
     state.storeCutoffMap = {};
     rows.forEach(r=>{ state.storeIdMap[r.name] = r.id; state.storeLocationMap[r.name] = (r.lat!=null && r.lng!=null) ? { lat:r.lat, lng:r.lng } : null; state.storeOnboardingMap[r.name] = !!r.onboarding_done; state.storeManagerDashboardMap[r.name] = !!r.manager_dashboard_enabled; state.storeCutoffMap[r.name] = (r.business_day_cutoff_hour!=null) ? r.business_day_cutoff_hour : DEFAULT_BUSINESS_DAY_CUTOFF_HOUR; });
     state.store = state.storeList[0];
+    return true;
   }
   function currentStoreId(){ return state.storeIdMap[state.store]; }
   function setStoreCutoffHour(store, hour){
@@ -821,6 +1048,87 @@
       try{ await db.from('stores').update({ manager_dashboard_enabled: val }).eq('id', storeId); }
       catch(e){ showToast("설정 저장에 실패했어요."); }
     })();
+  }
+  // Warning thresholds (label only; pay, wage and amounts are never touched). Labor: fixed 22%. Food: 40% unless the store's owner
+  // saved another value (stores.food_ratio_threshold; the same value is used by owner, manager and staff screens of that store).
+  // "over" means strictly greater than the limit.
+  const LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;
+  // state.storeFoodLimitMap[store]: number = saved by the owner, null = not set (default), false = could not be read.
+  function foodRatioLimit(store){
+    const v = state.storeFoodLimitMap ? state.storeFoodLimitMap[store] : null;
+    if(v === false) return null;
+    return (typeof v === "number" && isFinite(v) && v > 0 && v <= 100) ? v : DEFAULT_FOOD_RATIO_LIMIT;
+  }
+  // ONE verdict for a food ratio against the store's limit, used by the manager home and the owner's monthly report (the dashboard reads the
+  // same limit per store). "unknown" = the limit could not be read: the ratio may be shown, but it is never green ("안정"), never red.
+  const FOOD_LIMIT_UNKNOWN_TEXT = "기준 조회 실패 · 판정 불가";
+  function foodRatioVerdict(store, ratio){
+    if(ratio === null || ratio === undefined) return { state:"none", limit:null };
+    const limit = foodRatioLimit(store);
+    if(limit === null) return { state:"unknown", limit:null };
+    return { state: ratio > limit ? "over" : "ok", limit:limit };
+  }
+  function formatLimit(n){ return String(Math.round(Number(n)*10)/10); }
+  async function loadFoodLimit(store){
+    const storeId = state.storeIdMap[store];
+    if(!storeId) return;
+    const alive = maneeLoadGuard("foodLimit:"+store);
+    let value;
+    try{
+      const { data, error } = await db.from('stores').select('food_ratio_threshold').eq('id', storeId).maybeSingle();
+      // 42703 = the column does not exist yet (server not prepared): same as "not set".
+      if(error && error.code !== "42703") throw error;
+      value = (!error && data && data.food_ratio_threshold != null) ? Number(data.food_ratio_threshold) : null;
+    }catch(e){ value = false; }
+    if(!alive()) return;
+    if(!state.storeFoodLimitMap) state.storeFoodLimitMap = {};
+    state.storeFoodLimitMap[store] = value;
+  }
+  async function saveFoodLimit(store, raw){
+    const storeId = state.storeIdMap[store];
+    if(!storeId){ showToast("매장 정보를 확인하지 못했어요."); return false; }
+    const alive = maneeLoadGuard("foodLimitSave");
+    let value = null;
+    if(raw !== null){
+      const text = String(raw).trim();
+      value = Number(text);
+      if(!text || !isFinite(value) || value < 1 || value > 100){ showToast("1에서 100 사이의 숫자로 입력해 주세요."); return false; }
+      value = Math.round(value*10)/10;
+    }
+    try{
+      const { data, error } = await db.rpc('manee_set_store_food_ratio', { p_store_id: storeId, p_threshold: value });
+      if(error) throw error;
+      if(!data || data.ok !== true) throw new Error("rejected");
+    }catch(e){
+      if(!alive()) return false;
+      showToast(e && (e.code === "42883" || e.code === "PGRST202") ? "이 기능은 서버 준비가 끝난 뒤에 쓸 수 있어요." : "기준을 저장하지 못했어요. 사장님 계정인지 확인하고 다시 시도해 주세요.");
+      return false;
+    }
+    if(!alive()) return false;
+    if(!state.storeFoodLimitMap) state.storeFoodLimitMap = {};
+    state.storeFoodLimitMap[store] = value;
+    state.dashboardData = null;
+    render();
+    if(state.myStores && state.myStores.length) loadDashboardData();
+    showToast(value === null ? "식자재비율 기준을 기본값("+DEFAULT_FOOD_RATIO_LIMIT+"%)으로 되돌렸어요" : "식자재비율 기준을 "+formatLimit(value)+"%로 저장했어요");
+    return true;
+  }
+  // The manager's "이번 달 매장 요약" card (own function so the same output can be tested directly).
+  function renderManagerSummaryCard(sum){
+    let html = "";
+    const ratioColor = sum.laborRatio===null ? "var(--ink-soft)" : (sum.laborRatio>LABOR_RATIO_LIMIT ? "var(--danger)" : "var(--olive)");
+    const foodV = foodRatioVerdict(state.store, sum.expenseRatio);
+    const foodColor = (foodV.state==="none" || foodV.state==="unknown") ? "var(--ink-soft)" : (foodV.state==="over" ? "var(--danger)" : "var(--olive)");
+    html += '<div class="s-card">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'+labelWithIcon('chart','이번 달 매장 요약')+'</div>';
+    html += '<p class="s-main">'+sum.salesSum.toLocaleString()+'원</p>';
+    html += '<p class="crew-code-hint" style="margin-top:2px;">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>';
+    html += '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;">';
+    html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">인건비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+ratioColor+';">'+(sum.laborRatio===null?'—':sum.laborRatio.toFixed(1)+'%')+'</div></div>';
+    html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">식자재비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+foodColor+';">'+(sum.expenseRatio===null?'—':sum.expenseRatio.toFixed(1)+'%')+'</div>'+(foodV.state==="unknown"?'<div class="food-limit-unknown" style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_LIMIT_UNKNOWN_TEXT+'</div>':'')+'</div>';
+    html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">오늘 체크리스트</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;">'+(sum.checklistPct===null?'—':sum.checklistPct+'%')+'</div></div>';
+    html += '</div></div>';
+    return html;
   }
   function computeMyStoreSummary(){
     const y = state.monthYear, m = state.monthNum;
@@ -1026,6 +1334,8 @@
     too_many_pending:'대기 중인 요청을 먼저 확인하거나 취소해 주세요.'
   };
   function clearStaffAuthView(){
+    maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
+    maneeRestoreSeq++;  // ...and so is an unfinished login/identity restore
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
     state.staffSignupUsernameCheck=null;state.ownerRequestUsernameCheck=null;
     state.items={};state.checks={};state.checklistLog={};state.homeChecklistItems={};state.homeChecklistChecks={};
@@ -1035,6 +1345,10 @@
     state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
     state.crew=[]; state.attendance=[]; state.shifts=[]; state.salesReports=[]; state.expenseEntries=[];
     state.attConfirmPrompt=null; state.onboardingStep=null; state.announcements=[]; state.todayReservations=[]; state.vendors=[];
+    // The owner home caches per-account data; without this the next account briefly sees the previous one's.
+    state.dashboardData=null; state.dashboardLoading=false; state.expandedStoreRows={}; state.expandedCrewIds={}; state.storeFoodLimitMap={};
+    state.dashboardReservations=[]; state.section='dashboard'; state.showOwnerSalesForm=false; state.salesEditingId=null;
+    state.salesEditDate=null; state.showAddStoreForm=false; state.selectedDate=null; state.selectedSalesDate=null;
     state.role='landing'; state.landingMode='default'; state.loading=false;
   }
   function staffErrorMessage(error){
@@ -1052,14 +1366,25 @@
     if(!data || data.ok!==true){ const e=new Error('Staff request failed'); e.code=data && data.error; throw e; }
     return data;
   }
+  // A superseded run (newer login/restore, logout, account switch) is silent on success AND on failure: its late error must not
+  // reach a caller that would clear the CURRENT account's screen. An error of the current run is passed on unchanged.
   async function restoreManeeAuthIdentity(preferredStoreId,showAccount){
+    const alive=maneeRestoreGuard();
+    try{ return await restoreManeeAuthIdentityRun(preferredStoreId,showAccount,alive); }
+    catch(e){ if(!alive()) return true; throw e; }
+  }
+  async function restoreManeeAuthIdentityRun(preferredStoreId,showAccount,alive){
     const {data:sessionData,error:sessionError}=await db.auth.getSession();
+    if(!alive()) return true;   // superseded (newer login/restore or logout): the newer flow owns the view
     if(sessionError) throw sessionError;
     if(!sessionData || !sessionData.session){ clearStaffAuthView(); return false; }
     const {data:userData,error:userError}=await db.auth.getUser();
+    if(!alive()) return true;
     if(userError || !userData || !userData.user) throw new Error('로그인을 다시 확인해 주세요.');
     const snapshot=await staffPortal('session');
+    if(!alive()) return true;
     if(!snapshot.profile || snapshot.profile.user_id!==userData.user.id) throw new Error('계정 정보를 확인하지 못했어요.');
+    if(state.authProfile && state.authProfile.user_id!==snapshot.profile.user_id) maneeViewEpoch++;
     state.authProfile=snapshot.profile;
     state.staffPersonalProfile=snapshot.personal_profile||null;
     state.authMemberships=snapshot.memberships||[];
@@ -1074,7 +1399,8 @@
       state.crew=[]; state.attendance=[]; state.shifts=[]; state.loading=false; render(); return true;
     }
     localSet('auth-store-id',selected.store_id);
-    if(selected.role==='owner') return restoreManeeAuthOwner(selected.store_name);
+    if(selected.role==='owner') return restoreManeeAuthOwnerRun(selected.store_name,alive);
+    if(!alive()) return true;
     if(!['staff','manager'].includes(selected.role) || !selected.crew_id) throw new Error('직원 연결을 확인하지 못했어요.');
     state.store=selected.store_name; state.storeList=[selected.store_name]; state.myCrewId=selected.crew_id;
     state.storeIdMap[selected.store_name]=selected.store_id;
@@ -1105,20 +1431,24 @@
     return [...crew.filter(c=>c.id!==mine.crew.id),rowToCrew(mine.crew)];
   }
   async function loadAuthStaffHome(store){
+    const alive=maneeLoadGuard("staffHome");
     state.loading=true; render();
     try{
-      state.crew=await loadAuthStaffCrew(store);
+      const crewRows=await loadAuthStaffCrew(store);
+      if(!alive()) return;
+      state.crew=crewRows;
       const me=state.crew.find(c=>c.id===state.myCrewId);
-      const tasks=[loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
+      const tasks=[loadFoodLimit(store),loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
       if(me && (me.salesAccess || me.isManager)) tasks.push(loadSalesReports(store,monthKey()),loadExpenseEntries(store,monthKey()),loadVendors(store));
       else { state.salesReports=[]; state.expenseEntries=[]; state.vendors=[]; }
       await Promise.all(tasks);
       // Keep a shift started in the previous month available for clock-out.
       const {data:open,error}=await db.from('attendance').select('*').eq('store_id',currentStoreId()).eq('crew_id',state.myCrewId).is('check_out',null).limit(1);
       if(error) throw error;
+      if(!alive()) return;
       if(open && open[0]) applyStaffAttendance(open[0]);
       state.loading=false; render();
-    }catch(e){ clearStaffAuthView(); render(); throw e; }
+    }catch(e){ if(!alive()) return; clearStaffAuthView(); render(); throw e; }
   }
   function applyStaffAttendance(r){
     const value={id:r.id,date:r.date,crewId:r.crew_id,checkIn:(r.check_in||'').slice(0,5),checkOut:r.check_out?r.check_out.slice(0,5):null,
@@ -1596,21 +1926,30 @@
   // Auth evidence takes precedence over legacy browser identity hints.
   // This is an owner-session prerequisite, not the staff Auth cutover.
   async function restoreManeeAuthOwner(preferredStore){
+    const alive=maneeRestoreGuard();
+    try{ return await restoreManeeAuthOwnerRun(preferredStore,alive); }
+    catch(e){ if(!alive()) return true; throw e; }
+  }
+  async function restoreManeeAuthOwnerRun(preferredStore,alive){
     const { data: authData, error: sessionError } = await db.auth.getSession();
+    if(!alive()) return true;
     if(sessionError) throw sessionError;
     if(!authData || !authData.session) return false;
 
     const { data: verified, error: userError } = await db.auth.getUser();
+    if(!alive()) return true;
     if(userError || !verified || !verified.user) throw new Error("로그인을 다시 확인해 주세요.");
     const userId = verified.user.id;
     const { data: profile, error: profileError } = await db.from('profiles')
       .select('user_id,username,status').eq('user_id', userId).maybeSingle();
+    if(!alive()) return true;
     if(profileError) throw profileError;
     if(!profile || profile.user_id !== userId || profile.status !== 'active'){
       throw new Error("사용할 수 없는 계정이에요. 계정 상태를 확인해 주세요.");
     }
     const { data: memberships, error: membershipError } = await db.from('store_memberships')
       .select('user_id,store_id,role,status').eq('user_id', userId).eq('status', 'active');
+    if(!alive()) return true;
     if(membershipError) throw membershipError;
     const allowedStoreIds = new Set((memberships || [])
       .filter(m=>m.user_id === userId && m.role === 'owner' && m.status === 'active')
@@ -1619,7 +1958,7 @@
 
     // Query only stores backed by active memberships. owner_username is retained
     // solely for legacy callers of loadStoreList.
-    await loadStoreList(null, null, [...allowedStoreIds]);
+    if(!await loadStoreList(null, null, [...allowedStoreIds], alive)) return true;
     state.storeList = state.storeList.filter(name=>allowedStoreIds.has(state.storeIdMap[name]));
     if(!state.storeList.length) throw new Error("연결된 매장을 찾지 못했어요.");
     state.myUsername = profile.username;
@@ -1630,7 +1969,7 @@
     localDelete("my-request-id");
     const target = preferredStore && state.storeList.includes(preferredStore)
       ? preferredStore : state.storeList[0];
-    await becomeStoreOwner(target);
+    await becomeStoreOwner(target, alive);
     return true;
   }
 
@@ -1692,7 +2031,12 @@
       return;
     }
     if(MANEE_STAFF_AUTH_ENABLED){
-      try{ if(!await restoreManeeAuthIdentity(null,false)) render(); }
+      try{
+        if(!await restoreManeeAuthIdentity(null,false)){
+          render();
+          if(maneeTakeSuperseded()) showToast("다른 계정으로 로그인해서 이 화면은 로그아웃됐어요. 다시 로그인해 주세요.");
+        }
+      }
       catch(e){ clearStaffAuthView(); render(); showToast(staffErrorMessage(e)); }
       return;
     }
@@ -1798,10 +2142,12 @@
     await loadAllForStore(state.store);
     render();
   }
-  async function becomeStoreOwner(storeName){
+  async function becomeStoreOwner(storeName, alive){
+    if(alive && !alive()) return;
     state.role = "storeOwner";
     state.store = storeName;
     await loadAllForStore(storeName);
+    if(alive && !alive()) return;   // a newer login/logout took over while the stores were loading
     state.onboardingStep = (state.storeOnboardingMap && !state.storeOnboardingMap[storeName]) ? "location" : null;
     render();
   }
@@ -1859,8 +2205,18 @@
 
   async function applyManeeAuthSession(session){
     if(!session || !session.access_token || !session.refresh_token) throw new Error("로그인 세션을 만들지 못했어요.");
-    const { error } = await db.auth.setSession({ access_token:session.access_token, refresh_token:session.refresh_token });
-    if(error) throw error;
+    const target = maneeSessionUser(session);
+    if(!target) throw new Error("로그인 세션을 만들지 못했어요.");
+    maneeArmLogin(target);
+    try{
+      const { error } = await db.auth.setSession({ access_token:session.access_token, refresh_token:session.refresh_token });
+      if(error) throw error;
+    }finally{ maneeEndPendingLogin(target); }
+    // Success only if the session that is actually applied belongs to the account that signed in (a refused or overwritten save is a failure).
+    const { data: applied, error: appliedError } = await db.auth.getSession();
+    if(appliedError || !applied || !applied.session || !applied.session.user || String(applied.session.user.id) !== target){
+      throw new Error("로그인 세션을 만들지 못했어요. 다시 로그인해 주세요.");
+    }
   }
 
   async function enterAuthenticatedOwner(username, preferredStore){
@@ -1990,12 +2346,33 @@
     }
   }
 
+  // Inline login message (owner/staff login screen). Falls back to a toast on other screens.
+  function showLoginNotice(text, invalidInput){
+    const box = document.getElementById("login-message");
+    ["store-login-username-input","store-login-password-input"].forEach(id=>{
+      const input = document.getElementById(id); if(input) input.removeAttribute("aria-invalid");
+    });
+    if(!box){ showToast(text); return; }
+    box.textContent = text; box.hidden = false;
+    if(invalidInput){ invalidInput.setAttribute("aria-invalid","true"); invalidInput.focus(); }
+  }
+  // The login-screen checkbox is the source of truth; state keeps it across re-renders.
+  function currentRememberChoice(){
+    const box = document.getElementById("remember-login-checkbox");
+    if(box) return !!box.checked;
+    return state.rememberMeChecked === undefined ? maneeRememberLogin() : state.rememberMeChecked !== false;
+  }
+
   async function loginStoreOwner(){
     const userInput = document.getElementById("store-login-username-input");
     const pwInput = document.getElementById("store-login-password-input");
     const username = (userInput.value||"").trim();
     const pw = pwInput.value||"";
-    if(!username || !pw){ showToast("아이디와 비밀번호를 입력해 주세요."); return; }
+    if(!username){ showLoginNotice("아이디를 입력해 주세요.", userInput); return; }
+    if(!pw){ showLoginNotice("비밀번호를 입력해 주세요.", pwInput); return; }
+    // Decide where the session will be stored BEFORE it is written (see maneeAuthStorage).
+    state.rememberMeChecked = currentRememberChoice();
+    maneeSetRememberLogin(state.rememberMeChecked);
     showToast("확인 중이에요…");
 
     let authError = null;
@@ -2013,8 +2390,9 @@
       }
       authError = e;
     }
+    maneeEndPendingLogin();   // a failed sign-in changes nothing for any other tab or account
 
-    if(MANEE_STAFF_AUTH_ENABLED){ showToast(staffErrorMessage(authError)); return; }
+    if(MANEE_STAFF_AUTH_ENABLED){ showLoginNotice(staffErrorMessage(authError)); return; }
     const passwordHash = await hashPassword(pw);
     const record = await findOwnerRequestByCredentials(username, passwordHash);
     if(!record){ showToast((authError && authError.message) ? authError.message : "아이디 또는 비밀번호가 올바르지 않아요."); return; }
@@ -2578,6 +2956,7 @@
   async function loadChecklist(store, dateStr){
     const d = dateStr || bizToday();
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("checklist");
     let items = {};
     if(storeId){
       try{
@@ -2586,6 +2965,7 @@
         (data||[]).forEach(r=>{ items[r.tab] = r.data; });
       }catch(e){}
     }
+    if(!alive()) return;   // a stale run must not initialize/write default templates
     if(!items.morning && !items.afternoon && !items.routine){
       items = JSON.parse(JSON.stringify(DEFAULT_ITEMS));
       if(storeId){
@@ -2605,17 +2985,20 @@
         (data||[]).forEach(r=>{ checks[r.item_id] = true; });
       }catch(e){}
     }
+    if(!alive()) return;
     state.items = items;
     state.checks = checks;
     state.checklistViewDate = d;
   }
   async function loadChecklistLog(store, mKey){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("checklistLog");
     state.checklistLog = {};
     if(!storeId) return;
     try{
       const { data, error } = await db.from('checklist_log').select('date,done,total,closed_at').eq('store_id', storeId);
       if(error) throw error;
+      if(!alive()) return;
       (data||[]).forEach(r=>{
         if(r.date && r.date.indexOf(mKey)===0){
           state.checklistLog[r.date] = { done:r.done, total:r.total, closedAt: r.closed_at ? new Date(r.closed_at).getTime() : null };
@@ -2677,16 +3060,20 @@
     }catch(e){ return []; }
   }
   async function loadCrew(store){
-    state.crew = await loadCrewRaw(store);
+    const alive = maneeLoadGuard("crew");
+    const rows = await loadCrewRaw(store);
+    if(alive()) state.crew = rows;
   }
   async function loadPayAdjustments(store, monthKeyStr){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("payAdjustments");
     if(!storeId){ state.payAdjustments = []; return; }
     try{
       const { data, error } = await db.from('crew_pay_adjustments').select('*').eq('store_id', storeId).eq('month_key', monthKeyStr);
       if(error) throw error;
+      if(!alive()) return;
       state.payAdjustments = (data||[]).map(r=>({ id:r.id, crewId:r.crew_id, type:r.type, amount:Number(r.amount)||0, note:r.note||"" }));
-    }catch(e){ state.payAdjustments = []; }
+    }catch(e){ if(alive()) state.payAdjustments = []; }
   }
   async function addPayAdjustment(){
     const crewId = state.payCrewId;
@@ -2733,39 +3120,45 @@
   }
   async function loadShifts(store, mKey){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("shifts");
     state.shifts = [];
     if(!storeId) return;
     try{
       const { start, end } = monthDateRange(mKey);
       const { data, error } = await db.from('shifts').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
       if(error) throw error;
+      if(!alive()) return;
       state.shifts = (data||[]).map(r=>({ id:r.id, date:r.date, crewId:r.crew_id, start:(r.start_time||"").slice(0,5), end:(r.end_time||"").slice(0,5) }));
-    }catch(e){ state.shifts = []; }
+    }catch(e){ if(alive()) state.shifts = []; }
   }
   async function loadAttendance(store, mKey){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("attendance");
     state.attendance = [];
     if(!storeId) return;
     try{
       const { start, end } = monthDateRange(mKey);
       const { data, error } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
       if(error) throw error;
+      if(!alive()) return;
       state.attendance = (data||[]).map(r=>({
         id:r.id, date:r.date, crewId:r.crew_id,
         checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out ? r.check_out.slice(0,5) : null,
         confirmed: !!r.confirmed, staffConfirmed: !!r.staff_confirmed, timeEdited: !!r.time_edited, staffAckEdit: !!r.staff_ack_edit
       }));
-    }catch(e){ state.attendance = []; }
+    }catch(e){ if(alive()) state.attendance = []; }
   }
   async function loadFixed(store){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("fixedSchedules");
     state.fixedSchedules = [];
     if(!storeId) return;
     try{
       const { data, error } = await db.from('fixed_schedules').select('*').eq('store_id', storeId);
       if(error) throw error;
+      if(!alive()) return;
       state.fixedSchedules = (data||[]).map(r=>({ id:r.id, crewId:r.crew_id, days:r.days||[], start:(r.start_time||"").slice(0,5), end:(r.end_time||"").slice(0,5) }));
-    }catch(e){ state.fixedSchedules = []; }
+    }catch(e){ if(alive()) state.fixedSchedules = []; }
   }
 
   function freshSalesDraft(){
@@ -2854,36 +3247,42 @@
   }
   async function loadSalesReports(store, mKey){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("salesReports");
     state.salesReports = [];
     if(!storeId) return;
     try{
       const { start, end } = monthDateRange(mKey);
       const { data, error } = await db.from('sales_reports').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
       if(error) throw error;
+      if(!alive()) return;
       state.salesReports = (data||[]).map(rowToSalesReport);
-    }catch(e){ state.salesReports = []; }
+    }catch(e){ if(alive()) state.salesReports = []; }
   }
 
   async function loadExpenseEntries(store, mKey){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("expenseEntries");
     state.expenseEntries = [];
     if(!storeId) return;
     try{
       const { start, end } = monthDateRange(mKey);
       const { data, error } = await db.from('expense_entries').select('*').eq('store_id', storeId).gte('date', start).lte('date', end).order('created_at');
       if(error) throw error;
+      if(!alive()) return;
       state.expenseEntries = (data||[]).map(r=>({ id:r.id, date:r.date, description:r.description, amount:r.amount||0 }));
-    }catch(e){ state.expenseEntries = []; }
+    }catch(e){ if(alive()) state.expenseEntries = []; }
   }
   async function loadVendors(store){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("vendors");
     state.vendors = [];
     if(!storeId) return;
     try{
       const { data, error } = await db.from('vendors').select('*').eq('store_id', storeId).order('created_at');
       if(error) throw error;
+      if(!alive()) return;
       state.vendors = (data||[]).map(r=>({ id:r.id, name:r.name }));
-    }catch(e){ state.vendors = []; }
+    }catch(e){ if(alive()) state.vendors = []; }
   }
   function addVendor(){
     const input = document.getElementById("new-vendor-input");
@@ -2917,23 +3316,27 @@
   }
   async function loadFixedExpenses(store, mKey){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("fixedExpenses");
     state.fixedExpenses = [];
     if(!storeId) return;
     try{
       const { data, error } = await db.from('fixed_expenses').select('*').eq('store_id', storeId).eq('month_key', mKey).order('created_at');
       if(error) throw error;
+      if(!alive()) return;
       let rows = data || [];
       if(rows.length === 0 && (!MANEE_STAFF_AUTH_ENABLED || canManageBusinessData())){
         const pKey = prevMonthKey(mKey);
         const { data: prevData } = await db.from('fixed_expenses').select('*').eq('store_id', storeId).eq('month_key', pKey).order('created_at');
+        if(!alive()) return;   // a stale run must not perform the copy-forward INSERT
         if(prevData && prevData.length > 0){
           const newRows = prevData.map(r=>({ store_id: storeId, month_key: mKey, name: r.name, amount: r.amount }));
           const { data: inserted } = await db.from('fixed_expenses').insert(newRows).select();
           rows = inserted || [];
         }
       }
+      if(!alive()) return;
       state.fixedExpenses = rows.map(r=>({ id:r.id, name:r.name, amount:r.amount||0 }));
-    }catch(e){ state.fixedExpenses = []; }
+    }catch(e){ if(alive()) state.fixedExpenses = []; }
   }
   function addFixedExpense(){
     const nameInput = document.getElementById("new-fixedexpense-name-input");
@@ -3011,21 +3414,25 @@
   }
   async function loadTodayReservations(store){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("todayReservations");
     if(!storeId){ state.reservations = []; return; }
     try{
       const { data, error } = await db.from('reservations').select('*').eq('store_id', storeId).eq('date', bizToday()).order('time');
       if(error) throw error;
+      if(!alive()) return;
       state.reservations = (data||[]).map(r=>({ id:r.id, date:r.date, time:r.time||"", customerName:r.customer_name||"", phone:r.phone||"", partySize:r.party_size||0, memo:r.memo||"" }));
-    }catch(e){ state.reservations = []; }
+    }catch(e){ if(alive()) state.reservations = []; }
   }
   async function loadUpcomingReservations(store){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("upcomingReservations");
     if(!storeId){ state.upcomingReservations = []; return; }
     try{
       const { data, error } = await db.from('reservations').select('*').eq('store_id', storeId).gt('date', bizToday()).order('date').order('time');
       if(error) throw error;
+      if(!alive()) return;
       state.upcomingReservations = (data||[]).map(r=>({ id:r.id, date:r.date, time:r.time||"", customerName:r.customer_name||"", phone:r.phone||"", partySize:r.party_size||0, memo:r.memo||"" }));
-    }catch(e){ state.upcomingReservations = []; }
+    }catch(e){ if(alive()) state.upcomingReservations = []; }
   }
   async function addReservation(){
     const dateInp = document.getElementById("res-date-input");
@@ -3165,17 +3572,19 @@
 
   async function loadAnnouncements(store){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("announcements");
     state.announcements = [];
     if(!storeId) return;
     try{
       const { data, error } = await db.from('announcements').select('*, announcement_reads(crew_id, read_at)').eq('store_id', storeId).order('created_at', { ascending:false });
       if(error) throw error;
+      if(!alive()) return;
       state.announcements = (data||[]).map(r=>{
         const reads = {};
         (r.announcement_reads||[]).forEach(rr=>{ reads[rr.crew_id] = new Date(rr.read_at).getTime(); });
         return { id:r.id, title:r.title, body:r.body||"", authorName:r.author_name||"", createdAt: new Date(r.created_at).getTime(), reads };
       });
-    }catch(e){ state.announcements = []; }
+    }catch(e){ if(alive()) state.announcements = []; }
   }
 
   async function createAnnouncement(){
@@ -3574,6 +3983,7 @@
   }
 
   async function loadAllForStore(store){
+    const alive = maneeLoadGuard("allForStore");
     state.loading = true; render();
     await Promise.all([
       loadChecklist(store, state.checklistViewDate || bizToday()),
@@ -3589,8 +3999,10 @@
       loadAnnouncements(store),
       loadTodayReservations(store),
       loadUpcomingReservations(store),
-      loadPayAdjustments(store, monthKey())
+      loadPayAdjustments(store, monthKey()),
+      loadFoodLimit(store)
     ]);
+    if(!alive()) return;
     state.loading = false;
     render();
     if(state.role === "storeOwner") refreshPushSubStatus();
@@ -3598,6 +4010,7 @@
 
   async function loadHomeChecklistPreview(store){
     const storeId = state.storeIdMap[store];
+    const alive = maneeLoadGuard("homeChecklist");
     let items = {}, checks = {};
     if(storeId){
       try{
@@ -3609,6 +4022,7 @@
         (data||[]).forEach(r=>{ checks[r.item_id] = true; });
       }catch(e){}
     }
+    if(!alive()) return;
     if(!items.morning && !items.afternoon && !items.routine) items = MANEE_STAFF_AUTH_ENABLED ? {} : DEFAULT_ITEMS;
     state.homeChecklistItems = items;
     state.homeChecklistChecks = checks;
@@ -3945,6 +4359,9 @@
   }
 
   async function loadDashboardData(){
+    // A lookup only lands if the account/screen it was started for is still current (logout, account switch,
+    // or a newer dashboard request all invalidate it). It also records which inputs could NOT be read.
+    const alive = maneeLoadGuard("dashboard");
     state.dashboardLoading = true; render();
     const mKey = monthKey();
     const y = state.monthYear, m = state.monthNum;
@@ -3958,33 +4375,40 @@
     let ackedStoreIds = new Set();
     if(showTax){
       try{
-        const { data } = await db.from('tax_reminder_ack').select('store_id').eq('month_key', curMonthKey);
+        const { data, error } = await db.from('tax_reminder_ack').select('store_id').eq('month_key', curMonthKey);
+        if(error) throw error;
         (data||[]).forEach(r=> ackedStoreIds.add(r.store_id));
       }catch(e){}
     }
+    if(!alive()) return;
     const results = await Promise.all(storesToLoad.map(async (store)=>{
       let crewArr = [], attArr = [], salesArr = [], items = {}, checks = {};
+      // Inputs of the status verdict that could not be read. An error or a network failure is NOT "no rows".
+      const failed = [];
       const storeId = state.storeIdMap[store];
       try{
         if(storeId){
-          const { data } = await db.from('crew').select('*').eq('store_id', storeId);
+          const { data, error } = await db.from('crew').select('*').eq('store_id', storeId);
+          if(error) throw error;
           crewArr = (data||[]).map(rowToCrew);
         }
-      }catch(e){}
+      }catch(e){ failed.push("직원"); }
       try{
         if(storeId){
           const { start, end } = monthDateRange(mKey);
-          const { data } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
+          const { data, error } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
+          if(error) throw error;
           attArr = (data||[]).map(r=>({ crewId:r.crew_id, date:r.date, checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out? r.check_out.slice(0,5): null, confirmed: !!r.confirmed }));
         }
-      }catch(e){}
+      }catch(e){ failed.push("근태"); }
       try{
         if(storeId){
           const { start, end } = monthDateRange(mKey);
-          const { data } = await db.from('sales_reports').select('date,total_sales,delivery_baemin,delivery_coupang,delivery_yogiyo').eq('store_id', storeId).gte('date', start).lte('date', end);
+          const { data, error } = await db.from('sales_reports').select('date,total_sales,delivery_baemin,delivery_coupang,delivery_yogiyo').eq('store_id', storeId).gte('date', start).lte('date', end);
+          if(error) throw error;
           salesArr = (data||[]).map(r=>({ date: r.date, totalSales: r.total_sales||0, deliverySum: (r.delivery_baemin||0)+(r.delivery_coupang||0)+(r.delivery_yogiyo||0) }));
         }
-      }catch(e){}
+      }catch(e){ failed.push("매출"); }
       try{
         if(storeId){
           const { data } = await db.from('checklist_templates').select('tab,data').eq('store_id', storeId);
@@ -4001,10 +4425,11 @@
       try{
         if(storeId){
           const { start, end } = monthDateRange(mKey);
-          const { data } = await db.from('expense_entries').select('amount').eq('store_id', storeId).gte('date', start).lte('date', end);
+          const { data, error } = await db.from('expense_entries').select('amount').eq('store_id', storeId).gte('date', start).lte('date', end);
+          if(error) throw error;
           expenseArr = (data||[]).map(r=>({ amount: r.amount||0 }));
         }
-      }catch(e){}
+      }catch(e){ failed.push("지출"); }
 
       let salesSum = 0;
       salesArr.forEach(s=> salesSum += Number(s.totalSales)||0);
@@ -4012,10 +4437,13 @@
       salesArr.forEach(s=> deliverySum += Number(s.deliverySum)||0);
       let laborPay = 0;
       crewArr.forEach(c=>{ laborPay += calcCrewPayFrom(c, attArr, y, m).pay; });
-      const laborRatio = salesSum>0 ? (laborPay/salesSum*100) : null;
+      // A ratio is only computed from inputs that were actually read; otherwise it is unknown (null), never 0.
+      const laborReadable = failed.indexOf("직원")<0 && failed.indexOf("근태")<0 && failed.indexOf("매출")<0;
+      const expenseReadable = failed.indexOf("지출")<0 && failed.indexOf("매출")<0;
+      const laborRatio = (laborReadable && salesSum>0) ? (laborPay/salesSum*100) : null;
       let expenseSum = 0;
       expenseArr.forEach(e=> expenseSum += Number(e.amount)||0);
-      const expenseRatio = salesSum>0 ? (expenseSum/salesSum*100) : null;
+      const expenseRatio = (expenseReadable && salesSum>0) ? (expenseSum/salesSum*100) : null;
 
       let total=0, done=0;
       if(items){
@@ -4043,7 +4471,8 @@
       if(showTax && storeId && !ackedStoreIds.has(storeId)){
         try{
           const { start, end } = monthDateRange(prevMonthKey);
-          const { data } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
+          const { data, error } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
+          if(error) throw error;
           const prevAttArr = (data||[]).map(r=>({ crewId:r.crew_id, date:r.date, checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out? r.check_out.slice(0,5): null, confirmed: !!r.confirmed }));
           let prevTotal = 0;
           crewArr.forEach(c=>{ prevTotal += calcCrewPayFrom(c, prevAttArr, prevY, prevM).pay; });
@@ -4051,23 +4480,34 @@
         }catch(e){}
       }
 
-      let prevMonthSalesSum = 0;
+      let foodThreshold = DEFAULT_FOOD_RATIO_LIMIT;
+      try{
+        if(storeId){
+          const { data, error } = await db.from('stores').select('food_ratio_threshold').eq('id', storeId).maybeSingle();
+          if(error && error.code !== '42703') throw error;
+          if(!error && data && data.food_ratio_threshold != null) foodThreshold = Number(data.food_ratio_threshold);
+        }
+      }catch(e){ failed.push("식자재 기준"); foodThreshold = null; }
+      let prevMonthSalesSum = 0, prevMonthFailed = false;
       try{
         if(storeId){
           const { start, end } = monthDateRange(prevMonthKey);
-          const { data } = await db.from('sales_reports').select('total_sales').eq('store_id', storeId).gte('date', start).lte('date', end);
+          const { data, error } = await db.from('sales_reports').select('total_sales').eq('store_id', storeId).gte('date', start).lte('date', end);
+          if(error) throw error;
           (data||[]).forEach(r=> prevMonthSalesSum += Number(r.total_sales)||0);
         }
-      }catch(e){}
+      }catch(e){ prevMonthFailed = true; }
       const dailySales = {};
       salesArr.forEach(s=>{ dailySales[s.date] = (dailySales[s.date]||0) + (Number(s.totalSales)||0); });
 
-      return { store, salesSum, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, dailySales };
+      return { store, foodThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
     }));
+    if(!alive()) return;
     results.sort((a,b)=> b.salesSum - a.salesSum);
     state.dashboardData = results;
     const dailyTotals = {};
     results.forEach(d=>{
+      if(ownerSalesUnreadable(d)) return;   // unknown, not zero
       Object.keys(d.dailySales||{}).forEach(date=>{
         dailyTotals[date] = (dailyTotals[date]||0) + d.dailySales[date];
       });
@@ -4079,6 +4519,7 @@
   }
 
   async function loadDashboardReservations(){
+    const alive = maneeLoadGuard("dashboardReservations");
     const storesToLoad = (state.role==="hq"||state.role==="franchise") ? state.storeList : state.myStores;
     if(!storesToLoad || storesToLoad.length===0){ state.dashboardReservations = []; return; }
     const idToName = {};
@@ -4087,9 +4528,10 @@
     try{
       const { data, error } = await db.from('reservations').select('*').in('store_id', storeIds).eq('date', bizToday()).order('time');
       if(error) throw error;
+      if(!alive()) return;
       state.dashboardReservations = (data||[]).map(r=>({ id:r.id, date:r.date, time:r.time||"", customerName:r.customer_name||"", phone:r.phone||"", partySize:r.party_size||0, memo:r.memo||"", storeName: idToName[r.store_id]||"" }));
-    }catch(e){ state.dashboardReservations = []; }
-    render();
+    }catch(e){ if(alive()) state.dashboardReservations = []; }
+    if(alive()) render();
   }
 
   function exportExcelAttendance(){
@@ -4999,6 +5441,7 @@
       if(year!==state.monthYear||month!==state.monthNum){state.monthYear=year;state.monthNum=month;state.dashboardData=null;await loadAllForStore(state.store);}else render();
     });
     const alerts=document.getElementById('owner-alert-shortcut');if(alerts)alerts.addEventListener('click',()=>{const go=()=>{state.section='alerts';state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;render();};if(state.showOwnerSalesForm)askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else go();});
+    app.querySelectorAll('[data-retry-dashboard]').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();retryDashboard();}));
     const fortune=document.getElementById('owner-fortune-btn');if(fortune)fortune.addEventListener('click',()=>{state.ownerFortuneDay=ownerFortune().day;render();});
     // Existing personal fields remain editable. Only new self-service records are read-only here.
     state.crew.filter(c=>c.selfServiceProfile).forEach(c=>['editname','editphone','bank'].forEach(attr=>{const input=app.querySelector('[data-'+attr+'="'+c.id+'"]');if(input)input.readOnly=true;}));
@@ -5674,63 +6117,68 @@
     return html;
   }
 
+  function loginIcon(name){
+    const paths = {
+      store:'<path d="M4 10v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9"/><path d="M3 10l1.6-5.2A1 1 0 0 1 5.6 4h12.8a1 1 0 0 1 1 .8L21 10"/><path d="M3 10h18"/><path d="M10 20v-5h4v5"/>',
+      users:'<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.2 2.7-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.2c2.3.2 3.6 1.7 4 4.3"/>',
+      user:'<circle cx="12" cy="8" r="3.4"/><path d="M5 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5"/>',
+      lock:'<rect x="5" y="10.5" width="14" height="9.5" rx="2.2"/><path d="M8 10.5V7.5C8 5.3 9.8 3.5 12 3.5s4 1.8 4 4v3"/>',
+      eye:'<path d="M2.2 12C3.5 8.5 7 5 12 5s8.5 3.5 9.8 7c-1.3 3.5-4.8 7-9.8 7s-8.5-3.5-9.8-7Z"/><circle cx="12" cy="12" r="2.6"/>',
+      eyeOff:'<path d="M3 3l18 18"/><path d="M10.6 5.2C11 5.1 11.5 5 12 5c5 0 8.5 4 9.8 6-.5.8-1.4 2-2.6 3.1M6.5 6.7C4.6 8 3.4 9.7 2.2 11c1.3 2 4.8 6 9.8 6 1.3 0 2.5-.3 3.5-.8"/><path d="M9.9 10c-.3.4-.4.9-.4 1.5 0 1.4 1.1 2.5 2.5 2.5.6 0 1.1-.2 1.5-.5"/>',
+      arrow:'<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+      chevron:'<path d="m9 6 6 6-6 6"/>'
+    };
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+paths[name]+'</svg>';
+  }
+
   function renderLoginScreen(){
-    const remember = state.rememberMeChecked !== false;
+    const remember = state.rememberMeChecked === undefined ? maneeRememberLogin() : state.rememberMeChecked !== false;
     const pwVisible = !!state.passwordVisible;
+    const staffTab = state.landingTab === "staff";
     let html = '<div class="login-v2">';
 
-    html += '<div class="brand2" id="brand-logo-tap-area">';
-    html += '<img src="'+MASCOT_IMG_DATA+'" alt="매니 로고" class="brand2-logo">';
-    html += '<p class="brand2-subtitle">우리가게 매니저</p>';
-    html += '</div>';
+    html += '<header class="ml-brand" id="brand-logo-tap-area">';
+    html += '<div class="ml-logo-wrap"><img class="ml-logo" src="'+MASCOT_IMG_DATA+'" alt="매니"></div>';
+    html += '<span class="ml-tagline">우리가게 매니저</span>';
+    html += '</header>';
 
-    html += '<section class="hero2">';
-    html += '<div class="hero2-copy">';
-    html += '<h1 class="hero2-title">오늘도<br>좋은 하루 되세요!</h1>';
-    html += '<p class="hero2-description">매니와 함께,<br>더 쉽고 스마트한 매장 운영을<br>시작하세요.</p>';
-    html += '</div>';
-    html += '<img src="'+MASCOT2_IMG_DATA+'" alt="매니 마스코트" class="mascot2">';
+    html += '<section class="ml-hero" aria-label="환영 인사">';
+    html += '<div><h1>오늘도<br>좋은 하루 되세요!</h1>';
+    html += '<p class="ml-description">매니와 함께 시작하는<br>조금 더 편한 매장 운영.</p></div>';
+    html += '<div class="ml-art-wrap"><img class="ml-mascot" src="'+MASCOT2_IMG_DATA+'" alt="손을 흔드는 매니 캐릭터"></div>';
     html += '</section>';
 
-    html += '<section class="login-section2">';
-    html += '<div class="role-selector2">';
-    html += '<button type="button" data-landingtab="owner" class="role-button2 '+(state.landingTab!=="staff"?"active":"")+'">사장님 로그인</button>';
-    html += '<button type="button" data-landingtab="staff" class="role-button2 '+(state.landingTab==="staff"?"active":"")+'">스텝 로그인</button>';
+    html += '<div class="ml-roles" role="group" aria-label="로그인할 역할 선택">';
+    html += '<button type="button" class="ml-role" data-landingtab="owner" aria-pressed="'+(!staffTab)+'">'+loginIcon('store')+'사장님</button>';
+    html += '<button type="button" class="ml-role" data-landingtab="staff" aria-pressed="'+staffTab+'">'+loginIcon('users')+'직원·매니저</button>';
     html += '</div>';
 
-    if(MANEE_STAFF_AUTH_ENABLED && state.landingTab === "staff"){
-      html += '<div class="field-box2"><label class="input-box2"><input id="store-login-username-input" autocomplete="username" placeholder="아이디"></label></div>';
-      html += '<div class="field-box2"><label class="input-box2"><input id="store-login-password-input" type="password" autocomplete="current-password" placeholder="비밀번호"></label></div>';
-      html += '<button type="button" class="login-button2" id="store-login-submit-btn">로그인하기<span class="login-arrow2">›</span></button>';
-      html += '<button type="button" class="forgot-password2" data-staff-auth-action="recovery-forgot">비밀번호 찾기</button>';
-      html += '<button type="button" class="signup2" data-staff-auth-action="signup-screen">처음이신가요? <b>스텝 계정 만들기 ›</b></button>';
-    }else if(state.landingTab === "staff"){
+    if(staffTab && !MANEE_STAFF_AUTH_ENABLED){
+      // Legacy join-code entry (only when staff Auth is off).
       html += '<div class="field-box2"><label class="input-box2">';
       html += '<input id="join-code-input" class="code-input2" type="text" inputmode="numeric" maxlength="6" placeholder="사장님께 받은 6자리 코드" style="padding-left:16px;">';
       html += '</label></div>';
       html += '<button type="button" class="login-button2" id="join-code-btn">참여하기<span class="login-arrow2">›</span></button>';
     }else{
-      html += '<div class="field-box2"><label class="input-box2">';
-      html += '<span class="input-icon2"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.7"/><path d="M5 20C5 16.5 8 14.5 12 14.5C16 14.5 19 16.5 19 20" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>';
-      html += '<input id="store-login-username-input" type="text" placeholder="아이디">';
-      html += '</label></div>';
-
-      html += '<div class="field-box2"><label class="input-box2">';
-      html += '<span class="input-icon2"><svg viewBox="0 0 24 24" fill="none"><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="currentColor" stroke-width="1.7"/><path d="M8 10.5V7.5C8 5.29 9.79 3.5 12 3.5C14.21 3.5 16 5.29 16 7.5V10.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></span>';
-      html += '<input id="store-login-password-input" type="'+(pwVisible?"text":"password")+'" placeholder="비밀번호" style="padding-right:44px;">';
-      html += '<button type="button" class="eye-button" id="toggle-pw-visibility-btn" style="position:absolute;right:14px;top:50%;transform:translateY(-50%);border:0;background:none;color:#8B9896;cursor:pointer;padding:0;display:flex;width:20px;height:20px;">'+(pwVisible?'<svg viewBox="0 0 24 24" fill="none"><path d="M3 3L21 21" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M10.6 5.2C11 5.1 11.5 5 12 5C17 5 20.5 9 21.8 11C21.3 11.8 20.4 13 19.2 14.1M6.5 6.7C4.6 8 3.4 9.7 2.2 11C3.5 13 7 17 12 17C13.3 17 14.5 16.7 15.5 16.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M9.9 10C9.6 10.4 9.5 10.9 9.5 11.5C9.5 12.9 10.6 14 12 14C12.6 14 13.1 13.8 13.5 13.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>':'<svg viewBox="0 0 24 24" fill="none"><path d="M2.2 12C3.5 8.5 7 5 12 5C17 5 20.5 8.5 21.8 12C20.5 15.5 17 19 12 19C7 19 3.5 15.5 2.2 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.6" stroke="currentColor" stroke-width="1.7"/></svg>')+'</button>';
-      html += '</label></div>';
-
-      html += '<div class="login-options2">';
-      html += '<button type="button" class="remember2" id="remember-me-toggle-btn"><span class="checkbox2'+(remember?" checked2":"")+'">'+(remember?"✓":"")+'</span>로그인 상태 유지</button>';
-      html += '<button type="button" class="forgot-password2" id="forgot-password-btn">비밀번호 찾기</button>';
+      html += '<div class="ml-form" role="group" aria-label="'+(staffTab?'직원·매니저 로그인':'사장님 로그인')+'">';
+      html += '<div class="ml-field"><label class="ml-label" for="store-login-username-input">아이디</label>';
+      html += '<span class="ml-input-row">'+loginIcon('user')+'<input class="ml-input" id="store-login-username-input" type="text" placeholder="아이디를 입력해 주세요" spellcheck="false" autocapitalize="none" autocomplete="username" aria-describedby="login-message"></span></div>';
+      html += '<div class="ml-field"><label class="ml-label" for="store-login-password-input">비밀번호</label>';
+      html += '<div class="ml-input-row">'+loginIcon('lock')+'<input class="ml-input" id="store-login-password-input" type="'+(pwVisible?'text':'password')+'" placeholder="비밀번호를 입력해 주세요" autocomplete="current-password" aria-describedby="login-message">';
+      html += '<button type="button" class="ml-eye" id="toggle-pw-visibility-btn" aria-label="'+(pwVisible?'비밀번호 숨기기':'비밀번호 표시')+'" aria-pressed="'+pwVisible+'">'+loginIcon(pwVisible?'eyeOff':'eye')+'</button></div></div>';
+      html += '<div class="ml-options"><label class="ml-remember"><input type="checkbox" id="remember-login-checkbox"'+(remember?' checked':'')+'>로그인 상태 유지</label>';
+      if(staffTab) html += '<button type="button" class="ml-link" data-staff-auth-action="recovery-forgot">비밀번호 찾기</button>';
+      else html += '<button type="button" class="ml-link" id="forgot-password-btn">비밀번호 찾기</button>';
       html += '</div>';
-
-      html += '<button type="button" class="login-button2" id="store-login-submit-btn">로그인하기<span class="login-arrow2">›</span></button>';
-      html += '<button type="button" class="signup2" id="store-signup-btn">아직 계정이 없으신가요?<b>회원가입하기 ›</b></button>';
+      html += '<p id="login-message" class="ml-message" role="status" aria-live="polite" hidden></p>';
+      html += '<button type="button" class="ml-submit" id="store-login-submit-btn">로그인하기'+loginIcon('arrow')+'</button>';
+      html += '<div class="ml-signup"><span>매니가 처음이신가요?</span>';
+      if(staffTab) html += '<button type="button" class="ml-signup-button" data-staff-auth-action="signup-screen">직원 계정 만들기'+loginIcon('chevron')+'</button>';
+      else html += '<button type="button" class="ml-signup-button" id="store-signup-btn">회원가입'+loginIcon('chevron')+'</button>';
+      html += '</div></div>';
     }
-    html += '</section>';
 
+    html += '<p class="ml-footer">매장과 사람을 잇는, 매니</p>';
     html += '</div>';
     return html;
   }
@@ -5883,18 +6331,7 @@
     html += '<div style="display:flex;align-items:center;gap:8px;margin:20px 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">매장 정보</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
 
     if(person.isManager && managerDashboardEnabled(state.store)){
-      const sum = computeMyStoreSummary();
-      const ratioColor = sum.laborRatio===null ? "var(--ink-soft)" : (sum.laborRatio>25 ? "var(--danger)" : "var(--olive)");
-      const foodColor = sum.expenseRatio===null ? "var(--ink-soft)" : (sum.expenseRatio>35 ? "var(--danger)" : "var(--olive)");
-      html += '<div class="s-card">';
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'+labelWithIcon('chart','이번 달 매장 요약')+'</div>';
-      html += '<p class="s-main">'+sum.salesSum.toLocaleString()+'원</p>';
-      html += '<p class="crew-code-hint" style="margin-top:2px;">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>';
-      html += '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;">';
-      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">인건비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+ratioColor+';">'+(sum.laborRatio===null?'—':sum.laborRatio.toFixed(1)+'%')+'</div></div>';
-      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">식자재비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+foodColor+';">'+(sum.expenseRatio===null?'—':sum.expenseRatio.toFixed(1)+'%')+'</div></div>';
-      html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">오늘 체크리스트</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;">'+(sum.checklistPct===null?'—':sum.checklistPct+'%')+'</div></div>';
-      html += '</div></div>';
+      html += renderManagerSummaryCard(computeMyStoreSummary());
     }
 
     html += '<div class="s-card">'+labelWithIcon('chart','예약');
@@ -6268,7 +6705,7 @@
     return html;
   }
 
-  function renderSalesTrendBars(){
+  function renderSalesTrendBars(unknown){
     const trend = state.dashboardDailyTrend || {};
     const days = [];
     for(let i=6;i>=0;i--){
@@ -6287,7 +6724,7 @@
       const isActive = d.key === activeKey;
       html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;cursor:pointer;" data-trenddate="'+d.key+'">';
       if(isActive){
-        html += '<span style="font-size:10.5px;font-weight:800;color:var(--brick);position:absolute;top:-18px;white-space:nowrap;">'+Math.round(d.val/10000).toLocaleString()+'만</span>';
+        html += '<span style="font-size:10.5px;font-weight:800;color:var(--brick);position:absolute;top:-18px;white-space:nowrap;">'+(unknown?'—':Math.round(d.val/10000).toLocaleString()+'만')+'</span>';
       }
       html += '<div style="width:100%;background:'+(isActive?'var(--brick)':'var(--brick-dim)')+';border-radius:4px 4px 0 0;height:'+h+'px;"></div>';
       html += '<span style="font-size:10.5px;color:'+(isActive?'var(--brick)':'var(--ink-soft)')+';font-weight:'+(isActive?'800':'400')+';">'+(isToday?'오늘':dowLabel[d.dow])+'</span>';
@@ -6386,6 +6823,88 @@
     return html;
   }
 
+  // Owner-home status. Color always comes with text and an icon, never color alone.
+  // Verdicts: labor > 22% and food > the store's limit (default 40%, saved per store by its owner). Nothing else is invented.
+  //   attention  = one of those two rules is broken (using only inputs that were actually read)
+  //   error      = an input of the verdict could not be read (permission/network error) - NOT an empty result
+  //   ok         = sales exist, every input was read, and neither rule is broken
+  //   norevenue  = sales reports were entered but the total is 0 (no ratio can be judged)
+  //   pending    = no sales report entered yet (no ratio can be judged)
+  // Costs (labor pay, expenses) are shown as facts and are never turned into a green verdict.
+  const OWNER_STATUS_TEXT = {attention:"관리 필요", ok:"안정", pending:"집계 전", norevenue:"매출 없음", error:"조회 실패"};
+  function ownerStatusChip(kind, text){
+    const icon = {
+      attention:'<path d="M12 4 2.8 19.5h18.4Z"/><path d="M12 10v4.5M12 17.4v.1"/>',
+      ok:'<circle cx="12" cy="12" r="8.5"/><path d="m8.4 12.3 2.5 2.5 4.8-5.3"/>',
+      pending:'<circle cx="12" cy="12" r="8.5" stroke-dasharray="3 3"/>',
+      norevenue:'<circle cx="12" cy="12" r="8.5"/><path d="M8.5 12h7"/>',
+      error:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.8v5M12 15.9v.1"/>'
+    }[kind];
+    if(!icon) return "";
+    const cls = kind==="attention"||kind==="ok" ? kind : (kind==="error" ? "warn" : "none");
+    return '<span class="owner-status '+cls+'" data-kind="'+kind+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+icon+'</svg>'+(text||OWNER_STATUS_TEXT[kind])+'</span>';
+  }
+  function ownerCostNote(pay, expense){
+    const parts = [];
+    if((Number(pay)||0)>0) parts.push("인건비 "+Math.round(pay).toLocaleString()+"원");
+    if((Number(expense)||0)>0) parts.push("지출 "+Math.round(expense).toLocaleString()+"원");
+    return parts.length ? parts.join(" · ")+" 발생" : "";
+  }
+  function ownerStoreStatus(d){
+    const foodLimit = d.foodThreshold===undefined ? DEFAULT_FOOD_RATIO_LIMIT : d.foodThreshold;   // null = the store's limit could not be read
+    const laborBad = d.laborRatio!==null && d.laborRatio>LABOR_RATIO_LIMIT;
+    const foodBad = d.expenseRatio!==null && foodLimit!==null && d.expenseRatio>foodLimit;
+    const reasons = [];
+    if(laborBad) reasons.push("인건비율 "+LABOR_RATIO_LIMIT+"% 초과");
+    if(foodBad) reasons.push("식자재비율 "+formatLimit(foodLimit)+"% 초과");
+    const failures = (d.loadFailures||[]).slice();
+    let kind;
+    if(laborBad || foodBad) kind = "attention";
+    else if(failures.length) kind = "error";
+    else if(d.salesSum>0) kind = "ok";
+    else if((d.salesReportCount||0)>0) kind = "norevenue";
+    else kind = "pending";
+    return {kind, reasons, failures, costNote: (kind==="pending"||kind==="norevenue") ? ownerCostNote(d.laborPay, d.expenseSum) : ""};
+  }
+  // A store whose sales lookup failed has an UNKNOWN amount, not 0. Other failed lookups (crew, attendance, expenses) do not make its sales unknown.
+  function ownerSalesUnreadable(d){ return (d.loadFailures||[]).indexOf("매출")>=0; }
+  // Combined judgement (existing conditions, computed from stores that could be read). It never turns into a
+  // all-clear, "no sales" or "not yet entered" while a store could not be read.
+  function ownerOverallKind(data){
+    const rows = data.map(ownerStoreStatus);
+    if(rows.some(r=>r.kind==="attention")) return "attention";       // one store over its limit is never averaged away
+    if(rows.some(r=>r.failures.length)) return "error";              // something needed for the verdict could not be read
+    if(rows.some(r=>r.kind==="ok")) return "ok";
+    return data.some(d=>(d.salesReportCount||0)>0) ? "norevenue" : "pending";
+  }
+  function renderOwnerStatusSummary(data, overallKind, totalPay, totalExpense){
+    const rows = data.map(d=>({store:d.store, st:ownerStoreStatus(d)}));
+    const bad = rows.filter(r=>r.st.kind==="attention");
+    const failedRows = rows.filter(r=>r.st.failures.length);
+    const judged = rows.filter(r=>r.st.kind==="attention"||r.st.kind==="ok").length;
+    const pending = rows.filter(r=>r.st.kind==="pending").length;
+    const norevenue = rows.filter(r=>r.st.kind==="norevenue").length;
+    const overallText = overallKind==="error" ? "확인 필요" : OWNER_STATUS_TEXT[overallKind];
+    let html = '<div class="owner-status-summary">';
+    html += ownerStatusChip(overallKind, "합산 기준 "+overallText);
+    html += ownerStatusChip(bad.length>0 ? "attention" : (failedRows.length>0 ? "error" : (judged>0 ? "ok" : "pending")), "관리 필요 "+bad.length+"곳");
+    if(failedRows.length>0) html += ownerStatusChip("error", "조회 실패 "+failedRows.length+"곳");
+    if(pending>0) html += ownerStatusChip("pending", "집계 전 "+pending+"곳");
+    if(norevenue>0) html += ownerStatusChip("norevenue", "매출 없음 "+norevenue+"곳");
+    html += '</div>';
+    if(bad.length>0) html += '<p class="owner-status-names">관리 필요: '+bad.map(r=>escapeHtml(r.store)).join(" · ")+'</p>';
+    if(failedRows.length>0) html += '<p class="owner-status-names">조회 실패: '+failedRows.map(r=>escapeHtml(r.store)+'('+r.st.failures.join("·")+')').join(" · ")+' — 읽지 못한 금액은 합산에 넣지 않았어요. <button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button></p>';
+    if(overallKind==="pending" || overallKind==="norevenue"){
+      const cost = ownerCostNote(totalPay, totalExpense);
+      if(cost) html += '<p class="owner-status-names">'+cost+' · 매출이 없어 비율은 판정하지 않아요</p>';
+    }
+    return html;
+  }
+  function retryDashboard(){
+    if(state.dashboardLoading) return;
+    state.dashboardData = null;
+    loadDashboardData();
+  }
   function renderOwnerReservations(){
     let html="";
       const isMultiStore = state.myStores && state.myStores.length > 1;
@@ -6444,11 +6963,28 @@
     }
 
     const data = state.dashboardData;
+    const ownerView = state.role==="storeOwner";
     let totalSales = 0, totalPay = 0, totalExpense = 0, totalDelivery = 0, totalPrevMonth = 0;
-    data.forEach(d=>{ totalSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); });
-    const overallRatio = totalSales>0 ? (totalPay/totalSales*100) : 0;
-    const overallExpenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : 0;
-    const deltaPct = totalPrevMonth>0 ? ((totalSales-totalPrevMonth)/totalPrevMonth*100) : null;
+    // Owner view: a store whose figures could not be read is left out of the totals (and named in the summary), not counted as zero.
+    // Owner view: amounts (sales, delivery) add up every store whose SALES were read; ratios only use stores whose inputs were ALL read.
+    // A store that could not be read is never counted as 0.
+    let ratioSales = 0, salesReadable = 0;
+    data.forEach(d=>{
+      if(!ownerView){ totalSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); ratioSales += d.salesSum; salesReadable++; return; }
+      if(!ownerSalesUnreadable(d)){ totalSales += d.salesSum; totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); salesReadable++; }
+      if(!(d.loadFailures && d.loadFailures.length)){ ratioSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); }
+    });
+    const overallRatio = ratioSales>0 ? (totalPay/ratioSales*100) : 0;
+    const overallExpenseRatio = ratioSales>0 ? (totalExpense/ratioSales*100) : 0;
+    const overallKind = ownerOverallKind(data);
+    // Combined food colour: red only if some readable store is over ITS OWN limit (limits differ per store).
+    const anyFoodBad = data.some(d=>!(d.loadFailures&&d.loadFailures.length) && d.expenseRatio!==null && d.foodThreshold!=null && d.expenseRatio>d.foodThreshold);
+    // Nothing readable contributed to the combined ratios: show "—", never a green 0.0%.
+    const ratioUnknown = ownerView && !(ratioSales>0) && data.some(d=>d.loadFailures && d.loadFailures.length);
+    const salesUnknown = ownerView && data.length>0 && salesReadable===0;               // no store's sales could be read
+    const salesPartial = ownerView && salesReadable>0 && salesReadable<data.length;    // only some stores' sales could be read
+    const deltaUnknown = ownerView && data.some(d=>d.prevMonthFailed || ownerSalesUnreadable(d));
+    const deltaPct = (!deltaUnknown && totalPrevMonth>0) ? ((totalSales-totalPrevMonth)/totalPrevMonth*100) : null;
 
     let greetName = "사장님";
     if(state.role === "hq") greetName = "본사 관리자님";
@@ -6464,44 +7000,62 @@
 
     html += '<div class="category" style="padding:16px;margin-bottom:14px;">';
     html += '<span style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;"><span style="width:26px;height:26px;border-radius:50%;background:var(--brick);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none">'+navIcon('chart')+'</svg></span>'+state.monthNum+'월 합산 매출</span>';
-    html += '<p style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;">'+totalSales.toLocaleString()+'원</p>';
-    if(deltaPct!==null){
+    if(ownerView) html += renderOwnerStatusSummary(data, overallKind, totalPay, totalExpense);
+    if(salesUnknown){
+      html += '<p class="owner-amount-unknown" style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;color:var(--ink-soft);">— <span style="font-size:13px;font-weight:700;">조회 실패</span></p>';
+      html += '<p style="margin:0 0 10px;font-size:12px;color:var(--ink-soft);">매출을 조회하지 못했어요. 다시 시도해 주세요.</p>';
+    }else{
+      html += '<p style="margin:8px 0 4px;font-size:22px;font-weight:800;letter-spacing:-0.01em;">'+totalSales.toLocaleString()+'원</p>';
+      if(salesPartial) html += '<p class="owner-amount-partial" style="margin:0 0 4px;font-size:12px;font-weight:700;color:#805715;">조회 성공 '+salesReadable+'/'+data.length+'곳 합계 (조회 실패 매장 제외)</p>';
+    }
+    if(salesUnknown){
+      // no comparison line: the amount above is already unknown
+    }else if(deltaUnknown){
+      html += '<p style="margin:0 0 10px;font-size:12px;color:var(--ink-soft);">전월 대비 확인 불가 (매출 조회 실패)</p>';
+    }else if(deltaPct!==null){
       html += '<p style="margin:0 0 10px;font-size:12px;font-weight:700;color:'+(deltaPct>=0?'var(--olive)':'var(--danger)')+';">전월 대비 '+(deltaPct>=0?'+':'')+deltaPct.toFixed(1)+'%</p>';
     }else{
       html += '<p style="margin:0 0 10px;font-size:12px;color:var(--ink-soft);">전월 데이터 없음</p>';
     }
-    html += '<p style="margin:0 0 12px;font-size:12px;color:var(--ink-soft);">배달매출 '+totalDelivery.toLocaleString()+'원 (별도 집계)</p>';
+    html += '<p style="margin:0 0 12px;font-size:12px;color:var(--ink-soft);">배달매출 '+(salesUnknown?'— (조회 실패)':totalDelivery.toLocaleString()+'원 (별도 집계)')+'</p>';
     html += '<div style="display:flex;gap:16px;margin-bottom:40px;">';
-    html += '<div><span style="font-size:11px;color:var(--ink-soft);">인건비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(overallRatio>25?'var(--danger)':'var(--olive)')+';">'+overallRatio.toFixed(1)+'%</span></div>';
-    html += '<div><span style="font-size:11px;color:var(--ink-soft);">식자재비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(overallExpenseRatio>40?'var(--danger)':'var(--olive)')+';">'+overallExpenseRatio.toFixed(1)+'%</span></div>';
+    html += '<div><span style="font-size:11px;color:var(--ink-soft);">인건비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(ratioUnknown?'var(--ink-soft)':(overallRatio>LABOR_RATIO_LIMIT?'var(--danger)':'var(--olive)'))+';">'+(ratioUnknown?'—':overallRatio.toFixed(1)+'%')+'</span></div>';
+    html += '<div><span style="font-size:11px;color:var(--ink-soft);">식자재비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(ratioUnknown?'var(--ink-soft)':(anyFoodBad?'var(--danger)':(data.some(d=>d.foodThreshold===null)?'var(--ink-soft)':'var(--olive)')))+';">'+(ratioUnknown?'—':overallExpenseRatio.toFixed(1)+'%')+'</span></div>';
     html += '</div>';
-    html += renderSalesTrendBars();
+    html += renderSalesTrendBars(salesUnknown);
     html += '</div>';
 
     if(state.role==='storeOwner') html+='<div class="owner-menu" style="margin:14px 0;">'+ownerRouteButton(navIcon('calendar')+'예약 확인 · 등록<span>›</span>','reservations',null,false)+'</div>';
     html += '<div style="display:flex;align-items:center;gap:8px;margin:18px 0 10px;"><span style="font-size:12px;font-weight:800;color:var(--ink-soft);letter-spacing:0.3px;">매장별 현황</span><div style="flex:1;height:1px;background:var(--line);"></div></div>';
     html += '<div class="category" style="padding:4px 16px;margin-bottom:14px;">';
     data.forEach((d, idx)=>{
-      const laborBad = d.laborRatio!==null && d.laborRatio>25;
-      const foodBad = d.expenseRatio!==null && d.expenseRatio>40;
+      const rowFoodLimit = d.foodThreshold===undefined ? DEFAULT_FOOD_RATIO_LIMIT : d.foodThreshold;
+      const laborBad = d.laborRatio!==null && d.laborRatio>LABOR_RATIO_LIMIT;
+      const foodBad = d.expenseRatio!==null && rowFoodLimit!==null && d.expenseRatio>rowFoodLimit;
       const hasIssue = laborBad || foodBad;
       const expanded = !!state.expandedStoreRows[d.store];
       html += '<div style="'+(idx < data.length-1 ? 'border-bottom:1px solid var(--line);' : '')+'">';
       html += '<div data-storetoggle="'+escapeHtml(d.store)+'" style="cursor:pointer;display:grid;grid-template-columns:1fr 74px 74px;align-items:center;gap:6px;padding:14px 0;">';
+      if(ownerView) html += '<div style="min-width:0;">';
       html += '<div style="display:flex;align-items:center;gap:7px;min-width:0;">';
       html += '<svg width="13" height="13" viewBox="0 0 24 24" style="transform:rotate('+(expanded?180:0)+'deg);flex:0 0 auto;"><path d="M6 9l6 6 6-6" stroke="var(--ink-soft)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      if(hasIssue) html += '<span style="width:6px;height:6px;border-radius:50%;background:var(--danger);flex:0 0 auto;"></span>';
+      if(hasIssue && !ownerView) html += '<span style="width:6px;height:6px;border-radius:50%;background:var(--danger);flex:0 0 auto;"></span>';
       html += '<span style="font-size:13.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escapeHtml(d.store)+'</span>';
       html += '</div>';
-      html += '<div style="text-align:right;font-size:14px;font-weight:800;color:var(--ink);">'+Math.round(d.salesSum/10000).toLocaleString()+'만</div>';
-      html += '<div style="text-align:right;font-size:12px;color:var(--ink-soft);">배달 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만</div>';
+      if(ownerView){
+        const st = ownerStoreStatus(d);
+        html += '<div class="owner-status-line">'+ownerStatusChip(st.kind)+(st.reasons.length?'<span class="owner-status-why">'+st.reasons.join(" · ")+'</span>':'')+(st.costNote?'<span class="owner-status-cost">'+st.costNote+'</span>':'')+(st.failures.length?'<span class="owner-status-fail">읽지 못한 항목: '+st.failures.join(" · ")+'</span><button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button>':'')+'</div></div>';
+      }
+      const rowUnknown = ownerView && ownerSalesUnreadable(d);
+      html += '<div style="text-align:right;font-size:14px;font-weight:800;color:'+(rowUnknown?'var(--ink-soft)':'var(--ink)')+';">'+(rowUnknown?'—':Math.round(d.salesSum/10000).toLocaleString()+'만')+'</div>';
+      html += '<div style="text-align:right;font-size:12px;color:var(--ink-soft);">'+(rowUnknown?'조회 실패':'배달 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만')+'</div>';
       html += '</div>';
       if(expanded){
         const ratioText = d.laborRatio===null ? "—" : d.laborRatio.toFixed(1)+"%";
         const foodText = d.expenseRatio===null ? "—" : d.expenseRatio.toFixed(1)+"%";
         html += '<div style="padding:0 0 14px 20px;display:flex;gap:28px;">';
-        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">인건비율</div><div style="font-size:16px;font-weight:800;color:'+(laborBad?'var(--danger)':'var(--olive)')+';">'+ratioText+'</div>'+(laborBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">25% 초과</div>':'')+'</div>';
-        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">식자재비율</div><div style="font-size:16px;font-weight:800;color:'+(foodBad?'var(--danger)':'var(--olive)')+';">'+foodText+'</div>'+(foodBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">40% 초과</div>':'')+'</div>';
+        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">인건비율</div><div style="font-size:16px;font-weight:800;color:'+(laborBad?'var(--danger)':((ownerView&&d.laborRatio===null)?'var(--ink-soft)':'var(--olive)'))+';">'+ratioText+'</div>'+(laborBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">'+LABOR_RATIO_LIMIT+'% 초과</div>':'')+'</div>';
+        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">식자재비율</div><div style="font-size:16px;font-weight:800;color:'+(foodBad?'var(--danger)':((rowFoodLimit===null||(ownerView&&d.expenseRatio===null))?'var(--ink-soft)':'var(--olive)'))+';">'+foodText+'</div>'+(foodBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">'+formatLimit(rowFoodLimit)+'% 초과</div>':'')+'</div>';
         html += '</div>';
       }
       html += '</div>';
@@ -6721,8 +7275,8 @@
     if(state.showFixedExpenseManage) html += renderFixedExpenseManage();
 
     const netProfit = totalSales - totalExpense - totalLabor - totalFixed;
-    const laborDanger = laborRatio!==null && laborRatio>25;
-    const foodDanger = expenseRatio!==null && expenseRatio>40;
+    const laborDanger = laborRatio!==null && laborRatio>LABOR_RATIO_LIMIT;
+    const foodV = foodRatioVerdict(state.store, expenseRatio);
     html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
     html += '<p class="label">이번 달 순수익 (예상) · 종합비율</p>';
     html += '<p class="amount">'+netProfit.toLocaleString()+'원</p>';
@@ -6732,8 +7286,10 @@
     if(laborRatio!==null){
       html += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+(laborDanger?'#FF8A8F':'#7CE6A6')+';margin-top:6px;margin-right:14px;"><span style="width:6px;height:6px;border-radius:50%;background:'+(laborDanger?'#FF8A8F':'#7CE6A6')+';display:inline-block;"></span>인건비 '+(laborDanger?'관리필요':'안정')+'</span>';
     }
-    if(expenseRatio!==null){
-      html += '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+(foodDanger?'#FF8A8F':'#7CE6A6')+';margin-top:6px;"><span style="width:6px;height:6px;border-radius:50%;background:'+(foodDanger?'#FF8A8F':'#7CE6A6')+';display:inline-block;"></span>식자재 '+(foodDanger?'관리필요':'안정')+'</span>';
+    if(foodV.state!=="none"){
+      const foodTone = foodV.state==="over" ? '#FF8A8F' : (foodV.state==="unknown" ? '#F3D9A4' : '#7CE6A6');
+      const foodWord = foodV.state==="over" ? '관리필요' : (foodV.state==="unknown" ? FOOD_LIMIT_UNKNOWN_TEXT : '안정');
+      html += '<span class="food-verdict" data-state="'+foodV.state+'" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+foodTone+';margin-top:6px;"><span style="width:6px;height:6px;border-radius:50%;background:'+foodTone+';display:inline-block;"></span>식자재 '+foodWord+'</span>';
     }
     html += '</div></div>';
 
@@ -7260,6 +7816,19 @@
       html += '</div>';
     }
     if(state.role === "storeOwner"){
+      const savedLimit = state.storeFoodLimitMap ? state.storeFoodLimitMap[state.store] : null;
+      html += '<div class="day-panel" style="margin-bottom:12px;">';
+      html += '<h3 style="margin:0 0 6px;">식자재비율 경고 기준</h3>';
+      html += '<p class="crew-code-hint" style="margin-bottom:8px;">이번 달 식자재비가 매출의 이 비율을 넘으면 "관리 필요"로 표시해요. 기본은 '+DEFAULT_FOOD_RATIO_LIMIT+'%이고, 이 매장의 사장님·매니저 화면에 같은 기준이 적용돼요. 인건비율 기준은 '+LABOR_RATIO_LIMIT+'%예요.</p>';
+      if(savedLimit === false){
+        html += '<p class="crew-code-hint" style="color:var(--danger);">저장된 기준을 읽지 못했어요. 잠시 후 다시 확인해 주세요.</p>';
+      }else{
+        html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><input class="field-input" type="number" inputmode="decimal" min="1" max="100" step="0.5" id="food-limit-input" style="max-width:110px;" value="'+formatLimit(foodRatioLimit(state.store))+'"><span class="crew-code-hint">%</span>';
+        html += '<button class="crew-code-btn" id="food-limit-save-btn">저장</button>';
+        if(typeof savedLimit === "number") html += '<button class="crew-code-btn" id="food-limit-reset-btn">기본값('+DEFAULT_FOOD_RATIO_LIMIT+'%)으로</button>';
+        html += '</div>';
+      }
+      html += '</div>';
       html += '<div class="day-panel" style="margin-bottom:12px;">';
       html += '<h3 style="margin:0 0 6px;">알림</h3>';
       html += '<p class="crew-code-hint" style="margin-bottom:8px;">스텝 출퇴근, 오늘 예약이 등록되면 이 폰으로 알림이 와요.</p>';
@@ -7473,12 +8042,26 @@
   // ---------- event binding ----------
   function bindLandingEvents(){
     app.querySelectorAll("[data-landingtab]").forEach(btn=>{
-      btn.addEventListener("click", ()=>{ state.landingTab = btn.getAttribute("data-landingtab"); render(); });
+      btn.addEventListener("click", ()=>{
+        state.rememberMeChecked = currentRememberChoice();
+        state.passwordVisible = false;
+        state.landingTab = btn.getAttribute("data-landingtab"); render();
+      });
     });
+    // Show/hide password in place: a re-render would erase what has been typed.
     const pwToggleBtn = document.getElementById("toggle-pw-visibility-btn");
-    if(pwToggleBtn) pwToggleBtn.addEventListener("click", ()=>{ state.passwordVisible = !state.passwordVisible; render(); });
-    const rememberToggleBtn = document.getElementById("remember-me-toggle-btn");
-    if(rememberToggleBtn) rememberToggleBtn.addEventListener("click", ()=>{ state.rememberMeChecked = !(state.rememberMeChecked !== false); render(); });
+    if(pwToggleBtn) pwToggleBtn.addEventListener("click", ()=>{
+      const input = document.getElementById("store-login-password-input");
+      if(!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      state.passwordVisible = show;
+      pwToggleBtn.setAttribute("aria-pressed", String(show));
+      pwToggleBtn.setAttribute("aria-label", show ? "비밀번호 숨기기" : "비밀번호 표시");
+      pwToggleBtn.innerHTML = loginIcon(show ? "eyeOff" : "eye");
+    });
+    const rememberBox = document.getElementById("remember-login-checkbox");
+    if(rememberBox) rememberBox.addEventListener("change", ()=>{ state.rememberMeChecked = rememberBox.checked; });
     const hqBtn = document.getElementById("be-hq-btn");
     if(hqBtn) hqBtn.addEventListener("click", showAdminEntryChooser);
     // (관리자 진입 경로 없음 — 이 빌드는 사장님/스텝 전용 사용자 앱이에요)
@@ -7496,7 +8079,14 @@
     const storeLoginSubmitBtn = document.getElementById("store-login-submit-btn");
     if(storeLoginSubmitBtn) storeLoginSubmitBtn.addEventListener("click", loginStoreOwner);
     const storeLoginUserInput = document.getElementById("store-login-username-input");
-    if(storeLoginUserInput) storeLoginUserInput.focus();
+    if(storeLoginUserInput){
+      storeLoginUserInput.focus();
+      storeLoginUserInput.addEventListener("keydown",(e)=>{
+        if(e.key!=="Enter") return;
+        const pwField = document.getElementById("store-login-password-input");
+        if(pwField && !pwField.value){ e.preventDefault(); pwField.focus(); } else loginStoreOwner();
+      });
+    }
     const storeLoginPwInput = document.getElementById("store-login-password-input");
     if(storeLoginPwInput) storeLoginPwInput.addEventListener("keydown",(e)=>{ if(e.key==="Enter") loginStoreOwner(); });
     const forgotPwBtn = document.getElementById("forgot-password-btn");
@@ -7724,6 +8314,10 @@
       setManagerDashboardEnabled(state.store, mgrDashToggle.checked);
       showToast(mgrDashToggle.checked ? "매니저 홈 화면에 요약정보를 표시해요" : "매니저 홈 화면 요약정보를 껐어요");
     });
+    const foodLimitSaveBtn = document.getElementById("food-limit-save-btn");
+    if(foodLimitSaveBtn) foodLimitSaveBtn.addEventListener("click", ()=>{ saveFoodLimit(state.store, (document.getElementById("food-limit-input")||{}).value); });
+    const foodLimitResetBtn = document.getElementById("food-limit-reset-btn");
+    if(foodLimitResetBtn) foodLimitResetBtn.addEventListener("click", ()=>{ saveFoodLimit(state.store, null); });
     const ownerPushToggleBtn = document.getElementById("owner-push-toggle-btn");
     if(ownerPushToggleBtn) ownerPushToggleBtn.addEventListener("click", ()=>{
       if(state.pushSubscribed) unsubscribeFromPush(); else subscribeToPush();
@@ -8323,6 +8917,47 @@
     const switchBtn = document.getElementById("switch-user-btn");
     if(switchBtn) switchBtn.addEventListener("click", switchUser);
   }
+
+  // ---------- multi-tab sign-in sync ----------
+  // supabase-js relays sign-in/out from other tabs. Do not trust the event itself: re-read what THIS tab
+  // actually holds. A tab whose sign-in lives in its own sessionStorage is therefore never logged out by
+  // another tab's event, a tab whose shared session was removed goes back to the login screen, and a tab
+  // never keeps showing account A after account B signed in elsewhere (it reloads and shows B).
+  function leaveToLoginScreen(message){
+    clearStaffAuthView();
+    localDelete("auth-store-id");
+    state.legacyPasswordUpgrade = null; state.myRequestId = null; state.franchiseId = null; state.franchiseName = null;
+    state.landingMode = (typeof MANEE_ADMIN_AUTH_ENABLED!=='undefined' && MANEE_ADMIN_AUTH_ENABLED) ? "admin-select" : "default";
+    render();
+    if(message) showToast(message);
+  }
+  async function syncAuthAcrossTabs(){
+    const shownUser = state.authProfile && state.authProfile.user_id;
+    if(!shownUser || state.role === "landing") return;
+    let uid = null;
+    try{
+      const { data } = await db.auth.getSession();
+      uid = data && data.session && data.session.user ? data.session.user.id : null;
+    }catch(e){ return; }
+    if(uid === shownUser) return;
+    // Another account signed in (its marker is now the browser's active account) or this session ended: back to the login screen.
+    // The other account's screen is never shown here (no reload).
+    const active = maneeActiveUser();
+    if(maneeTakeSuperseded() || uid || (active && active !== shownUser)) leaveToLoginScreen("다른 계정으로 로그인해서 이 화면은 로그아웃됐어요. 다시 로그인해 주세요.");
+    else leaveToLoginScreen("다른 화면에서 로그아웃되어 로그인 화면으로 이동했어요.");
+  }
+  function initAuthTabSync(){
+    if(!db) return;
+    db.auth.onAuthStateChange((event)=>{
+      if(event !== "SIGNED_OUT" && event !== "SIGNED_IN") return;
+      if(Date.now() < maneeOwnAuthUntil) return;      // caused by this tab's own sign-in/out
+      setTimeout(syncAuthAcrossTabs, 0);               // never call supabase from inside its own callback
+    });
+    window.addEventListener("storage", (e)=>{ if(e.key === MANEE_AUTH_KEY || e.key === MANEE_ACTIVE_KEY || e.key === null) syncAuthAcrossTabs(); });
+    window.addEventListener("focus", ()=>{ syncAuthAcrossTabs(); });
+    document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) syncAuthAcrossTabs(); });
+  }
+  initAuthTabSync();
 
   resolveIdentity();
 

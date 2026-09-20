@@ -46,22 +46,32 @@ test('Secret keys and unexpected environment names are rejected',()=>{
   assert.equal(start({...configs.staging,publishableKey:'sb_secret_fake'}).calls.length,0);
   assert.equal(start({...configs.staging,environment:'unknown'}).calls.length,0);
 });
-test('Production keeps its original legacy storage namespace and SDK storage default',()=>{
+test('Production keeps its original legacy storage namespace and the SDK default storage key',()=>{
+  // The sign-in persistence option adds a storage adapter, but must not rename the key:
+  // sessions created before the option existed stay readable (see login-remember-and-status.test.mjs).
   const r=start(configs.production,'winners-staffapp.netlify.app');
-  assert.equal(r.result.prefix,''); assert.equal(r.calls[0][2],undefined);
+  assert.equal(r.result.prefix,''); assert.equal(r.calls[0][2].auth.storageKey,undefined);
+  assert.deepEqual(Object.keys(r.calls[0][2].auth).sort(),['storage']);
+  assert.deepEqual(Object.keys(r.calls[0][2].auth.storage).sort(),['getItem','removeItem','setItem']);
 });
 test('Staging legacy identity storage neither reads nor overwrites production entries',()=>{
   const prefix=start(configs.staging).result.prefix;
-  const map=new Map([['my-link','production-identity']]);
-  const helpers=html.slice(html.indexOf('  function localGet('),html.indexOf('  const DEFAULT_STORES'));
+  const map=new Map([['my-link','production-identity'],['auth-store-id','production-store']]);
+  const helpers=html.slice(html.indexOf('  // Keys that belong to the signed-in session'),html.indexOf('  const DEFAULT_STORES'));
+  const storage={getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};
   const api=vm.runInNewContext(helpers+';({localGet,localSet,localDelete})',{
-    MANEE_LOCAL_PREFIX:prefix,localStorage:{getItem:k=>map.get(k)??null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)},
+    MANEE_LOCAL_PREFIX:prefix,localStorage:storage,maneeAuthStorage:storage,
   });
   assert.equal(api.localGet('my-link'),null);
   api.localSet('my-link','staging-identity');
   assert.equal(map.get('my-link'),'production-identity');
   assert.equal(api.localGet('my-link').value,'staging-identity');
   api.localDelete('my-link'); assert.equal(map.get('my-link'),'production-identity');
+  // the session-scoped store id is isolated the same way
+  assert.equal(api.localGet('auth-store-id'),null);
+  api.localSet('auth-store-id','staging-store');
+  assert.equal(map.get('auth-store-id'),'production-store');
+  api.localDelete('auth-store-id'); assert.equal(map.get('auth-store-id'),'production-store');
 });
 
 function sandbox(){

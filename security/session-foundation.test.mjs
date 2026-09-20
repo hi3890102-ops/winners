@@ -95,7 +95,7 @@ function harness(options = {}) {
     render() { calls.push(['render', state.role]); },
     showToast(message) { calls.push(['toast', message]); },
   });
-  new Script(code).runInContext(ctx);
+  new Script('let maneeRestoreSeq=0;function maneeRestoreGuard(){const seq=++maneeRestoreSeq;return ()=>seq===maneeRestoreSeq;}\n'+code).runInContext(ctx);
   return { ctx, calls, state, storage, async confirmSwitch() { ctx.switchUser(); await callback(); } };
 }
 
