@@ -231,3 +231,13 @@
   .team-ui .team-menu .tm-text strong{color:#EAF4ED}
   .team-ui .team-menu .tm-text small,.team-ui .team-menu .tm-chev{color:#B2C3B8}
 }
+/* self-managed profile screens */
+.owner-ui .team-src{display:block;margin-top:2px;font-size:11.5px;font-weight:600;color:#805715}
+.owner-ui .team-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.owner-ui .team-chip{min-height:36px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:#F6F8F5;color:var(--ink);font-size:12.5px;font-weight:650;cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left}
+.owner-ui .team-field-error{margin:-4px 0 8px;font-size:12.5px;font-weight:650;color:var(--danger)}
+.owner-ui .team-actions .owner-primary{width:auto;flex:1;margin-top:0}
+@media (prefers-color-scheme: dark){
+  .team-ui .team-chip{background:#22362B;border-color:#42594B;color:#EAF4ED}
+  .team-ui .team-src{color:#F0C978}
+}

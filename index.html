@@ -750,6 +750,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     teamTab: "check",
     teamScroll: null,
     teamPage: null,
+    teamProfile: null,
+    teamEdit: null,
+    ownerProfileChanges: null,
     loading: true,
     pendingConfirm: null, // { message, onConfirm }
     attConfirmPrompt: null
@@ -1341,6 +1344,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   };
   function clearStaffAuthView(){
     maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
+    state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null;
     state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
     maneeRestoreSeq++;  // ...and so is an unfinished login/identity restore
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
@@ -2947,7 +2951,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       catch(e){clearStaffAuthView();render();showToast(staffErrorMessage(e));return;}
     }
     if(tab === state.staffView) return;
-    state.teamPage = null;
+    state.teamPage = null; state.teamEdit = null; state.teamProfile = null;
     state.showOwnerSalesForm = false;
     state.loading = true; render();
     if(tab === "checklist"){
@@ -5555,7 +5559,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const pay=state.section==='sales';
     let html='<h2>직원</h2><div class="owner-tabs">'+ownerRouteButton('근태','schedule','attendance',!pay&&state.scheduleTab==='attendance')+ownerRouteButton('스케줄','schedule','calendar',!pay&&state.scheduleTab==='calendar')+ownerRouteButton('직원관리','schedule','crew',!pay&&state.scheduleTab==='crew')+ownerRouteButton('급여','sales','pay',pay)+'</div>';
     if(pay) return html+renderPay();
-    if(state.scheduleTab==='crew') return html+renderCrewManage();
+    if(state.scheduleTab==='crew') return html+renderOwnerProfileChanges()+renderCrewManage();
     if(state.scheduleTab==='attendance'){
       html+='<p class="owner-note">확인할 날짜를 선택해 출퇴근을 확인하거나 수정할 수 있어요.</p>';
       // Same calendar and attendance editors: no second source of attendance data.
@@ -6605,18 +6609,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(page==='work'){
       return renderStaffSchedule(person,true).replace(/<h3[^>]*>내 스케줄<\/h3>/,'')+'<h3 class="team-h" id="team-pay">예상 급여</h3>'+renderStaffPayPill(person);
     }
-    if(page==='personal'){
-      const pp=state.staffPersonalProfile;
-      let h='<section class="category team-card"><div class="team-me">'+renderAvatarBadge(person,48)+'<div><strong>'+escapeHtml(person.name)+'</strong><span>'+(mgr?'매니저':'직원')+' · '+escapeHtml(state.store||'')+'</span></div></div>';
-      if(p.username) h+=teamInfoRow('아이디',p.username);
-      const phone=pp?pp.phone:person.phone, bank=pp?pp.bank_name:'', acct=pp?pp.bank_account:person.bankAccount, holder=pp?pp.account_holder:'';
-      if(phone) h+=teamInfoRow('연락처',phone);
-      if(bank) h+=teamInfoRow('은행',bank);
-      if(acct) h+=teamInfoRow('계좌번호',teamMaskAccount(acct));
-      if(holder) h+=teamInfoRow('예금주',holder);
-      if(!phone&&!acct) h+='<p class="team-sub">등록된 개인정보가 없어요.</p>';
-      return h+'</section>';
-    }
+    if(page==='personal') return teamPersonalPage(person,mgr);
+    if(page==='personal-edit') return teamEditPage(person,mgr);
     if(page==='connection'){
       let h='';
       for(const m of state.authMemberships||[]){
@@ -6650,17 +6644,244 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }
     return '';
   }
-  const TEAM_PAGE_TITLES={work:'내 근무·예상 급여',personal:'내 개인정보',connection:'내 매장 연결',notifications:'알림 설정',password:'비밀번호 변경',settings:'매장 설정',help:'사용법·문의'};
+  const TEAM_PAGE_TITLES={work:'내 근무·예상 급여',personal:'내 개인정보','personal-edit':'내 정보 수정',connection:'내 매장 연결',notifications:'알림 설정',password:'비밀번호 변경',settings:'매장 설정',help:'사용법·문의'};
+  // ---------- 내 개인정보 (self-managed basic profile) ----------
+  // Server side: public.manee_my_profile_state / manee_save_my_profile (security/self-profile-management.sql). The person's own profile is
+  // the source of truth for name, phone, bank, account and holder; connected stores receive it when it is saved.
+  const TP_FIELDS = [["name","이름","person_name"],["phone","연락처","phone"],["bank","은행","bank_name"],["account","계좌번호","bank_account"],["holder","예금주","account_holder"]];
+  const TP_LABEL = { name:"이름", phone:"연락처", bank:"은행", account:"계좌번호", holder:"예금주", bank_account:"계좌", };
+  function tpParseBank(t){ const m=/^(.+?) \/ ([0-9 -]{5,40}) \/ (.+)$/.exec(String(t||"").trim()); return m?{bank:m[1].trim(),account:m[2].trim(),holder:m[3].trim()}:null; }
+  function tpMask(a){ a=String(a||""); return a.length>6 ? a.slice(0,3)+"-***-"+a.slice(-4) : (a?"*".repeat(a.length):""); }
+  function tpCheck(f){
+    const digits=s=>String(s).replace(/[^0-9]/g,"").length, bad=/[<>\u0000-\u001f\u007f]/;
+    const e={};
+    if(f.name && (f.name.length>50||bad.test(f.name))) e.name="이름을 확인해 주세요.";
+    if(f.phone && (!/^[+0-9 ()-]{7,24}$/.test(f.phone)||digits(f.phone)<7||digits(f.phone)>15)) e.phone="연락처는 숫자 7~15자리로 입력해 주세요.";
+    if(f.bank && (f.bank.length>50||bad.test(f.bank))) e.bank="은행 이름을 확인해 주세요.";
+    if(f.account && (!/^[0-9 -]{5,40}$/.test(f.account)||digits(f.account)<5||digits(f.account)>30)) e.account="계좌번호는 숫자와 - 만 입력해 주세요. (가려진 번호는 저장되지 않아요)";
+    if(f.holder && (f.holder.length>50||bad.test(f.holder))) e.holder="예금주를 확인해 주세요.";
+    return e;
+  }
+  function tpBankComposed(f){ return f.account ? [f.bank,f.account,f.holder].filter(Boolean).join(" / ") : null; }
+  async function teamProfileLoad(){
+    const alive=maneeLoadGuard("teamProfile");
+    state.teamProfile={status:"loading",data:null}; render();
+    try{
+      const {data,error}=await db.rpc("manee_my_profile_state",{p_reveal:false});
+      if(error) throw error;
+      if(!data||data.ok!==true) throw new Error("bad response");
+      if(!alive()) return;
+      state.teamProfile={status:"ok",data};
+    }catch(e){ if(!alive()) return; state.teamProfile={status:"fail",data:null}; }
+    render();
+  }
+  async function teamEditOpen(){
+    const alive=maneeLoadGuard("teamEdit");
+    state.teamEdit={step:"loading"}; render();
+    try{
+      const {data,error}=await db.rpc("manee_my_profile_state",{p_reveal:true});   // the person's own raw values, only on this screen
+      if(error) throw error;
+      if(!data||data.ok!==true) throw new Error("bad response");
+      if(!alive()) return;
+      state.teamEdit=tpBuildEdit(data);
+    }catch(e){ if(!alive()) return; state.teamEdit={step:"fail"}; }
+    render();
+  }
+  function tpBuildEdit(data){
+    const prof=data.profile, stores=data.stores||[];
+    const base={name:(prof&&prof.person_name)||"",phone:(prof&&prof.phone)||"",bank:(prof&&prof.bank_name)||"",account:(prof&&prof.bank_account)||"",holder:(prof&&prof.account_holder)||""};
+    const cand={name:[],phone:[],bank:[],account:[],holder:[]}, raw=[];
+    stores.forEach(s=>{
+      const p=tpParseBank(s.bank_text);
+      if(s.name) cand.name.push({store:s.store_name,value:s.name});
+      if(s.phone) cand.phone.push({store:s.store_name,value:s.phone});
+      if(p){ cand.bank.push({store:s.store_name,value:p.bank}); cand.account.push({store:s.store_name,value:p.account}); cand.holder.push({store:s.store_name,value:p.holder}); }
+      else if(s.bank_text) raw.push({store:s.store_name,text:s.bank_text});
+    });
+    const form={}, conflict={}, fromStore={}, chips={};
+    TP_FIELDS.forEach(([k])=>{
+      const vals=[...new Set(cand[k].map(c=>c.value))];
+      chips[k]=cand[k].filter((c,i,a)=>a.findIndex(x=>x.value===c.value&&x.store===c.store)===i);
+      if(base[k]){ form[k]=base[k]; }
+      else if(vals.length===1){ form[k]=vals[0]; fromStore[k]=true; }
+      else { form[k]=""; if(vals.length>1) conflict[k]=true; }
+    });
+    return {step:"form",data,base,form,conflict,fromStore,chips,raw,revision:prof?prof.revision:0,source:prof?prof.source:null,stores,error:null,fieldErrors:{}};
+  }
+  function tpStoreChanges(ed){
+    // which fields would change on each connected store when this profile is saved (empty fields never clear a store value)
+    const f=ed.form, composed=tpBankComposed(f);
+    return ed.stores.map(s=>{
+      const ch=[];
+      if(f.name && f.name!==s.name) ch.push("이름");
+      if(f.phone && f.phone!==(s.phone||"")) ch.push("연락처");
+      if(composed && composed!==(s.bank_text||"")) ch.push("계좌");
+      return {store:s.store_name,fields:ch};
+    });
+  }
+  async function teamEditSave(){
+    const ed=state.teamEdit; if(!ed||ed.step!=="confirm"||ed.saving) return;
+    const alive=maneeLoadGuard("teamEditSave");
+    ed.saving=true; ed.error=null; render();
+    const f=ed.form;
+    try{
+      const {data,error}=await db.rpc("manee_save_my_profile",{p_profile:{person_name:f.name,phone:f.phone,bank_name:f.bank,bank_account:f.account,account_holder:f.holder},p_expected_revision:ed.revision});
+      if(error) throw error;
+      if(!data||data.ok!==true) throw new Error("not confirmed");
+      if(!alive()) return;
+      state.teamEdit={step:"done",result:data};
+      state.teamProfile=null;
+      loadCrew(state.store).then(()=>render()).catch(()=>{});
+    }catch(e){
+      if(!alive()) return;
+      ed.saving=false;
+      const conflict = e && (e.code==="PT409"||/profile_revision_conflict/.test(String(e.message||"")));
+      ed.error = conflict ? {kind:"conflict",text:"다른 화면에서 먼저 저장됐어요. 입력한 내용은 그대로 두었어요. 최신 정보를 불러온 뒤 다시 확인해 주세요."}
+        : (e && e.code==="22023" ? {kind:"invalid",text:"입력한 값을 저장할 수 없어요. 형식을 확인해 주세요."} : {kind:"fail",text:"저장하지 못했어요. 입력한 내용은 그대로 있어요. 연결을 확인하고 다시 시도해 주세요."});
+      ed.step="form";
+    }
+    render();
+  }
+  async function teamEditReload(){
+    const ed=state.teamEdit; if(!ed) return;
+    const keep={...ed.form};
+    try{
+      const {data,error}=await db.rpc("manee_my_profile_state",{p_reveal:true});
+      if(error) throw error;
+      const fresh=tpBuildEdit(data);
+      fresh.form=keep; fresh.error={kind:"info",text:"최신 정보를 불러왔어요. 입력한 내용은 유지했어요."};
+      state.teamEdit=fresh;
+    }catch(e){ ed.error={kind:"fail",text:"최신 정보를 불러오지 못했어요."}; }
+    render();
+  }
+  function tpInput(k,label,val,extra){
+    return '<label class="field-label" for="tp-'+k+'">'+label+'</label><input id="tp-'+k+'" data-tp-field="'+k+'" value="'+escapeHtml(val||"")+'" maxlength="'+(k==="account"?40:(k==="phone"?24:50))+'" '+(extra||"")+'>';
+  }
+  function teamPersonalPage(person, mgr){
+    const tp=state.teamProfile;
+    if(!tp||tp.status==="loading") return '<section class="category team-card"><p class="team-sub">불러오는 중이에요…</p></section>';
+    if(tp.status==="fail") return '<section class="team-notice"><p class="team-notice-title">조회 실패</p><p class="team-notice-line">내 정보를 불러오지 못했어요. 미입력이 아니에요. 잠시 후 다시 시도해 주세요.</p><div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="retry">다시 시도</button></div></section>';
+    const prof=tp.data.profile, stores=tp.data.stores||[];
+    // bank text is masked by the server; keep the masked account for the display rows
+    stores.forEach(s=>{ const m=/^(.+?) \/ ([0-9*\- ]{5,40}) \/ (.+)$/.exec(String(s.bank_text||"")); s._p=m?{bank:m[1],account_masked:m[2],holder:m[3]}:null; });
+    const parsedRows=teamProfileRowsMasked(prof,stores);
+    let h='<section class="category team-card"><div class="team-me">'+renderAvatarBadge(person,48)+'<div><strong>'+escapeHtml((prof&&prof.person_name)||person.name)+'</strong><span>'+(mgr?'매니저':'직원')+' · '+escapeHtml(state.store||'')+'</span></div></div>'+parsedRows+'</section>';
+    if(!prof||prof.source!=="self") h+='<section class="team-notice"><p class="team-notice-title">아직 내가 관리하는 정보로 저장하지 않았어요</p><p class="team-notice-line">\'내 정보 수정\'에서 확인하고 저장하면 연결된 매장이 이 정보를 가져가요.</p></section>';
+    h+='<section class="category team-card"><p class="team-card-title">연결된 매장</p>'+stores.map(s=>'<div class="team-info-row"><span>'+escapeHtml(s.store_name)+'</span><b>'+(s.self_managed?'본인 관리':'매장 입력값')+'</b></div>').join("")+'</section>';
+    return h+'<button type="button" class="owner-primary" data-team-page="personal-edit">내 정보 수정</button>';
+  }
+  function teamProfileRowsMasked(prof, stores){
+    const one=vals=>[...new Set(vals.filter(Boolean))];
+    const P=stores.map(s=>s._p);
+    const rows=[["이름",prof&&prof.person_name,one(stores.map(s=>s.name))],["연락처",prof&&prof.phone,one(stores.map(s=>s.phone))],["은행",prof&&prof.bank_name,one(P.map(p=>p&&p.bank))],
+      ["계좌번호",prof&&prof.bank_account,one(P.map(p=>p&&p.account_masked))],["예금주",prof&&prof.account_holder,one(P.map(p=>p&&p.holder))]];
+    const unparsed=stores.filter(s=>s.bank_text&&!s._p).length;
+    let h=rows.map(([k,own,st])=>{
+      if(own) return teamInfoRow(k,own);
+      if(st.length===1) return '<div class="team-info-row"><span>'+escapeHtml(k)+'</span><b>'+escapeHtml(st[0])+'<small class="team-src">매장 입력값 · 확인 필요</small></b></div>';
+      if(st.length>1) return '<div class="team-info-row"><span>'+escapeHtml(k)+'</span><b>매장마다 달라요<small class="team-src">수정에서 확인해 주세요</small></b></div>';
+      return teamInfoRow(k,"미입력");
+    }).join("");
+    if(unparsed) h+='<p class="team-sub">매장에 저장된 계좌 정보 중 은행·계좌·예금주로 나눌 수 없는 것이 있어요. 수정에서 원문을 보고 직접 입력해 주세요.</p>';
+    return h;
+  }
+  function teamEditPage(person, mgr){
+    const ed=state.teamEdit;
+    if(!ed||ed.step==="loading") return '<section class="category team-card"><p class="team-sub">불러오는 중이에요…</p></section>';
+    if(ed.step==="fail") return '<section class="team-notice"><p class="team-notice-title">조회 실패</p><p class="team-notice-line">내 정보를 불러오지 못했어요. 입력칸을 비워 두지 않고 다시 불러올게요.</p><div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="reopen">다시 시도</button></div></section>';
+    if(ed.step==="done"){
+      const r=ed.result, changed=(r.stores||[]).filter(s=>(s.updated_fields||[]).length);
+      let h='<section class="category team-card"><p class="team-card-title team-title-lg">내 정보를 저장했어요</p><p class="team-sub">이제 이 정보는 내가 관리해요. 연결된 매장의 결과는 아래와 같아요.</p>';
+      (r.stores||[]).forEach(s=>{ const f=(s.updated_fields||[]).map(x=>TP_LABEL[x]||x); h+='<div class="team-info-row"><span>'+escapeHtml(s.store_name)+'</span><b>'+(f.length?escapeHtml(f.join(", "))+' 반영됨':'이미 같은 정보')+'</b></div>'; });
+      h+='</section>';
+      if(changed.length) h+='<section class="team-notice"><p class="team-notice-line">사장님 화면에 변경된 항목 이름과 시각이 표시돼요. 계좌번호 같은 내용은 전달되지 않아요.</p></section>';
+      return h+'<button type="button" class="owner-primary" data-tp-action="done">내 개인정보로 돌아가기</button>';
+    }
+    const f=ed.form;
+    let err='';
+    if(ed.error) err='<section class="'+(ed.error.kind==="info"?'team-notice':'team-notice')+'" role="alert"><p class="team-notice-line">'+escapeHtml(ed.error.text)+'</p>'+(ed.error.kind==="conflict"?'<div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="reload">최신 정보 불러오기</button></div>':'')+'</section>';
+    if(ed.step==="confirm"){
+      const rows=TP_FIELDS.filter(([k])=>f[k]!==(ed.base[k]||"")).map(([k,label])=>{ const old=ed.base[k]||"미입력", nw=f[k]||"미입력"; const m=k==="account"?tpMask:(x=>x); return '<div class="team-info-row"><span>'+label+'</span><b>'+escapeHtml(k==="account"&&ed.base[k]?m(old):old)+' → '+escapeHtml(k==="account"&&f[k]?m(nw):nw)+'</b></div>'; }).join("");
+      const impact=tpStoreChanges(ed);
+      let h=err+'<section class="category team-card"><p class="team-card-title team-title-lg">변경 내용 확인</p>'+(rows||'<p class="team-sub">내가 관리하는 정보와 같은 내용이에요. 저장하면 연결된 매장의 값이 이 정보로 맞춰져요.</p>')+'</section>';
+      h+='<section class="category team-card"><p class="team-card-title">반영될 매장</p>'+impact.map(s=>'<div class="team-info-row"><span>'+escapeHtml(s.store)+'</span><b>'+(s.fields.length?escapeHtml(s.fields.join(", "))+' 바뀜':'바뀌는 항목 없음')+'</b></div>').join("")+'<p class="team-sub">비워 둔 항목은 매장에 저장된 값을 지우지 않아요. 아이디와 근무·급여 설정은 바뀌지 않아요.</p></section>';
+      return h+'<div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="back-form"'+(ed.saving?' disabled':'')+'>수정으로 돌아가기</button><button type="button" class="owner-primary" data-tp-action="save"'+(ed.saving?' disabled aria-busy="true"':'')+'>'+(ed.saving?'저장 중…':'저장')+'</button></div>';
+    }
+    let h=err+'<section class="category team-card">';
+    TP_FIELDS.forEach(([k,label])=>{
+      h+=tpInput(k,label,f[k],(k==="phone"?'inputmode="tel" autocomplete="tel"':(k==="account"?'inputmode="numeric" autocomplete="off"':'autocomplete="off"')));
+      if(ed.fieldErrors&&ed.fieldErrors[k]) h+='<p class="team-field-error" role="alert">'+escapeHtml(ed.fieldErrors[k])+'</p>';
+      if(ed.conflict[k]) h+='<p class="team-sub">매장마다 값이 달라요. 맞는 값을 골라 주세요.</p>';
+      else if(ed.fromStore[k]) h+='<p class="team-sub">매장에 저장된 값이에요. 맞는지 확인해 주세요.</p>';
+      const chips=(ed.chips[k]||[]).filter(c=>c.value!==f[k]);
+      if(chips.length&&!ed.base[k]||ed.conflict[k]) h+='<div class="team-chips">'+(ed.chips[k]||[]).map((c,i)=>'<button type="button" class="team-chip" data-tp-chip="'+k+':'+i+'">'+escapeHtml(c.store)+' · '+escapeHtml(k==="account"?tpMask(c.value):c.value)+'</button>').join("")+'</div>';
+    });
+    if(ed.raw.length) h+='<div class="team-notice" style="margin:14px 0 0"><p class="team-notice-title">나눌 수 없는 계좌 원문</p>'+ed.raw.map(r=>'<p class="team-notice-line">'+escapeHtml(r.store)+': '+escapeHtml(r.text)+'</p>').join("")+'<p class="team-notice-line">위 원문은 그대로 보관돼요. 은행·계좌번호·예금주는 직접 입력해 주세요.</p></div>';
+    h+='</section>';
+    return h+'<button type="button" class="owner-primary" data-tp-action="review">변경 내용 확인</button>';
+  }
+  function bindTeamProfileEvents(){
+    const ed=()=>state.teamEdit;
+    app.querySelectorAll("[data-tp-field]").forEach(inp=>inp.addEventListener("input",()=>{ if(ed()&&ed().form) ed().form[inp.getAttribute("data-tp-field")]=inp.value.trim(); }));
+    app.querySelectorAll("[data-tp-chip]").forEach(b=>b.addEventListener("click",()=>{
+      const [k,i]=b.getAttribute("data-tp-chip").split(":"); const c=(ed().chips[k]||[])[Number(i)]; if(!c) return;
+      ed().form[k]=c.value; delete ed().conflict[k]; render();
+    }));
+    app.querySelectorAll("[data-tp-action]").forEach(b=>b.addEventListener("click",()=>{
+      const a=b.getAttribute("data-tp-action");
+      if(a==="retry") teamProfileLoad();
+      else if(a==="reopen") teamEditOpen();
+      else if(a==="reload") teamEditReload();
+      else if(a==="done"){ state.teamEdit=null; state.teamPage="personal"; teamProfileLoad(); window.scrollTo(0,0); }
+      else if(a==="review"){
+        const e=ed(); if(!e) return;
+        const errs=tpCheck(e.form);
+        const missing={}; Object.keys(e.conflict).forEach(k=>{ if(!e.form[k]) missing[k]="매장마다 값이 달라요. 맞는 값을 골라 주세요."; });
+        e.fieldErrors={...errs,...missing}; e.error=null;
+        if(Object.keys(e.fieldErrors).length){ render(); return; }
+        e.step="confirm"; render(); window.scrollTo(0,0);
+      }
+      else if(a==="back-form"){ const e=ed(); if(e){ e.step="form"; render(); } }
+      else if(a==="save") teamEditSave();
+    }));
+  }
+  // owner: which employees changed their own basic info recently (field names and time only)
+  async function loadOwnerProfileChanges(){
+    const store=state.store, id=state.storeIdMap[store];
+    if(!id) return;
+    const cur=state.ownerProfileChanges;
+    if(cur && cur.store===store && (cur.status==="loading"||cur.status==="ok")) return;
+    const alive=maneeLoadGuard("ownerProfileChanges");
+    state.ownerProfileChanges={store,status:"loading",list:[]};
+    try{
+      const {data,error}=await db.rpc("manee_owner_profile_changes",{p_store_id:id,p_days:30});
+      if(error) throw error;
+      if(!alive()) return;
+      state.ownerProfileChanges={store,status:"ok",list:Array.isArray(data)?data:[]};
+    }catch(e){ if(!alive()) return; state.ownerProfileChanges={store,status:"fail",list:[]}; }
+    render();
+  }
+  function renderOwnerProfileChanges(){
+    if(state.role!=="storeOwner") return "";
+    loadOwnerProfileChanges();
+    const c=state.ownerProfileChanges;
+    if(!c||c.store!==state.store||c.status==="loading") return "";
+    if(c.status==="fail") return '<p class="owner-note">직원이 직접 수정한 정보를 불러오지 못했어요.</p>';
+    if(!c.list.length) return "";
+    const lab={name:"이름",phone:"연락처",bank_account:"계좌"};
+    const when=iso=>{const d=new Date(iso);return (d.getMonth()+1)+"월 "+d.getDate()+"일 "+pad(d.getHours())+":"+pad(d.getMinutes());};
+    return '<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보 (최근 30일)</h3>'+c.list.map(x=>'<div class="team-info-row"><span>'+escapeHtml(x.crew_name||"")+'</span><b>'+escapeHtml((x.fields||[]).map(f=>lab[f]||f).join(", "))+' · '+escapeHtml(when(x.changed_at))+'</b></div>').join("")+'<p class="crew-code-hint" style="margin-top:8px;">변경된 항목 이름과 시각만 보여요. 내용은 직원 정보 화면에서 확인하세요.</p></div>';
+  }
   function teamMe(person, mgr){
     const page=state.teamPage;
     if(page && TEAM_PAGE_TITLES[page] && !(mgr===false && (page==='work'||page==='settings'))){
-      return teamSubHeader(TEAM_PAGE_TITLES[page],'team-page-back',(mgr?'더보기':'내 정보')+'로 돌아가기')+teamPageBody(page,person,mgr);
+      return teamSubHeader(TEAM_PAGE_TITLES[page],'team-page-back',page==='personal-edit'?'내 개인정보로 돌아가기':(mgr?'더보기':'내 정보')+'로 돌아가기')+teamPageBody(page,person,mgr);
     }
     let html='<h2>'+(mgr?'더보기':'내 정보')+'</h2>';
     html+='<section class="category team-card"><div class="team-me">'+renderAvatarBadge(person,48)+'<div><strong>'+escapeHtml(person.name)+'</strong><span>'+escapeHtml(state.store||'')+' · '+(mgr?'매니저':((person.position?person.position+' ':'')+'직원'))+'</span></div></div></section>';
     html+='<div class="owner-menu team-menu">';
     if(mgr) html+=teamMenuRow('work','calendar','내 근무·예상 급여','내 스케줄과 출퇴근 기록');
-    html+=teamMenuRow('personal','user','내 개인정보','연락처·계좌 조회')+teamMenuRow('connection','store','내 매장 연결','소속 매장·연결 상태·매장코드')+teamMenuRow('notifications','bell','알림 설정','출퇴근·예약 알림')+teamMenuRow('password','lock','비밀번호 변경','계정 보안 관리');
+    html+=teamMenuRow('personal','user','내 개인정보','이름·연락처·계좌 관리')+teamMenuRow('connection','store','내 매장 연결','소속 매장·연결 상태·매장코드')+teamMenuRow('notifications','bell','알림 설정','출퇴근·예약 알림')+teamMenuRow('password','lock','비밀번호 변경','계정 보안 관리');
     if(mgr) html+=teamMenuRow('settings','settings','매장 설정','매장 위치·영업일 기준 시간');
     html+=teamMenuRow('help','help','사용법·문의','근무 기록과 사용 안내')+'</div>';
     html+='<button type="button" class="team-logout" id="switch-user-btn">로그아웃</button>';
@@ -6741,9 +6962,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     app.querySelectorAll("[data-team-page]").forEach(btn=>btn.addEventListener("click",()=>{
       state.teamPage=btn.getAttribute("data-team-page");
       if(state.teamPage==="connection") teamConnectionRefresh().catch(()=>{});   // read-only refresh of the connection state
+      if(state.teamPage==="personal") teamProfileLoad();
+      if(state.teamPage==="personal-edit") teamEditOpen();
       render(); window.scrollTo(0,0);
     }));
-    const pageBack=document.getElementById("team-page-back"); if(pageBack) pageBack.addEventListener("click",()=>{ state.teamPage=null; render(); window.scrollTo(0,0); });
+    const pageBack=document.getElementById("team-page-back"); if(pageBack) pageBack.addEventListener("click",()=>{
+      if(state.teamPage==="personal-edit"){ state.teamEdit=null; state.teamPage="personal"; teamProfileLoad(); window.scrollTo(0,0); return; }
+      state.teamPage=null; render(); window.scrollTo(0,0);
+    });
+    bindTeamProfileEvents();
     app.querySelectorAll("[data-staffnav]").forEach(btn=>btn.addEventListener("click",()=>{ if(state.teamPage && btn.getAttribute("data-staffnav")===state.staffView){ state.teamPage=null; render(); window.scrollTo(0,0); } }));
     const bell=document.getElementById("team-bell"); if(bell) bell.addEventListener("click",()=>{
       const me=state.crew.find(c=>c.id===state.myCrewId);
@@ -8384,6 +8611,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
             const isOpen = !!(state.expandedCrewIds && state.expandedCrewIds[c.id]);
             html += '<div class="crew-card" data-crewname="'+escapeHtml(c.name)+'">';
             html += '<div class="crew-top crew-toggle-row" data-togglecrew="'+c.id+'" style="cursor:pointer;">'+renderAvatarBadge(c, 38)+'<div class="crew-info"><div class="name">'+c.name+' <span class="pos-badge '+posClass(c.position)+'">'+(c.position||"홀")+'</span>'+(c.isManager?' <span class="pos-badge mgr-badge">매니저</span>':'')+'</div><div class="wage">'+(MANEE_STAFF_AUTH_ENABLED?"매장코드로 계정 연결":"코드 "+(c.joinCode||"------"))+'</div></div><span style="color:var(--ink-soft);font-size:13px;">'+(isOpen?'▲':'▼')+'</span></div>';
+            if(c.selfServiceProfile) html+='<span class="owner-status ok" style="margin-left:6px;">본인 관리</span>';
             if(c.employmentSetupRequired) html+='<span class="owner-pending">근무조건 설정 필요</span>';
             if(isOpen){
               html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';

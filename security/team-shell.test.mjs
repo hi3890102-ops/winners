@@ -67,7 +67,8 @@ test('T5: menu order and detail pages; no unsupported promises', ()=>{
   assert.ok(me.includes('id="switch-user-btn"'));
   assert.ok(/if\(mgr\) html\+=teamMenuRow\('work'/.test(me)&&/if\(mgr\) html\+=teamMenuRow\('settings'/.test(me));   // manager-only rows
   const pages=slice('  function teamPageBody(','  const TEAM_PAGE_TITLES');
-  assert.ok(!/자동 반영|내 정보 수정|변경 알림/.test(pages+me));   // features that do not exist are not offered or promised
+  const code=html;   // the personal-info screens talk to the server through the reviewed RPCs only
+  assert.ok(code.includes('manee_my_profile_state')&&code.includes('manee_save_my_profile')&&code.includes('manee_owner_profile_changes'));
   assert.ok(pages.includes('recovery-change-submit')&&pages.includes("staffAuthButton('request'")&&pages.includes('push-toggle-btn'));
 });
 test('T5: back stays inside the app (no reload / re-login), role labels come from the confirmed membership role', ()=>{
@@ -79,4 +80,27 @@ test('T5: back stays inside the app (no reload / re-login), role labels come fro
   assert.ok(!/m\.role==='owner'\?'사장님':'스텝'/.test(html));
   // request / cancel inside the staff app refresh in place instead of jumping to the legacy account screen
   assert.ok(/state\.role==='staff'\) await teamConnectionRefresh\(\)/.test(html));
+});
+
+// ---- self-managed personal info (client side rules; the server rules are checked on staging by security/self-profile-management-verify.sql + QA)
+test('personal info: masked or malformed values are rejected before saving; conflicts never default to a value', ()=>{
+  const src=slice('  function tpParseBank(t){','  async function teamProfileLoad(){');
+  const {tpCheck,tpParseBank,tpMask}=new Function(src+';return {tpCheck,tpParseBank,tpMask};')();
+  assert.ok(tpCheck({name:'',phone:'',bank:'',account:'000-***-0003',holder:''}).account);   // a masked string is never a valid account number
+  assert.ok(tpCheck({phone:'12',account:''}).phone);
+  assert.deepEqual(tpCheck({name:'A',phone:'010-1234-5678',bank:'X',account:'123-456-789012',holder:'A'}),{});
+  assert.equal(tpMask('123-456-789012'),'123-***-9012');
+  assert.deepEqual(tpParseBank('가상은행 / 123-456-789012 / 홍길동'),{bank:'가상은행',account:'123-456-789012',holder:'홍길동'});
+  assert.equal(tpParseBank('123456789 국민 홍길동'),null);   // not clearly separable -> never guessed
+  const build=slice('  function tpBuildEdit(data){','  function tpStoreChanges(ed){');
+  const tpBuildEdit=new Function('tpParseBank',slice('  const TP_FIELDS =','  function tpParseBank(t){')+build+';return tpBuildEdit;')(tpParseBank);
+  const ed=tpBuildEdit({profile:null,stores:[{store_name:'A',name:'김',phone:'010-1',bank_text:'X / 11111 / 김'},{store_name:'B',name:'김철수',phone:'010-1',bank_text:'원문만 있음 987654'}]});
+  assert.equal(ed.form.name,'');assert.equal(ed.conflict.name,true);      // stores disagree -> the person must choose
+  assert.equal(ed.form.phone,'010-1');                                   // one consistent store value -> proposed, still confirmed by the person
+  assert.equal(ed.form.account,'11111');assert.equal(ed.raw.length,1);   // unparsable text is kept as raw reference, not split
+});
+test('personal info: saving needs an explicit confirm step and reports failures without success', ()=>{
+  const save=slice('  async function teamEditSave(){','  async function teamEditReload(){');
+  assert.ok(save.includes('ed.step!=="confirm"')&&save.includes('ed.step="form"')&&save.includes('PT409'));
+  assert.ok(save.indexOf('state.teamEdit={step:"done"')>save.indexOf('manee_save_my_profile'));
 });
