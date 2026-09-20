@@ -748,6 +748,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     myCrewId: null,
     staffView: "home",
     teamTab: "check",
+    teamScroll: null,
     loading: true,
     pendingConfirm: null, // { message, onConfirm }
     attConfirmPrompt: null
@@ -2929,6 +2930,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     });
   }
 
+  // The existing lookups + reset that every entry into the sales screens performs (same calls as before, now shared).
+  async function loadSalesEntryData(){
+    await Promise.all([ loadSalesReports(state.store, monthKey()), loadCrew(state.store), loadAttendance(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadVendors(state.store), loadFixedExpenses(state.store, monthKey()) ]);
+    state.selectedSalesDate = null;
+    state.salesSectionTab = "sales";
+  }
   async function goToStaffTab(tab){
     if(MANEE_STAFF_AUTH_ENABLED){
       try{ await staffPortal('crew',{store_id:currentStoreId()}); }
@@ -2939,6 +2946,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.loading = true; render();
     if(tab === "checklist"){
       await Promise.all([ loadChecklist(state.store, bizToday()), loadChecklistLog(state.store, monthKey()) ]);
+      { const me = state.crew.find(c=>c.id===state.myCrewId); if(state.teamTab==="sales" && me && me.salesAccess && !me.isManager) await loadSalesEntryData(); }   // coming back to 업무 with the sales tab remembered
     }else if(tab === "schedule"){
       await Promise.all([ loadShifts(state.store, monthKey()), loadCrew(state.store), loadFixed(state.store) ]);
       state.selectedDate = null;
@@ -2948,9 +2956,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }else if(tab === "home"){
       await loadHomeChecklistPreview(state.store);
     }else if(tab === "sales"){
-      await Promise.all([ loadSalesReports(state.store, monthKey()), loadCrew(state.store), loadAttendance(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadVendors(state.store), loadFixedExpenses(state.store, monthKey()) ]);
-      state.selectedSalesDate = null;
-      state.salesSectionTab = "sales";
+      await loadSalesEntryData();
     }
     state.staffView = tab;
     state.loading = false;
@@ -6537,7 +6543,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const mgr=!!person.isManager;
     let html=teamGreeting(person);
     html+=teamCertNotice(person);
-    if(mgr && managerDashboardEnabled(state.store)) html+=renderManagerSummaryCard(computeMyStoreSummary());
+    if(mgr && managerDashboardEnabled(state.store)) html+=renderTeamSummaryCard(computeMyStoreSummary());
     html+=teamClockCard(person);
     html+=teamEditedNotice();
     if(mgr){
@@ -6545,10 +6551,27 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html+='<section class="category team-card" aria-label="오늘 매출보고"><div class="team-card-head"><span class="team-card-title team-title-lg">오늘 매출보고</span><span class="owner-status '+(done?'ok':'warn')+'">'+(done?'제출':'미제출')+'</span></div><p class="team-sub">정산표·근무 확인·매출·지출을 기록해요.</p><button type="button" class="owner-primary" id="go-salesreport-btn">매출보고 작성하기</button></section>';
       html+=teamQuick([["schedule","people","근무 확인"],["checklist:check","check","체크리스트"],["checklist:res","calendar","예약 접수"]]);
     }else{
-      html+=teamQuick([["schedule","wallet","내 예상 급여"],["checklist:check","check","체크리스트"],["checklist:res","calendar","예약 접수"]]);
+      html+=teamQuick([["schedule:pay","wallet","내 예상 급여"],["checklist:check","check","체크리스트"],["checklist:res","calendar","예약 접수"]]);
     }
     html+=teamChecklistCard()+teamCoworkers()+renderOwnerFortune('오늘의 포춘쿠키');
     return html;
+  }
+  // Verdict cards. Same numbers and limits as before: labor 22 %, food = the owner's saved limit (default 40 %). Equal to the limit is NOT over.
+  // No sales yet -> neutral "집계 전"; food limit unreadable -> neutral "판정 불가" (never shown as 안정).
+  function teamRatioCard(label, value, kind, limitText){
+    const icons={ok:'<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M8.3 12.4l2.5 2.5 4.9-5.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',over:'<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.8v5M12 16.2v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',none:'<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 3"/></svg>'};
+    const word={ok:'안정',over:'관리 필요',none:'집계 전',unknown:'판정 불가'}[kind];
+    return '<div class="team-ratio '+kind+'"><span class="team-ratio-label">'+label+'</span><strong>'+(value===null?'—':value.toFixed(1)+'%')+'</strong><span class="team-verdict">'+(icons[kind]||icons.none)+word+'</span><small>'+limitText+'</small></div>';
+  }
+  function renderTeamSummaryCard(sum){
+    const laborKind = sum.laborRatio===null ? 'none' : (sum.laborRatio>LABOR_RATIO_LIMIT ? 'over' : 'ok');
+    const fv = foodRatioVerdict(state.store, sum.expenseRatio);
+    const foodKind = fv.state==='unknown' ? 'unknown' : fv.state;
+    const foodLimit = fv.state==='unknown' ? '기준을 조회하지 못했어요' : (fv.limit!==null ? formatLimit(fv.limit)+'% 이하 안정' : formatLimit(foodRatioLimit(state.store)===null?DEFAULT_FOOD_RATIO_LIMIT:foodRatioLimit(state.store))+'% 이하 안정');
+    return '<section class="category team-card" aria-label="이번 달 매장 요약"><div class="team-card-head"><span class="team-card-title team-title-lg">이번 달 매장 요약</span><span class="team-sub team-mo">'+state.monthNum+'월 누적</span></div>'+
+      '<p class="team-sub" style="margin-top:10px">누적 매출</p><p class="team-big">'+sum.salesSum.toLocaleString()+'원</p><p class="team-sub">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>'+
+      '<div class="team-ratios">'+teamRatioCard('인건비율',sum.laborRatio,laborKind,LABOR_RATIO_LIMIT+'% 이하 안정')+teamRatioCard('식자재비율',sum.expenseRatio,foodKind,foodLimit)+'</div>'+
+      '<p class="team-legend"><span class="ok"><i></i>안정</span><span class="over"><i></i>관리 필요</span><span class="none"><i></i>집계 전·판정 불가</span></p></section>';
   }
   function teamPayPill(person){
     return renderStaffPayPill(person);
@@ -6602,7 +6625,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         html+='<h2>직원</h2><div class="owner-tabs team-tabs"><button type="button" class="'+(state.scheduleTab==="crew"?"":"active")+'" data-mgrschedtab="calendar">스케줄</button><button type="button" class="'+(state.scheduleTab==="crew"?"active":"")+'" data-mgrschedtab="crew">직원 관리</button></div>';
         html+=state.scheduleTab==="crew"?renderCrewManage():renderCalendar();
       }else{
-        html+='<h2>내 근무</h2>'+renderStaffSchedule(person).replace(/<h3[^>]*>내 스케줄<\/h3>/,'');
+        html+='<h2>내 근무</h2>'+renderStaffSchedule(person,true).replace(/<h3[^>]*>내 스케줄<\/h3>/,'')+'<h3 class="team-h" id="team-pay">예상 급여</h3>'+renderStaffPayPill(person);
       }
     }
     else if(view==="checklist") html+=teamWorkTabs(person,mgr);
@@ -6620,10 +6643,22 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function bindTeamEvents(){
     app.querySelectorAll("[data-team-go]").forEach(btn=>btn.addEventListener("click",()=>{
       const [view,tab]=btn.getAttribute("data-team-go").split(":");
-      if(tab) state.teamTab=tab;
+      if(tab==="pay") state.teamScroll="team-pay"; else if(tab) state.teamTab=tab;
       if(view===state.staffView){ render(); window.scrollTo(0,0); } else goToStaffTab(view);
     }));
-    app.querySelectorAll("[data-team-tab]").forEach(btn=>btn.addEventListener("click",()=>{ state.teamTab=btn.getAttribute("data-team-tab"); render(); }));
+    app.querySelectorAll("[data-team-tab]").forEach(btn=>btn.addEventListener("click",async()=>{
+      const tab=btn.getAttribute("data-team-tab");
+      if(tab==="sales"){
+        // same lookups + reset the legacy sales entry performs; late answers of a previous account/store are dropped by the loaders' guards
+        const alive=maneeLoadGuard("teamSalesTab");
+        state.loading=true; render();
+        try{ await loadSalesEntryData(); }catch(e){}
+        if(!alive()) return;
+        state.teamTab="sales"; state.loading=false; render(); return;
+      }
+      state.teamTab=tab; render();
+    }));
+    if(state.teamScroll){ const el=document.getElementById(state.teamScroll); if(el){ state.teamScroll=null; setTimeout(()=>el.scrollIntoView({block:"start"}),0); } else if(!state.loading) state.teamScroll=null; }
     const bell=document.getElementById("team-bell"); if(bell) bell.addEventListener("click",()=>{
       const me=state.crew.find(c=>c.id===state.myCrewId);
       if(me&&me.isManager){ state.teamTab="ann"; if(state.staffView==="checklist") render(); else goToStaffTab("checklist"); } else goToStaffTab("announcements");
@@ -6999,7 +7034,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return html;
   }
 
-  function renderStaffSchedule(person){
+  function renderStaffSchedule(person, noPay){
     const y=state.monthYear, m=state.monthNum;
     const totalDays = daysInMonth(y,m);
     const leadEmpty = firstWeekdayMon0(y,m);
@@ -7030,7 +7065,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }else{
       html += '<p class="crew-code-hint">날짜를 누르면 그날 내 근무 시간을 볼 수 있어요.</p>';
     }
-    if(person){
+    if(person && !noPay){
       const info = calcCrewPay(person, y, m);
       html += '<div class="month-pill" style="margin-top:12px;">';
       html += '<p class="mp-label">'+m+'월 총 근무 (근무확인 완료 기준)</p>';
@@ -8573,7 +8608,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       btn.addEventListener("click", ()=> goToStaffTab(btn.getAttribute("data-staffnav")));
     });
     const homeGoChecklistBtn = document.getElementById("home-go-checklist-btn");
-    if(homeGoChecklistBtn) homeGoChecklistBtn.addEventListener("click", ()=> goToStaffTab("checklist"));
+    if(homeGoChecklistBtn) homeGoChecklistBtn.addEventListener("click", ()=>{ state.teamTab = "check"; goToStaffTab("checklist"); });
     const goSalesReportBtn = document.getElementById("go-salesreport-btn");
     if(goSalesReportBtn) goSalesReportBtn.addEventListener("click", async ()=>{
       state.loading = true; render();
@@ -8606,10 +8641,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     app.querySelectorAll("[data-confirmann]").forEach(btn=>{
       btn.addEventListener("click", ()=> confirmAnnouncement(btn.getAttribute("data-confirmann")));
     });
-    const prevM2 = document.getElementById("prev-month");
-    const nextM2 = document.getElementById("next-month");
-    if(prevM2) prevM2.addEventListener("click", ()=>changeMonth(-1));
-    if(nextM2) nextM2.addEventListener("click", ()=>changeMonth(1));
+    // #prev-month / #next-month are bound once by bindSalesSectionEvents() (called at the top of this function); a second binding here made every click step two months.
     bindChecklistEvents();
     bindSalesReportEvents();
   }

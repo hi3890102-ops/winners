@@ -159,3 +159,57 @@
 .team-ui .staff-back{display:inline-flex;align-items:center;min-height:44px;margin:0 0 8px;padding:0;border:0;background:transparent;color:var(--ink);font-size:15px;font-weight:700;cursor:pointer}
 .team-ui .staff-back:active{background:var(--brick-dim)}
 .team-ui .coworkers{display:flex;flex-wrap:wrap;gap:12px 18px;margin-top:10px}
+/* review fixes: pay heading, verdict cards */
+.owner-ui .team-h{margin:18px 0 8px;font-size:15px;font-weight:800}
+.owner-ui .team-big{margin:2px 0 4px;font-size:28px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.owner-ui .team-mo{margin:0;flex:none}
+.owner-ui .team-ratios{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 10px}
+.owner-ui .team-ratio{min-width:0;padding:14px 12px;border-radius:14px;display:flex;flex-direction:column;gap:6px}
+.owner-ui .team-ratio-label{font-size:13px;font-weight:750}
+.owner-ui .team-ratio strong{font-size:26px;line-height:1.1;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.owner-ui .team-verdict{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:800}
+.owner-ui .team-verdict svg{width:17px;height:17px;flex:none}
+.owner-ui .team-ratio small{font-size:12px;line-height:1.4}
+.owner-ui .team-ratio.ok{background:#E3F1E8;color:#146D44}
+.owner-ui .team-ratio.over{background:#FCE8E8;color:#A82228}
+.owner-ui .team-ratio.none,.owner-ui .team-ratio.unknown{background:#EEF1EE;color:#55635C}
+.owner-ui .team-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0;font-size:12px;color:var(--ink-soft)}
+.owner-ui .team-legend span{display:inline-flex;align-items:center;gap:5px}
+.owner-ui .team-legend i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.owner-ui .team-legend .ok{color:#146D44}.owner-ui .team-legend .over{color:#A82228}.owner-ui .team-legend .none{color:#55635C}
+/* dark mode for the staff / manager shell only (owner, HQ and franchise screens keep their light styles) */
+@media (prefers-color-scheme: dark){
+  body:has(.app.team-ui){background:#17261F}
+  .app.team-ui{--ink:#EAF4ED;--ink-soft:#B2C3B8;--brick:#2F9160;--brick-dim:#2B4435;--olive:#96D2AB;--danger:#FF9BA0;--line:#42594B;--cream:#17261F;--card:#22362B;--danger-dim:#4A2A2E;color-scheme:dark}
+  .team-ui .owner-header,.team-ui .bottom-nav{background:#1D2F26;border-color:#42594B}
+  .team-ui .bottom-nav{background:#1D2F26f5}
+  .team-ui .bottom-nav button{color:#B2C3B8}.team-ui .bottom-nav button.active{color:#96D2AB}
+  .team-ui .bottom-nav button.active svg{background:#2B4435;box-shadow:0 0 0 5px #2B4435}
+  .team-ui .owner-wordmark{color:#EAF4ED}
+  .team-ui .team-store,.team-ui .owner-context select{background:#22362B;border-color:#42594B;color:#EAF4ED}
+  .team-ui #team-bell,.team-ui .crew-code-btn,.team-ui .owner-retry{background:#22362B;border-color:#42594B;color:#EAF4ED}
+  .team-ui .category,.team-ui .s-card,.team-ui .day-panel,.team-ui .crew-card,.team-ui .owner-quick button,.team-ui .owner-menu button,.team-ui .code-box{background:#22362B;border-color:#42594B;color:#EAF4ED;box-shadow:none}
+  .team-ui .owner-tabs{background:#1D2F26}.team-ui .owner-tabs button{color:#B2C3B8}.team-ui .owner-tabs button.active{background:#2B4435;color:#EAF4ED;box-shadow:none}
+  .team-ui .owner-primary,.team-ui .clock-btn.in{background:#2F9160;color:#fff}
+  .team-ui .owner-status.ok{background:#2B4435;color:#96D2AB}.team-ui .owner-status.none{background:#2E3D35;color:#B2C3B8}.team-ui .owner-status.warn{background:#4A3B1E;color:#F0C978}.team-ui .owner-status.attention{background:#4A2A2E;color:#FF9BA0}
+  .team-ui .owner-badge{background:#4A3B1E;color:#F0C978;border-color:#6B5628}.team-ui .owner-badge.staff{background:#2B4435;color:#96D2AB;border-color:#42594B}
+  .team-ui .team-notice{background:#3A3220;border-color:#6B5628;color:#F0C978}
+  .team-ui .owner-fortune{background:#3A3220;border-color:#6B5628;color:#F0C978}.team-ui .owner-fortune small{color:#D9BE7F}
+  .team-ui .team-progress{background:#33463C}.team-ui .team-progress i{background:#96D2AB}
+  .team-ui .team-link{color:#96D2AB}
+  .team-ui .team-ratio.ok{background:#2B4435;color:#96D2AB}.team-ui .team-ratio.over{background:#4A2A2E;color:#FF9BA0}.team-ui .team-ratio.none,.team-ui .team-ratio.unknown{background:#2E3D35;color:#B2C3B8}
+  .team-ui .team-legend .ok{color:#96D2AB}.team-ui .team-legend .over{color:#FF9BA0}.team-ui .team-legend .none{color:#B2C3B8}
+  .team-ui input,.team-ui select,.team-ui textarea{background:#17261F;border-color:#42594B;color:#EAF4ED}
+  .team-ui input[readonly]{background:#22362B!important;color:#B2C3B8!important}
+  .team-ui .field-label,.team-ui .crew-code-hint,.team-ui .empty-note{color:#B2C3B8}
+  .team-ui .cal-day{background:#22362B;border-color:#42594B;color:#EAF4ED}.team-ui .cal-day.today{border-color:#96D2AB}.team-ui .cal-day.selected{background:#2B4435}
+  .team-ui .month-pill{background:#2F9160}
+  .team-ui .owner-back,.team-ui .staff-back{color:#EAF4ED}
+  .team-ui .mgr-toggle-row,.team-ui .staff-personal-summary{background:#1D2F26}
+  .team-ui .toast{background:#EAF4ED;color:#17261F}
+  .team-ui h2,.team-ui h3,.team-ui .month-label,.team-ui .ring-pct,.team-ui .big,.team-ui .s-main,.team-ui .s-label,.team-ui strong,.team-ui .name,.team-ui .shift-name,.team-ui .cw-name{color:#EAF4ED}
+  .team-ui .staff-personal-summary span{color:#B2C3B8}
+  .team-ui .shift-row,.team-ui .pay-list-item{border-color:#42594B}
+  .team-ui img.photo-thumb{border-color:#42594B}
+  .team-ui .confirm-overlay .confirm-box,.team-ui .confirm-box{background:#22362B;color:#EAF4ED}
+}
