@@ -6,8 +6,8 @@
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='60s';
-revoke all on function public.manee_my_profile_state(boolean),public.manee_save_my_profile(jsonb,integer),public.manee_owner_profile_changes(uuid,integer) from public,anon,authenticated;
-revoke all on function private.my_profile_state(boolean),private.save_my_profile(jsonb,integer),private.owner_profile_changes(uuid,integer) from public,anon,authenticated;
+revoke all on function public.manee_my_profile_state(boolean),public.manee_save_my_profile(jsonb,integer,jsonb),public.manee_owner_profile_changes(uuid,integer) from public,anon,authenticated;
+revoke all on function private.my_profile_state(boolean),private.save_my_profile(jsonb,integer,jsonb),private.owner_profile_changes(uuid,integer) from public,anon,authenticated;
 drop trigger if exists manee_guard_self_managed_crew on public.crew;
 
 create or replace function private.manee_staff_portal(p_action text,p_payload jsonb default '{}'::jsonb)

@@ -177,41 +177,41 @@
 .owner-ui .team-legend span{display:inline-flex;align-items:center;gap:5px}
 .owner-ui .team-legend i{width:8px;height:8px;border-radius:50%;background:currentColor}
 .owner-ui .team-legend .ok{color:#146D44}.owner-ui .team-legend .over{color:#A82228}.owner-ui .team-legend .none{color:#55635C}
-/* dark mode for the staff / manager shell only (owner, HQ and franchise screens keep their light styles) */
+/* dark mode for the owner, staff and manager shells (HQ and franchise screens keep their light styles) */
 @media (prefers-color-scheme: dark){
-  body:has(.app.team-ui){background:#17261F}
-  .app.team-ui{--ink:#EAF4ED;--ink-soft:#B2C3B8;--brick:#2F9160;--brick-dim:#2B4435;--olive:#96D2AB;--danger:#FF9BA0;--line:#42594B;--cream:#17261F;--card:#22362B;--danger-dim:#4A2A2E;color-scheme:dark}
-  .team-ui .owner-header,.team-ui .bottom-nav{background:#1D2F26;border-color:#42594B}
-  .team-ui .bottom-nav{background:#1D2F26f5}
-  .team-ui .bottom-nav button{color:#B2C3B8}.team-ui .bottom-nav button.active{color:#96D2AB}
-  .team-ui .bottom-nav button.active svg{background:#2B4435;box-shadow:0 0 0 5px #2B4435}
-  .team-ui .owner-wordmark{color:#EAF4ED}
-  .team-ui .team-store,.team-ui .owner-context select{background:#22362B;border-color:#42594B;color:#EAF4ED}
-  .team-ui #team-bell,.team-ui .crew-code-btn,.team-ui .owner-retry{background:#22362B;border-color:#42594B;color:#EAF4ED}
-  .team-ui .category,.team-ui .s-card,.team-ui .day-panel,.team-ui .crew-card,.team-ui .owner-quick button,.team-ui .owner-menu button,.team-ui .code-box{background:#22362B;border-color:#42594B;color:#EAF4ED;box-shadow:none}
-  .team-ui .owner-tabs{background:#1D2F26}.team-ui .owner-tabs button{color:#B2C3B8}.team-ui .owner-tabs button.active{background:#2B4435;color:#EAF4ED;box-shadow:none}
-  .team-ui .owner-primary,.team-ui .clock-btn.in{background:#2F9160;color:#fff}
-  .team-ui .owner-status.ok{background:#2B4435;color:#96D2AB}.team-ui .owner-status.none{background:#2E3D35;color:#B2C3B8}.team-ui .owner-status.warn{background:#4A3B1E;color:#F0C978}.team-ui .owner-status.attention{background:#4A2A2E;color:#FF9BA0}
-  .team-ui .owner-badge{background:#4A3B1E;color:#F0C978;border-color:#6B5628}.team-ui .owner-badge.staff{background:#2B4435;color:#96D2AB;border-color:#42594B}
-  .team-ui .team-notice{background:#3A3220;border-color:#6B5628;color:#F0C978}
-  .team-ui .owner-fortune{background:#3A3220;border-color:#6B5628;color:#F0C978}.team-ui .owner-fortune small{color:#D9BE7F}
-  .team-ui .team-progress{background:#33463C}.team-ui .team-progress i{background:#96D2AB}
-  .team-ui .team-link{color:#96D2AB}
-  .team-ui .team-ratio.ok{background:#2B4435;color:#96D2AB}.team-ui .team-ratio.over{background:#4A2A2E;color:#FF9BA0}.team-ui .team-ratio.none,.team-ui .team-ratio.unknown{background:#2E3D35;color:#B2C3B8}
-  .team-ui .team-legend .ok{color:#96D2AB}.team-ui .team-legend .over{color:#FF9BA0}.team-ui .team-legend .none{color:#B2C3B8}
-  .team-ui input,.team-ui select,.team-ui textarea{background:#17261F;border-color:#42594B;color:#EAF4ED}
-  .team-ui input[readonly]{background:#22362B!important;color:#B2C3B8!important}
-  .team-ui .field-label,.team-ui .crew-code-hint,.team-ui .empty-note{color:#B2C3B8}
-  .team-ui .cal-day{background:#22362B;border-color:#42594B;color:#EAF4ED}.team-ui .cal-day.today{border-color:#96D2AB}.team-ui .cal-day.selected{background:#2B4435}
-  .team-ui .month-pill{background:#2F9160}
-  .team-ui .owner-back,.team-ui .staff-back{color:#EAF4ED}
-  .team-ui .mgr-toggle-row,.team-ui .staff-personal-summary{background:#1D2F26}
-  .team-ui .toast{background:#EAF4ED;color:#17261F}
-  .team-ui h2,.team-ui h3,.team-ui .month-label,.team-ui .ring-pct,.team-ui .big,.team-ui .s-main,.team-ui .s-label,.team-ui strong,.team-ui .name,.team-ui .shift-name,.team-ui .cw-name{color:#EAF4ED}
-  .team-ui .staff-personal-summary span{color:#B2C3B8}
-  .team-ui .shift-row,.team-ui .pay-list-item{border-color:#42594B}
-  .team-ui img.photo-thumb{border-color:#42594B}
-  .team-ui .confirm-overlay .confirm-box,.team-ui .confirm-box{background:#22362B;color:#EAF4ED}
+  body:has(.app.owner-ui){background:#17261F}
+  .app.owner-ui{--ink:#EAF4ED;--ink-soft:#B2C3B8;--brick:#2F9160;--brick-dim:#2B4435;--olive:#96D2AB;--danger:#FF9BA0;--line:#42594B;--cream:#17261F;--card:#22362B;--danger-dim:#4A2A2E;color-scheme:dark}
+  .owner-ui .owner-header,.owner-ui .bottom-nav{background:#1D2F26;border-color:#42594B}
+  .owner-ui .bottom-nav{background:#1D2F26f5}
+  .owner-ui .bottom-nav button{color:#B2C3B8}.owner-ui .bottom-nav button.active{color:#96D2AB}
+  .owner-ui .bottom-nav button.active svg{background:#2B4435;box-shadow:0 0 0 5px #2B4435}
+  .owner-ui .owner-wordmark{color:#EAF4ED}
+  .owner-ui .team-store,.owner-ui .owner-context select{background:#22362B;border-color:#42594B;color:#EAF4ED}
+  .owner-ui #team-bell,.owner-ui .crew-code-btn,.owner-ui .owner-retry{background:#22362B;border-color:#42594B;color:#EAF4ED}
+  .owner-ui .category,.owner-ui .s-card,.owner-ui .day-panel,.owner-ui .crew-card,.owner-ui .owner-quick button,.owner-ui .owner-menu button,.owner-ui .code-box{background:#22362B;border-color:#42594B;color:#EAF4ED;box-shadow:none}
+  .owner-ui .owner-tabs{background:#1D2F26}.owner-ui .owner-tabs button{color:#B2C3B8}.owner-ui .owner-tabs button.active{background:#2B4435;color:#EAF4ED;box-shadow:none}
+  .owner-ui .owner-primary,.owner-ui .clock-btn.in{background:#2F9160;color:#fff}
+  .owner-ui .owner-status.ok{background:#2B4435;color:#96D2AB}.owner-ui .owner-status.none{background:#2E3D35;color:#B2C3B8}.owner-ui .owner-status.warn{background:#4A3B1E;color:#F0C978}.owner-ui .owner-status.attention{background:#4A2A2E;color:#FF9BA0}
+  .owner-ui .owner-badge{background:#4A3B1E;color:#F0C978;border-color:#6B5628}.owner-ui .owner-badge.staff{background:#2B4435;color:#96D2AB;border-color:#42594B}
+  .owner-ui .team-notice{background:#3A3220;border-color:#6B5628;color:#F0C978}
+  .owner-ui .owner-fortune{background:#3A3220;border-color:#6B5628;color:#F0C978}.owner-ui .owner-fortune small{color:#D9BE7F}
+  .owner-ui .team-progress{background:#33463C}.owner-ui .team-progress i{background:#96D2AB}
+  .owner-ui .team-link{color:#96D2AB}
+  .owner-ui .team-ratio.ok{background:#2B4435;color:#96D2AB}.owner-ui .team-ratio.over{background:#4A2A2E;color:#FF9BA0}.owner-ui .team-ratio.none,.owner-ui .team-ratio.unknown{background:#2E3D35;color:#B2C3B8}
+  .owner-ui .team-legend .ok{color:#96D2AB}.owner-ui .team-legend .over{color:#FF9BA0}.owner-ui .team-legend .none{color:#B2C3B8}
+  .owner-ui input,.owner-ui select,.owner-ui textarea{background:#17261F;border-color:#42594B;color:#EAF4ED}
+  .owner-ui input[readonly]{background:#22362B!important;color:#B2C3B8!important}
+  .owner-ui .field-label,.owner-ui .crew-code-hint,.owner-ui .empty-note{color:#B2C3B8}
+  .owner-ui .cal-day{background:#22362B;border-color:#42594B;color:#EAF4ED}.owner-ui .cal-day.today{border-color:#96D2AB}.owner-ui .cal-day.selected{background:#2B4435}
+  .owner-ui .month-pill{background:#2F9160}
+  .owner-ui .owner-back,.owner-ui .staff-back{color:#EAF4ED}
+  .owner-ui .mgr-toggle-row,.owner-ui .staff-personal-summary{background:#1D2F26}
+  .owner-ui .toast{background:#EAF4ED;color:#17261F}
+  .owner-ui h2,.owner-ui h3,.owner-ui .month-label,.owner-ui .ring-pct,.owner-ui .big,.owner-ui .s-main,.owner-ui .s-label,.owner-ui strong,.owner-ui .name,.owner-ui .shift-name,.owner-ui .cw-name{color:#EAF4ED}
+  .owner-ui .staff-personal-summary span{color:#B2C3B8}
+  .owner-ui .shift-row,.owner-ui .pay-list-item{border-color:#42594B}
+  .owner-ui img.photo-thumb{border-color:#42594B}
+  .owner-ui .confirm-overlay .confirm-box,.owner-ui .confirm-box{background:#22362B;color:#EAF4ED}
 }
 /* T5: 더보기 / 내 정보 menu, detail pages */
 .owner-ui .team-menu button{align-items:center;text-align:left}
@@ -240,4 +240,51 @@
 @media (prefers-color-scheme: dark){
   .team-ui .team-chip{background:#22362B;border-color:#42594B;color:#EAF4ED}
   .team-ui .team-src{color:#F0C978}
+}
+.owner-ui .team-store-diff{padding:10px 0;border-top:1px solid var(--line)}.owner-ui .team-store-diff strong{display:block;font-size:14px;overflow-wrap:anywhere}
+.owner-ui .team-diff{margin:4px 0 0;font-size:13px;line-height:1.5;overflow-wrap:anywhere}.owner-ui .team-diff span{display:inline-block;min-width:44px;font-weight:700;color:var(--ink-soft)}
+.owner-ui .team-check{display:flex;align-items:flex-start;gap:8px;margin-top:8px;font-size:13px;font-weight:650;line-height:1.5}
+.owner-ui .team-check input{flex:none;margin-top:2px}
+@media (prefers-color-scheme: dark){.team-ui .team-store-diff{border-color:#42594B}.team-ui .team-diff span{color:#B2C3B8}}
+/* owner home (approved mockup): logo, greeting + fortune, overview with 7-day bars, merged per-store cards */
+.owner-ui .owner-logo{display:flex;align-items:center;background:#fff;border-radius:6px;padding:2px;flex:none}.owner-ui .owner-logo img{display:block;width:68px;height:auto}
+.owner-ui #owner-alert-shortcut{position:relative}
+.owner-ui .owner-notice-count{position:absolute;top:2px;right:1px;min-width:17px;height:17px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:#AD4248;color:#fff;font-size:11px;font-weight:700;line-height:17px;text-align:center}
+.owner-ui .oh-greeting{align-items:center}.owner-ui .oh-greeting h2{font-size:18px;margin:0 0 2px}
+.owner-ui .oh-fortune{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:52px;min-height:52px;padding:4px 6px;border:0;border-radius:13px;background:#FBF4E8;color:#8A5A1F;font-size:11px;font-weight:650;cursor:pointer}
+.owner-ui .oh-fortune-text{margin:-4px 0 14px;padding:12px 14px;border-radius:12px;background:#FBF4E8;color:#7A4E18;font-size:13px;line-height:1.55}
+.owner-ui .oh-overview{padding:16px;margin-bottom:18px}
+.owner-ui .oh-ov-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.owner-ui .oh-ov-head>button{min-height:34px;border:0;background:none;color:var(--ink-soft);font-size:12px;font-weight:650;cursor:pointer;padding:0}
+.owner-ui .oh-label{font-size:12px;color:var(--ink-soft)}
+.owner-ui .oh-big{margin:4px 0 8px;font-size:29px;line-height:1.2;font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.owner-ui .oh-big small{font-size:17px;font-weight:650;margin-left:2px}
+.owner-ui .oh-muted{color:var(--ink-soft)}
+.owner-ui .oh-note{margin:0 0 6px;font-size:12px;color:var(--ink-soft)}
+.owner-ui .oh-ratios{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0 0 12px;font-size:12px;color:var(--ink-soft)}.owner-ui .oh-ratios b{margin-left:4px;font-weight:750;color:var(--ink);font-variant-numeric:tabular-nums}
+.owner-ui .oh-ratios b.bad{color:var(--danger)}.owner-ui .oh-ratios b.ok{color:var(--olive)}
+.owner-ui .oh-trend{border-top:1px solid var(--line);padding-top:12px}.owner-ui .oh-trend strong{font-size:13px}
+.owner-ui .oh-trend .oh-ov-head{margin-bottom:32px}.owner-ui .oh-trend .oh-today{margin:12px 0 0}.owner-ui .oh-today strong{font-size:14px}
+.owner-ui .oh-status{margin-bottom:16px}
+.owner-ui .oh-sec-head{display:flex;align-items:center;gap:8px}.owner-ui .oh-sec-head h3{margin:0;flex:1;font-size:16px!important;font-weight:750}.owner-ui .oh-time{font-size:12px;color:var(--ink-soft)}
+.owner-ui .oh-sec-head .ow-refresh{margin:-9px -11px -9px 0}
+.owner-ui .oh-totals{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:4px 0 4px;font-size:13px;color:var(--ink-soft)}.owner-ui .oh-totals b{color:var(--ink)}.owner-ui .oh-totals .oh-live b{color:var(--olive)}
+.owner-ui .oh-store{border:1px solid var(--line);border-radius:18px;background:#fff;padding:0 16px;margin-bottom:12px}
+.owner-ui .oh-store .ow-row{padding:14px 0 12px}
+.owner-ui .oh-ico{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--brick-dim);color:var(--brick);flex:none}.owner-ui .oh-ico svg{width:19px;height:19px}
+.owner-ui .oh-store .ow-name{justify-content:flex-start;gap:10px}.owner-ui .oh-store .ow-name .oh-nm{flex:1;min-width:0;font-size:15px;font-weight:750;overflow-wrap:anywhere;word-break:keep-all}
+.owner-ui .oh-store .ow-line{gap:4px 12px}
+.owner-ui .oh-live{display:inline-flex;align-items:center;gap:6px;color:var(--olive);font-weight:650}.owner-ui .oh-live.none{color:var(--ink-soft)}.owner-ui .oh-live.warn{color:#805715}.owner-ui .oh-live b{font-weight:800}
+.owner-ui .oh-dot{width:7px;height:7px;border-radius:50%;background:var(--olive);display:inline-block}
+.owner-ui .oh-sales{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-soft)}.owner-ui .oh-sales strong{font-size:18px;font-weight:800;color:var(--ink)}.owner-ui .oh-sales strong small{font-size:12px;margin-left:2px}
+.owner-ui .oh-reason{display:flex;align-items:flex-start;gap:6px;margin:6px 0 0;font-size:12px;font-weight:650;line-height:1.45;color:var(--ink-soft)}.owner-ui .oh-reason svg{flex:none;margin-top:1px}
+.owner-ui .oh-reason.bad{color:var(--danger)}.owner-ui .oh-reason.ok{color:var(--olive)}.owner-ui .oh-reason.warn{color:#805715}
+.owner-ui .oh-quick{margin-top:4px}
+@media (prefers-color-scheme: dark){
+  .owner-ui .owner-logo{background:#fff}
+  .owner-ui .oh-fortune,.owner-ui .oh-fortune-text{background:#382F21;color:#E7BD88}
+  .owner-ui .oh-store{background:#22362B;border-color:#42594B}
+  .owner-ui .oh-ico{background:#2B4435;color:#96D2AB}
+  .owner-ui .oh-live.warn,.owner-ui .oh-reason.warn{color:#F0C978}
+  .owner-ui .oh-ratios b.bad,.owner-ui .oh-reason.bad{color:#FF9BA0}.owner-ui .oh-ratios b.ok,.owner-ui .oh-reason.ok,.owner-ui .oh-live,.owner-ui .oh-totals .oh-live b{color:#96D2AB}
+  .owner-ui .oh-dot{background:#96D2AB}.owner-ui .oh-live.none{color:#B2C3B8}
+  .owner-ui .oh-overview,.owner-ui .oh-trend{border-color:#42594B}
 }

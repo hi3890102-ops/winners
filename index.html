@@ -725,6 +725,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     notifBarExpanded: false,
     expandedStoreRows: {},
     ownerWork: { stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 },
+    homeStore: "__all__",
     dashboardDailyTrend: {},
     storeFoodLimitMap: {},
     dashboardTrendActiveDate: null,
@@ -1344,7 +1345,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   };
   function clearStaffAuthView(){
     maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
-    state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null;
+    state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__";
     state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
     maneeRestoreSeq++;  // ...and so is an unfinished login/identity restore
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
@@ -2951,7 +2952,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       catch(e){clearStaffAuthView();render();showToast(staffErrorMessage(e));return;}
     }
     if(tab === state.staffView) return;
-    state.teamPage = null; state.teamEdit = null; state.teamProfile = null;
+    state.teamPage = null; tpCancelEdit(); state.teamProfile = null;
     state.showOwnerSalesForm = false;
     state.loading = true; render();
     if(tab === "checklist"){
@@ -5444,42 +5445,57 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!w.wasHome){ w.wasHome=true; if(!w.loadedOnce || Date.now()-w.lastStartAt>OW_ENTER_REFRESH_MS) loadOwnerWork(); }
   }
   function ownerWorkClock(t){ const d=new Date(t); return pad(d.getHours())+":"+pad(d.getMinutes()); }
+  function ownerHomeScope(){
+    const all=state.myStores||[], sel=state.homeStore;
+    return (sel && sel!=="__all__" && all.includes(sel)) ? [sel] : all;
+  }
+  // "매장별 오늘 현황": today's schedule, who is working now and the month's sales of every store in scope, one card per store.
   function renderOwnerWork(){
-    const w=state.ownerWork,names=state.myStores||[];
-    let html='<section class="category owner-work" id="owner-work-card" aria-label="매장별 오늘 근무">';
-    html+='<div class="ow-head"><span class="ow-title"><span class="ow-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">'+navIcon('people')+'</svg></span>매장별 오늘 근무</span>';
-    html+='<button type="button" class="ow-refresh'+(w.refreshing?' spin':'')+'" id="owner-work-refresh" aria-label="근무 현황 새로고침"'+(w.refreshing?' aria-busy="true"':'')+'><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.6-5.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20 4.5V9h-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>';
-    if(!w.loadedOnce){ return html+'<p class="ow-sub">근무 현황을 불러오는 중이에요…</p></section>'; }
-    const list=names.map(n=>w.stores[n]).filter(Boolean);
-    const okAts=list.map(v=>v.okAt).filter(Boolean);
+    const w=state.ownerWork,scope=ownerHomeScope();
+    let html='<section class="oh-status" id="owner-work-card" aria-label="매장별 오늘 현황">';
+    const head=(time)=>'<div class="oh-sec-head"><h3>매장별 오늘 현황</h3><span class="oh-time">'+time+'</span><button type="button" class="ow-refresh'+(w.refreshing?' spin':'')+'" id="owner-work-refresh" aria-label="현황 새로고침"'+(w.refreshing?' aria-busy="true"':'')+'><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.6-5.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20 4.5V9h-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>';
+    if(!w.loadedOnce){ return html+head('')+'<p class="oh-muted">근무 현황을 불러오는 중이에요…</p></section>'; }
+    const list=scope.map(n=>w.stores[n]).filter(Boolean);
+    const okAts=list.filter(v=>v.sched.ok||v.work.ok).map(v=>v.okAt).filter(Boolean);
     const dates=Array.from(new Set(list.map(v=>v.bizDate)));
     const fmt=ymd=>{const [,m,d]=ymd.split("-").map(Number);return m+"월 "+d+"일";};
-    const headDate=dates.length===1?fmt(dates[0]):fmt(ownerWorkYmd(new Date()));
-    // the time shown is the last time a lookup actually succeeded for at least one piece of data
-    const anyOk=list.some(v=>v.sched.ok||v.work.ok);
-    html+='<p class="ow-sub">'+headDate+(anyOk&&okAts.length?' · '+ownerWorkClock(Math.max.apply(null,okAts))+' 기준':'')+'</p>';
+    html+=head(okAts.length?ownerWorkClock(Math.max.apply(null,okAts))+' 기준':'');
     let exp=0,expOk=0,wk=0,wkOk=0;
     list.forEach(v=>{ if(v.sched.ok){expOk++;exp+=v.sched.count;} if(v.work.ok){wkOk++;wk+=v.work.workers.length;} });
     const total=list.length;
-    html+='<p class="ow-total"><span>오늘 예정 <b>'+(expOk?exp+'명':'—')+'</b></span><i aria-hidden="true"></i><span class="owner-status '+(wkOk&&wk>0?'ok':(wkOk?'none':'warn'))+'">현재 근무 '+(wkOk?wk+'명':'—')+'</span></p>';
-    if(expOk<total||wkOk<total){
-      html+='<p class="owner-status-fail ow-partial">'+((expOk||wkOk)?'조회된 매장 기준 · 일부 매장 확인 불가':'근무 현황을 조회하지 못했어요')+'</p>';
-    }
+    html+='<p class="oh-totals"><span>등록된 예정 <b>'+(expOk?exp+'명':'—')+'</b></span><i aria-hidden="true">·</i><span class="oh-live">현재 근무 <b>'+(wkOk?wk+'명':'—')+'</b></span></p>';
+    if(expOk<total||wkOk<total) html+='<p class="owner-status-fail ow-partial">'+((expOk||wkOk)?'조회된 매장 기준 · 일부 매장 확인 불가':'근무 현황을 조회하지 못했어요')+'</p>';
+    else html+='<p class="oh-note">예정 인원은 등록된 스케줄만 합산한 값이에요.</p>';
     html+='<div class="ow-list">';
     list.forEach(v=>{
       const open=!!w.expanded[v.store],esc=escapeHtml(v.store);
+      const d=(state.dashboardData||[]).find(x=>x.store===v.store);
       const bad=!v.sched.ok||!v.work.ok;
-      const sched=!v.sched.ok?'예정 조회 실패':(v.sched.count===0?'등록된 스케줄 없음':'예정 <b>'+v.sched.count+'명</b>');
-      const chip=!v.work.ok?'<span class="owner-status warn">근무 조회 실패</span>':'<span class="owner-status '+(v.work.workers.length?'ok':'none')+'">근무 중 '+v.work.workers.length+'명</span>';
-      html+='<div class="ow-store"><div class="ow-row" role="button" tabindex="0" data-ow-toggle="'+esc+'" aria-expanded="'+open+'">';
-      html+='<div class="ow-name"><span>'+esc+(dates.length>1?' <em>'+fmt(v.bizDate)+' 영업일</em>':'')+'</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="transform:rotate('+(open?180:0)+'deg)"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
-      html+='<p class="ow-line"><span>'+sched+'</span><span aria-hidden="true">·</span>'+chip+'</p>';
+      const sched=!v.sched.ok?'오늘 예정 확인 불가':(v.sched.count===0?'스케줄 미등록':'오늘 예정 <b>'+v.sched.count+'명</b>');
+      const live=!v.work.ok?'<span class="oh-live warn">근무 확인 불가</span>':'<span class="oh-live'+(v.work.workers.length?'':' none')+'">'+(v.work.workers.length?'<i class="oh-dot" aria-hidden="true"></i>':'')+'현재 근무 <b>'+v.work.workers.length+'명</b></span>';
+      html+='<article class="oh-store"><div class="ow-row" role="button" tabindex="0" data-ow-toggle="'+esc+'" aria-expanded="'+open+'">';
+      html+='<div class="ow-name"><span class="oh-ico" aria-hidden="true">'+navIcon('store')+'</span><span class="oh-nm">'+esc+(dates.length>1?' <em>'+fmt(v.bizDate)+' 영업일</em>':'')+'</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="transform:rotate('+(open?270:0)+'deg)"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
+      html+='<p class="ow-line">'+live+'<span>'+sched+'</span></p>';
       if(v.work.ok){
-        if(v.work.workers.length) html+='<p class="ow-names">'+(v.namesOk?v.work.workers.map(x=>escapeHtml(x.name)).join(" · "):'이름을 불러오지 못했어요')+'</p>';
-        else html+='<p class="ow-names none">현재 근무 중인 직원이 없어요</p>';
+        if(v.work.workers.length){
+          const nm=v.work.workers.map(x=>escapeHtml(x.name));
+          html+='<p class="ow-names">'+(v.namesOk?(nm.length>3?nm.slice(0,3).join(" · ")+' 외 '+(nm.length-3)+'명':nm.join(" · ")):'이름을 불러오지 못했어요')+'</p>';
+        }else html+='<p class="ow-names none">현재 근무 중인 직원이 없어요</p>';
         if(v.work.checks.length) html+='<p class="owner-status-fail ow-check">퇴근 기록 확인 필요 '+v.work.checks.length+'건</p>';
       }
       if(bad) html+='<p class="ow-names none">조회하지 못한 항목이 있어요. <button type="button" class="owner-retry" data-ow-retry>다시 시도</button></p>';
+      // month sales + one short reason for this store
+      if(!state.dashboardData||state.dashboardLoading){ html+='<div class="oh-sales"><span>'+state.monthNum+'월 누적 매출</span><strong class="oh-muted">불러오는 중</strong></div>'; }
+      else if(!d){ html+='<div class="oh-sales"><span>'+state.monthNum+'월 누적 매출</span><strong class="oh-muted">조회 실패</strong></div>'; }
+      else{
+        const st=ownerStoreStatus(d), unreadable=ownerSalesUnreadable(d);
+        const amount=unreadable?'<strong class="oh-muted">조회 실패</strong>':((d.salesReportCount||0)===0?'<strong class="oh-muted">집계 전</strong>':'<strong>'+Math.round(d.salesSum/10000).toLocaleString()+'<small>만원</small></strong>');
+        html+='<div class="oh-sales"><span>'+state.monthNum+'월 누적 매출</span>'+amount+'</div>';
+        if(st.kind==="attention") html+='<p class="oh-reason bad"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.8v5M12 16.2v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>관리 필요 · '+st.reasons.join(" · ")+'</p>';
+        else if(st.failures.length) html+='<p class="oh-reason warn">판정 불가 · 읽지 못한 항목: '+st.failures.join("·")+'</p>';
+        else if(st.kind==="pending"||st.kind==="norevenue") html+='<p class="oh-reason">'+(st.kind==="pending"?'매출 집계 전이라 비율은 판정하지 않아요':'매출이 없어 비율은 판정하지 않아요')+'</p>';
+        else html+='<p class="oh-reason ok"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M8.3 12.4l2.5 2.5 4.9-5.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>안정 · 인건비 '+LABOR_RATIO_LIMIT+'% · 식자재 '+(d.foodThreshold==null?'기준 확인 불가':formatLimit(d.foodThreshold)+'%')+' 이내</p>';
+      }
       html+='</div>';
       if(open){
         html+='<div class="ow-detail">';
@@ -5493,13 +5509,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         }
         html+='<p class="ow-h">오늘 예정</p>';
         if(!v.sched.ok) html+='<p class="ow-none">조회 실패</p>';
-        else if(!v.sched.count) html+='<p class="ow-none">등록된 스케줄 없음</p>';
+        else if(!v.sched.count) html+='<p class="ow-none">스케줄 미등록</p>';
         else v.sched.people.forEach(x=>{html+='<p class="ow-item">'+escapeHtml(x.name)+' · '+x.times.map(t=>escapeHtml(t.start+"–"+t.end)).join(", ")+'</p>';});
-        html+='<button type="button" class="crew-code-btn ow-go" data-ow-att="'+esc+'">근태 보기</button></div>';
+        if(d&&!ownerSalesUnreadable(d)){
+          const lb=d.laborRatio, fb=d.expenseRatio;
+          html+='<p class="ow-h">이번 달 비율</p><p class="ow-item">인건비율 '+(lb===null?'—':lb.toFixed(1)+'%')+' (기준 '+LABOR_RATIO_LIMIT+'%) · 식자재비율 '+(fb===null?'—':fb.toFixed(1)+'%')+' (기준 '+(d.foodThreshold==null?'확인 불가':formatLimit(d.foodThreshold)+'%')+') · 배달매출 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만원(별도 집계)</p>';
+        }
+        html+='<div class="team-actions"><button type="button" class="crew-code-btn ow-go" data-ow-att="'+esc+'">근태 보기</button><button type="button" class="crew-code-btn ow-go" data-ow-sales="'+esc+'">매출 보기</button></div></div>';
       }
-      html+='</div>';
+      html+='</article>';
     });
-    html+='</div><p class="ow-foot"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v5M12 8v.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>출퇴근 기록 기준 · 매장을 누르면 상세 보기</p></section>';
+    html+='</div></section>';
     return html;
   }
   // Repaint only this card (no full render): expanded rows, other cards and the scroll position stay as they are.
@@ -5519,9 +5539,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!card) return;
     const toggle=el=>{const s=el.getAttribute("data-ow-toggle");state.ownerWork.expanded[s]=!state.ownerWork.expanded[s];ownerWorkPaint();};
     card.addEventListener("click",e=>{
-      if(e.target.closest("#owner-work-refresh")){ loadOwnerWork({manual:true}); return; }
+      if(e.target.closest("#owner-work-refresh")){ loadOwnerWork({manual:true}); if(!state.dashboardLoading) retryDashboard(); return; }
       if(e.target.closest("[data-ow-retry]")){ loadOwnerWork({manual:true}); return; }
       const go=e.target.closest("[data-ow-att]");if(go){ ownerWorkOpenAttendance(go.getAttribute("data-ow-att")); return; }
+      const gs=e.target.closest("[data-ow-sales]");if(gs){ ownerWorkOpenSales(gs.getAttribute("data-ow-sales")); return; }
       const row=e.target.closest("[data-ow-toggle]");if(row) toggle(row);
     });
     card.addEventListener("keydown",e=>{const row=e.target.closest&&e.target.closest("[data-ow-toggle]");if(row&&e.target===row&&(e.key==="Enter"||e.key===" ")){e.preventDefault();toggle(row);}});
@@ -5530,6 +5551,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const card=document.getElementById("owner-work-card");
     if(card){card.setAttribute("data-painted",renderOwnerWork());ownerWorkBind(card);}
     ownerWorkSync();
+  }
+  async function ownerWorkOpenSales(store){
+    if(!(state.myStores||[]).includes(store)) return;
+    const alive=maneeLoadGuard("ownerWorkOpen");
+    state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;
+    state.section="sales";state.salesSectionTab="report";
+    try{ if(store!==state.store) await switchOwnerStore(store); }catch(e){ if(alive()) showToast("매장을 불러오지 못했어요. 다시 시도해 주세요."); }
+    if(!alive()) return;
+    render();window.scrollTo(0,0);
   }
   async function ownerWorkOpenAttendance(store){
     const v=state.ownerWork.stores[store],date=v&&v.bizDate;
@@ -5547,13 +5577,49 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     render();window.scrollTo(0,0);
   }
   document.addEventListener("visibilitychange",()=>{ if(state.role==="storeOwner") ownerWorkSync(); else ownerWorkStopTimer(); });
+  function renderOwnerFortuneMini(){
+    const fortune=ownerFortune(),open=state.ownerFortuneDay===fortune.day;
+    return '<button type="button" class="oh-fortune" id="owner-fortune-btn" aria-expanded="'+open+'" aria-label="오늘 운세 '+(open?'닫기':'열기')+'"><svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11 20h22l-3 7H12z" fill="#FFFDF4" stroke="#C89B54"/><path d="M20 7C10 5 3 12 4 21c1 7 8 12 15 12-3-6-3-14 1-26Z" fill="#EDB964" stroke="#C68B35" stroke-width="1.4"/><path d="M20 7c10-2 17 5 16 14-1 7-8 12-15 12 3-6 3-14-1-26Z" fill="#F7CC7D" stroke="#C68B35" stroke-width="1.4"/></svg><span>오늘 운세</span></button>';
+  }
+  // month sales + ratios + last 7 days for the stores in view (all stores or the one selected in the header)
+  function renderOwnerOverview(){
+    const scope=ownerHomeScope();
+    if(state.dashboardLoading||!state.dashboardData) return '<section class="category oh-overview" aria-label="월 매출 요약"><p class="oh-muted">'+scope.length+'개 매장의 매출을 불러오는 중이에요…</p></section>';
+    const data=state.dashboardData.filter(d=>scope.includes(d.store));
+    let total=0,delivery=0,readable=0,ratioSales=0,pay=0,exp=0,foodOver=false,foodUnknown=false;
+    const trend={};
+    data.forEach(d=>{
+      if(!ownerSalesUnreadable(d)){ total+=d.salesSum; delivery+=(d.deliverySum||0); readable++; Object.keys(d.dailySales||{}).forEach(k=>{trend[k]=(trend[k]||0)+d.dailySales[k];}); }
+      if(!(d.loadFailures&&d.loadFailures.length)){ ratioSales+=d.salesSum; pay+=d.laborPay; exp+=(d.expenseSum||0); }
+      if(d.foodThreshold===null) foodUnknown=true;
+      else if(d.expenseRatio!==null&&d.foodThreshold!==undefined&&d.expenseRatio>d.foodThreshold) foodOver=true;
+    });
+    const unknown=data.length>0&&readable===0, partial=readable>0&&readable<data.length;
+    const entered=data.some(d=>!ownerSalesUnreadable(d)&&(d.salesReportCount||0)>0);   // at least one sales report exists (0 won is a real number, "집계 전" is not)
+    const labor=ratioSales>0?pay/ratioSales*100:null, food=ratioSales>0?exp/ratioSales*100:null;
+    const ratioUnknown=!(ratioSales>0)&&data.some(d=>d.loadFailures&&d.loadFailures.length);
+    const laborCls=labor===null?'':(labor>LABOR_RATIO_LIMIT?'bad':'ok');
+    const foodCls=food===null?'':(foodUnknown?'':(foodOver?'bad':'ok'));
+    const at=new Date(), today=ownerWorkBizDate(scope[0]||state.store,at), dow=["일","월","화","수","목","금","토"];
+    const days=[];for(let i=6;i>=0;i--){const t=new Date(at.getTime()-i*86400000);days.push(t);}
+    const range=(a,b)=>(a.getMonth()+1)+"."+a.getDate()+"–"+(b.getMonth()+1)+"."+b.getDate();
+    const todayHas=data.some(d=>!ownerSalesUnreadable(d)&&Object.prototype.hasOwnProperty.call(d.dailySales||{},today));
+    let html='<section class="category oh-overview" aria-label="월 매출 요약"><div class="oh-ov-head"><span class="oh-label">'+state.monthNum+'월 누적 매출 · '+(scope.length===(state.myStores||[]).length?'전체 '+scope.length+'곳':escapeHtml(scope[0]||''))+'</span>'+ownerRouteButton('상세 ›','sales','report',false)+'</div>';
+    if(unknown) html+='<p class="oh-big oh-muted">— <small>조회 실패</small></p><p class="oh-note">매출을 조회하지 못했어요. <button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button></p>';
+    else if(!entered) html+='<p class="oh-big oh-muted">집계 전</p><p class="oh-note">아직 입력된 매출보고가 없어요.</p>';
+    else html+='<p class="oh-big">'+total.toLocaleString()+'<small>원</small></p>'+(partial?'<p class="owner-amount-partial oh-note">조회 성공 '+readable+'/'+data.length+'곳 합계 (조회 실패 매장 제외)</p>':'');
+    html+='<p class="oh-ratios"><span>인건비율 <b class="'+laborCls+'">'+(ratioUnknown||labor===null?'—':labor.toFixed(1)+'%')+'</b></span><span>식자재비율 <b class="'+foodCls+'">'+(ratioUnknown||food===null?'—':food.toFixed(1)+'%')+'</b></span>'+(foodUnknown?'<span class="oh-note">식자재 기준 확인 불가</span>':'')+'</p>';
+    html+='<div class="oh-trend"><div class="oh-ov-head"><strong>최근 7일 매출</strong><span class="oh-label">'+range(days[0],days[6])+' · 만원</span></div>'+renderSalesTrendBars(unknown,trend)+'<div class="oh-ov-head oh-today"><span class="oh-label">'+(at.getMonth()+1)+'월 '+at.getDate()+'일 · 오늘</span><strong>'+(unknown?'조회 실패':(todayHas?Math.round(data.reduce((s,d)=>s+((d.dailySales||{})[today]||0),0)/10000).toLocaleString()+'만원':'집계 전'))+'</strong></div></div></section>';
+    return html;
+  }
   function renderOwnerHome(){
-    let html='<div class="owner-greeting">'+renderRoleAvatar('owner',48)+'<div><h2>사장님, 오늘도 반가워요</h2><p>'+todayLabel()+' · 운영 현황을 확인해 보세요</p></div><button class="crew-code-btn" id="refresh-dashboard-btn" aria-label="운영 현황 새로고침">↻</button></div>';
-    html+=renderOwnerFortune();
-    html+='<div class="owner-quick">'+ownerRouteButton(navIcon('calendar')+'오늘 근무','schedule','attendance',false)+ownerRouteButton(navIcon('chart')+'매출보고','sales','sales',false)+ownerRouteButton(navIcon('check')+'체크리스트','checklist',null,false)+'</div>';
-    html+='<div class="owner-alerts">'+renderNotifSummaryBar()+'</div>';
+    let html='<div class="owner-greeting oh-greeting">'+renderRoleAvatar('owner',48)+'<div><h2>사장님, 반가워요</h2><p>'+todayLabel()+'</p></div>'+renderOwnerFortuneMini().replace(/<p class="oh-fortune-text"[\s\S]*$/,'')+'</div>';
+    const open=state.ownerFortuneDay===ownerFortune().day;
+    if(open) html+='<p class="oh-fortune-text" role="status">'+escapeHtml(ownerFortune().text)+'</p>';
+    html+=renderOwnerOverview();
     html+=renderOwnerWork();
-    return html+renderDashboard();
+    html+='<div class="owner-quick oh-quick">'+ownerRouteButton(navIcon('calendar')+'오늘 근무','schedule','attendance',false)+ownerRouteButton(navIcon('chart')+'매출보고','sales','sales',false)+ownerRouteButton(navIcon('check')+'운영 확인','checklist',null,false)+'</div>';
+    return html;
   }
   function renderOwnerPeople(){
     const pay=state.section==='sales';
@@ -5596,10 +5662,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   function renderOwnerShell(){
     const group=ownerRouteGroup();
-    let html='<header class="owner-header"><div class="owner-topline"><div class="owner-wordmark">매니<i></i></div><span class="owner-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 4 5 5-7 5 7 4-5-2 13H5Z"/></svg>사장님</span></div><div class="owner-context"><label><span class="sr-only">매장 선택</span><select id="owner-store-select" aria-label="매장 선택">';
-    if(group==='home') html+='<option value="__all__">내 매장 전체 · '+state.myStores.length+'곳</option>';
-    state.myStores.forEach(s=>html+='<option value="'+escapeHtml(s)+'"'+(group!=='home'&&s===state.store?' selected':'')+'>'+escapeHtml(s)+'</option>');
-    html+='</select></label><button class="crew-code-btn" id="owner-alert-shortcut" aria-label="알림 모아보기">'+navIcon('bell')+'</button></div></header><main>';
+    let html='<header class="owner-header"><div class="owner-topline"><div class="owner-logo"><img src="'+MASCOT_IMG_DATA+'" alt="매니"></div><span class="owner-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m3 6 4 5 5-7 5 7 4-5-2 13H5Z"/></svg>사장님</span></div><div class="owner-context"><label><span class="sr-only">매장 선택</span><select id="owner-store-select" aria-label="매장 선택">';
+    if(group==='home') html+='<option value="__all__"'+(state.homeStore==='__all__'||!state.myStores.includes(state.homeStore)?' selected':'')+'>내 매장 전체 · '+state.myStores.length+'곳</option>';
+    state.myStores.forEach(s=>html+='<option value="'+escapeHtml(s)+'"'+((group!=='home'&&s===state.store)||(group==='home'&&s===state.homeStore)?' selected':'')+'>'+escapeHtml(s)+'</option>');
+    const noticeCount=state.dashboardData?getNotifGroups().length:0;
+    html+='</select></label><button class="crew-code-btn" id="owner-alert-shortcut" aria-label="'+(noticeCount?'전체 매장 확인할 일 '+noticeCount+'건':'알림 모아보기')+'">'+navIcon('bell')+(noticeCount?'<span class="owner-notice-count" aria-hidden="true">'+noticeCount+'</span>':'')+'</button></div></header><main>';
     if(!state.dashboardData&&!state.dashboardLoading) setTimeout(loadDashboardData,0);
     if(state.showAddStoreForm) html+=renderAddStoreForm();
     if(state.showOwnerSalesForm) html+='<div class="owner-sales-form">'+renderSalesReportForm()+'</div>';
@@ -5640,6 +5707,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const selector=document.getElementById('owner-store-select');
     if(selector)selector.addEventListener('change',()=>{
       const target=selector.value,previous=state.store;
+      if(ownerRouteGroup()==='home'){ state.homeStore=target; render(); return; }   // on the home the selection only filters the home cards
       if(target==='__all__')return;
       const go=()=>{state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.salesDraft=freshSalesDraft();state.selectedDate=null;state.selectedSalesDate=null;state.expandedCrewIds={};if(state.section==='dashboard'){state.section='sales';state.salesSectionTab='report';}switchOwnerStore(target).catch(()=>showToast('매장을 불러오지 못했어요. 다시 시도해 주세요.'));render();};
       if(state.showOwnerSalesForm){selector.value=previous;askConfirm('매장을 바꾸면 작성 중인 보고를 닫습니다. 계속할까요?',go);}else go();
@@ -5651,8 +5719,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     });
     const alerts=document.getElementById('owner-alert-shortcut');if(alerts)alerts.addEventListener('click',()=>{const go=()=>{state.section='alerts';state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;render();};if(state.showOwnerSalesForm)askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else go();});
     app.querySelectorAll('[data-retry-dashboard]').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();retryDashboard();}));
-    const fortune=document.getElementById('owner-fortune-btn');if(fortune)fortune.addEventListener('click',()=>{state.ownerFortuneDay=ownerFortune().day;render();});
+    const fortune=document.getElementById('owner-fortune-btn');if(fortune)fortune.addEventListener('click',()=>{state.ownerFortuneDay=state.ownerFortuneDay===ownerFortune().day?null:ownerFortune().day;render();});
     ownerWorkBindAfterRender();
+    ownerProfileBind();
     // Existing personal fields remain editable. Only new self-service records are read-only here.
     state.crew.filter(c=>c.selfServiceProfile).forEach(c=>['editname','editphone','bank'].forEach(attr=>{const input=app.querySelector('[data-'+attr+'="'+c.id+'"]');if(input)input.readOnly=true;}));
   }
@@ -6646,14 +6715,31 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   const TEAM_PAGE_TITLES={work:'내 근무·예상 급여',personal:'내 개인정보','personal-edit':'내 정보 수정',connection:'내 매장 연결',notifications:'알림 설정',password:'비밀번호 변경',settings:'매장 설정',help:'사용법·문의'};
   // ---------- 내 개인정보 (self-managed basic profile) ----------
-  // Server side: public.manee_my_profile_state / manee_save_my_profile (security/self-profile-management.sql). The person's own profile is
-  // the source of truth for name, phone, bank, account and holder; connected stores receive it when it is saved.
+  // Server side: public.manee_my_profile_state / manee_save_my_profile (security/self-profile-management.sql + -v2.sql). The person's own profile
+  // is the source of truth for name, phone, bank, account and holder. A store's existing value is replaced only after the person confirmed
+  // exactly what they saw (the server re-checks it); bank / account / holder move as one bundle.
   const TP_FIELDS = [["name","이름","person_name"],["phone","연락처","phone"],["bank","은행","bank_name"],["account","계좌번호","bank_account"],["holder","예금주","account_holder"]];
-  const TP_LABEL = { name:"이름", phone:"연락처", bank:"은행", account:"계좌번호", holder:"예금주", bank_account:"계좌", };
-  function tpParseBank(t){ const m=/^(.+?) \/ ([0-9 -]{5,40}) \/ (.+)$/.exec(String(t||"").trim()); return m?{bank:m[1].trim(),account:m[2].trim(),holder:m[3].trim()}:null; }
-  function tpMask(a){ a=String(a||""); return a.length>6 ? a.slice(0,3)+"-***-"+a.slice(-4) : (a?"*".repeat(a.length):""); }
+  const TP_LABEL = { name:"이름", phone:"연락처", bank:"은행", account:"계좌번호", holder:"예금주", bank_account:"계좌" };
+  // Split a stored "은행 / 계좌 / 예금주" text only when it is EXACTLY three non-empty parts and the middle part is a plausible number.
+  function tpParseBank(t){
+    const p=String(t||"").split(" / ");
+    if(p.length!==3) return null;
+    const [bank,account,holder]=p.map(x=>x.trim());
+    if(!bank||!account||!holder||/\//.test(bank)||/\//.test(holder)) return null;
+    if(!/^[0-9 -]{5,40}$/.test(account)) return null;
+    const n=account.replace(/[^0-9]/g,"").length;
+    return (n>=5&&n<=30)?{bank,account,holder}:null;
+  }
+  function tpParseMasked(t){
+    const p=String(t||"").split(" / ");
+    if(p.length!==3||!p[0].trim()||!p[2].trim()||/\//.test(p[0])||/\//.test(p[2])) return null;
+    return /^[0-9*\- ]{5,40}$/.test(p[1].trim())?{bank:p[0].trim(),account_masked:p[1].trim(),holder:p[2].trim()}:null;
+  }
+  // same rule as the server (private.mask_account): never leave a short number readable
+  function tpMask(a){ const d=String(a||"").replace(/[^0-9]/g,""); return d.length>=12 ? d.slice(0,3)+"-***-"+d.slice(-4) : (d.length>=8 ? "***-"+d.slice(-3) : (d.length ? "*****" : "")); }
+  function tpMaskText(t){ const p=tpParseBank(t); return p ? p.bank+" / "+tpMask(p.account)+" / "+p.holder : String(t||"").replace(/[0-9]/g,"*"); }
   function tpCheck(f){
-    const digits=s=>String(s).replace(/[^0-9]/g,"").length, bad=/[<>\u0000-\u001f\u007f]/;
+    const digits=s=>String(s).replace(/[^0-9]/g,"").length, bad=/[<>\x00-\x1f\x7f]/;
     const e={};
     if(f.name && (f.name.length>50||bad.test(f.name))) e.name="이름을 확인해 주세요.";
     if(f.phone && (!/^[+0-9 ()-]{7,24}$/.test(f.phone)||digits(f.phone)<7||digits(f.phone)>15)) e.phone="연락처는 숫자 7~15자리로 입력해 주세요.";
@@ -6662,7 +6748,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(f.holder && (f.holder.length>50||bad.test(f.holder))) e.holder="예금주를 확인해 주세요.";
     return e;
   }
-  function tpBankComposed(f){ return f.account ? [f.bank,f.account,f.holder].filter(Boolean).join(" / ") : null; }
+  // the bank text of a store changes only when all three parts are present (server rule); a partial bundle is "held"
+  function tpBankComplete(f){ return !!(f.bank&&f.account&&f.holder); }
+  function tpBankAny(f){ return !!(f.bank||f.account||f.holder); }
+  function tpBankComposed(f){ return tpBankComplete(f) ? [f.bank,f.account,f.holder].join(" / ") : null; }
+  function tpCancelEdit(){ maneeLoadGuard("teamEdit"); state.teamEdit=null; }   // leaving the screen invalidates every pending edit answer
   async function teamProfileLoad(){
     const alive=maneeLoadGuard("teamProfile");
     state.teamProfile={status:"loading",data:null}; render();
@@ -6677,14 +6767,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   async function teamEditOpen(){
     const alive=maneeLoadGuard("teamEdit");
-    state.teamEdit={step:"loading"}; render();
+    const seed={step:"loading"}; state.teamEdit=seed; render();
     try{
       const {data,error}=await db.rpc("manee_my_profile_state",{p_reveal:true});   // the person's own raw values, only on this screen
       if(error) throw error;
       if(!data||data.ok!==true) throw new Error("bad response");
-      if(!alive()) return;
+      if(!alive()||state.teamEdit!==seed) return;
       state.teamEdit=tpBuildEdit(data);
-    }catch(e){ if(!alive()) return; state.teamEdit={step:"fail"}; }
+    }catch(e){ if(!alive()||state.teamEdit!==seed) return; state.teamEdit={step:"fail"}; }
     render();
   }
   function tpBuildEdit(data){
@@ -6706,52 +6796,63 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       else if(vals.length===1){ form[k]=vals[0]; fromStore[k]=true; }
       else { form[k]=""; if(vals.length>1) conflict[k]=true; }
     });
-    return {step:"form",data,base,form,conflict,fromStore,chips,raw,revision:prof?prof.revision:0,source:prof?prof.source:null,stores,error:null,fieldErrors:{}};
+    // per store: apply-by-confirmation choice (default on for stores whose stored value would be replaced; the review screen shows every difference)
+    const confirm={}; stores.forEach(s=>{ confirm[s.crew_id]=true; });
+    return {step:"form",data,base,form,conflict,fromStore,chips,raw,confirm,revision:prof?prof.revision:0,source:prof?prof.source:null,stores,error:null,fieldErrors:{}};
   }
+  // What saving would do to each connected store (mirrors the server: only the person's non-empty fields, bank as one complete bundle).
   function tpStoreChanges(ed){
-    // which fields would change on each connected store when this profile is saved (empty fields never clear a store value)
-    const f=ed.form, composed=tpBankComposed(f);
+    const f=ed.form, composed=tpBankComposed(f), partial=tpBankAny(f)&&!tpBankComplete(f);
     return ed.stores.map(s=>{
-      const ch=[];
-      if(f.name && f.name!==s.name) ch.push("이름");
-      if(f.phone && f.phone!==(s.phone||"")) ch.push("연락처");
-      if(composed && composed!==(s.bank_text||"")) ch.push("계좌");
-      return {store:s.store_name,fields:ch};
+      const diffs=[];
+      if(f.name && f.name!==s.name) diffs.push({field:"name",label:"이름",from:s.name||"미입력",to:f.name,replaces:true});
+      if(f.phone && f.phone!==(s.phone||"")) diffs.push({field:"phone",label:"연락처",from:s.phone||"미입력",to:f.phone,replaces:!!s.phone});
+      if(composed && composed!==(s.bank_text||"")) diffs.push({field:"bank_account",label:"계좌",from:s.bank_text?tpMaskText(s.bank_text):"미입력",to:tpMaskText(composed),replaces:!!s.bank_text});
+      const needsConfirm = !s.self_managed && diffs.some(d=>d.replaces);
+      return {store:s.store_name,crew_id:s.crew_id,diffs,held:partial,needsConfirm,managed:!!s.self_managed,row:s};
     });
   }
   async function teamEditSave(){
     const ed=state.teamEdit; if(!ed||ed.step!=="confirm"||ed.saving) return;
-    const alive=maneeLoadGuard("teamEditSave");
+    const alive=maneeLoadGuard("teamEdit");
     ed.saving=true; ed.error=null; render();
     const f=ed.form;
+    const confirmPayload=tpStoreChanges(ed).filter(c=>c.needsConfirm&&ed.confirm[c.crew_id]).map(c=>({crew_id:c.crew_id,seen:{name:c.row.name||"",phone:c.row.phone||"",bank_account:c.row.bank_text||""}}));
     try{
-      const {data,error}=await db.rpc("manee_save_my_profile",{p_profile:{person_name:f.name,phone:f.phone,bank_name:f.bank,bank_account:f.account,account_holder:f.holder},p_expected_revision:ed.revision});
+      const {data,error}=await db.rpc("manee_save_my_profile",{p_profile:{person_name:f.name,phone:f.phone,bank_name:f.bank,bank_account:f.account,account_holder:f.holder},p_expected_revision:ed.revision,p_confirm:confirmPayload});
       if(error) throw error;
       if(!data||data.ok!==true) throw new Error("not confirmed");
-      if(!alive()) return;
+      if(!alive()||state.teamEdit!==ed) return;
       state.teamEdit={step:"done",result:data};
       state.teamProfile=null;
-      loadCrew(state.store).then(()=>render()).catch(()=>{});
+      const guard=maneeLoadGuard("teamCrewRefresh");
+      loadCrew(state.store).then(()=>{ if(guard()) render(); }).catch(()=>{});
     }catch(e){
-      if(!alive()) return;
+      if(!alive()||state.teamEdit!==ed) return;
       ed.saving=false;
-      const conflict = e && (e.code==="PT409"||/profile_revision_conflict/.test(String(e.message||"")));
-      ed.error = conflict ? {kind:"conflict",text:"다른 화면에서 먼저 저장됐어요. 입력한 내용은 그대로 두었어요. 최신 정보를 불러온 뒤 다시 확인해 주세요."}
+      const conflict = e && (e.code==="PT409"||/profile_revision_conflict|store_values_changed/.test(String(e.message||"")));
+      ed.error = conflict ? {kind:"conflict",text:"다른 화면에서 먼저 저장됐거나 매장의 값이 바뀌었어요. 입력한 내용은 그대로 두었어요. 최신 정보를 불러온 뒤 다시 확인해 주세요."}
         : (e && e.code==="22023" ? {kind:"invalid",text:"입력한 값을 저장할 수 없어요. 형식을 확인해 주세요."} : {kind:"fail",text:"저장하지 못했어요. 입력한 내용은 그대로 있어요. 연결을 확인하고 다시 시도해 주세요."});
       ed.step="form";
     }
     render();
   }
   async function teamEditReload(){
-    const ed=state.teamEdit; if(!ed) return;
+    const ed=state.teamEdit; if(!ed||ed.saving) return;
+    const alive=maneeLoadGuard("teamEdit");
     const keep={...ed.form};
     try{
       const {data,error}=await db.rpc("manee_my_profile_state",{p_reveal:true});
       if(error) throw error;
+      if(!data||data.ok!==true) throw new Error("bad response");
+      if(!alive()||state.teamEdit!==ed) return;   // another account / screen / newer request took over: this late answer is dropped
       const fresh=tpBuildEdit(data);
       fresh.form=keep; fresh.error={kind:"info",text:"최신 정보를 불러왔어요. 입력한 내용은 유지했어요."};
       state.teamEdit=fresh;
-    }catch(e){ ed.error={kind:"fail",text:"최신 정보를 불러오지 못했어요."}; }
+    }catch(e){
+      if(!alive()||state.teamEdit!==ed) return;
+      ed.error={kind:"fail",text:"최신 정보를 불러오지 못했어요."};
+    }
     render();
   }
   function tpInput(k,label,val,extra){
@@ -6760,51 +6861,61 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function teamPersonalPage(person, mgr){
     const tp=state.teamProfile;
     if(!tp||tp.status==="loading") return '<section class="category team-card"><p class="team-sub">불러오는 중이에요…</p></section>';
-    if(tp.status==="fail") return '<section class="team-notice"><p class="team-notice-title">조회 실패</p><p class="team-notice-line">내 정보를 불러오지 못했어요. 미입력이 아니에요. 잠시 후 다시 시도해 주세요.</p><div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="retry">다시 시도</button></div></section>';
+    if(tp.status==="fail") return '<section class="team-notice"><p class="team-notice-title">조회 실패</p><p class="team-notice-line">내 정보를 불러오지 못했어요. 미입력이 아니에요. 잠시 후 다시 시도해 주세요.</p><div class="team-actions"><button type="button" class="crew-action-btn crew-code-btn" data-tp-action="retry">다시 시도</button></div></section>';
     const prof=tp.data.profile, stores=tp.data.stores||[];
-    // bank text is masked by the server; keep the masked account for the display rows
-    stores.forEach(s=>{ const m=/^(.+?) \/ ([0-9*\- ]{5,40}) \/ (.+)$/.exec(String(s.bank_text||"")); s._p=m?{bank:m[1],account_masked:m[2],holder:m[3]}:null; });
-    const parsedRows=teamProfileRowsMasked(prof,stores);
-    let h='<section class="category team-card"><div class="team-me">'+renderAvatarBadge(person,48)+'<div><strong>'+escapeHtml((prof&&prof.person_name)||person.name)+'</strong><span>'+(mgr?'매니저':'직원')+' · '+escapeHtml(state.store||'')+'</span></div></div>'+parsedRows+'</section>';
-    if(!prof||prof.source!=="self") h+='<section class="team-notice"><p class="team-notice-title">아직 내가 관리하는 정보로 저장하지 않았어요</p><p class="team-notice-line">\'내 정보 수정\'에서 확인하고 저장하면 연결된 매장이 이 정보를 가져가요.</p></section>';
-    h+='<section class="category team-card"><p class="team-card-title">연결된 매장</p>'+stores.map(s=>'<div class="team-info-row"><span>'+escapeHtml(s.store_name)+'</span><b>'+(s.self_managed?'본인 관리':'매장 입력값')+'</b></div>').join("")+'</section>';
-    return h+'<button type="button" class="owner-primary" data-team-page="personal-edit">내 정보 수정</button>';
-  }
-  function teamProfileRowsMasked(prof, stores){
+    const P=stores.map(s=>tpParseMasked(s.bank_text));
     const one=vals=>[...new Set(vals.filter(Boolean))];
-    const P=stores.map(s=>s._p);
     const rows=[["이름",prof&&prof.person_name,one(stores.map(s=>s.name))],["연락처",prof&&prof.phone,one(stores.map(s=>s.phone))],["은행",prof&&prof.bank_name,one(P.map(p=>p&&p.bank))],
       ["계좌번호",prof&&prof.bank_account,one(P.map(p=>p&&p.account_masked))],["예금주",prof&&prof.account_holder,one(P.map(p=>p&&p.holder))]];
-    const unparsed=stores.filter(s=>s.bank_text&&!s._p).length;
-    let h=rows.map(([k,own,st])=>{
+    let body=rows.map(([k,own,st])=>{
       if(own) return teamInfoRow(k,own);
       if(st.length===1) return '<div class="team-info-row"><span>'+escapeHtml(k)+'</span><b>'+escapeHtml(st[0])+'<small class="team-src">매장 입력값 · 확인 필요</small></b></div>';
       if(st.length>1) return '<div class="team-info-row"><span>'+escapeHtml(k)+'</span><b>매장마다 달라요<small class="team-src">수정에서 확인해 주세요</small></b></div>';
       return teamInfoRow(k,"미입력");
     }).join("");
-    if(unparsed) h+='<p class="team-sub">매장에 저장된 계좌 정보 중 은행·계좌·예금주로 나눌 수 없는 것이 있어요. 수정에서 원문을 보고 직접 입력해 주세요.</p>';
-    return h;
+    const unparsed=stores.filter((s,i)=>s.bank_text&&!P[i]).length;
+    if(unparsed) body+='<p class="team-sub">매장에 저장된 계좌 정보 중 은행·계좌·예금주로 나눌 수 없는 것이 있어요. 수정에서 원문을 보고 직접 입력해 주세요.</p>';
+    let h='<section class="category team-card"><div class="team-me">'+renderAvatarBadge(person,48)+'<div><strong>'+escapeHtml((prof&&prof.person_name)||person.name)+'</strong><span>'+(mgr?'매니저':'직원')+' · '+escapeHtml(state.store||'')+'</span></div></div>'+body+'</section>';
+    const needReview=stores.filter(s=>s.differs&&!s.self_managed);
+    if(!prof||prof.source!=="self") h+='<section class="team-notice"><p class="team-notice-title">아직 내가 관리하는 정보로 저장하지 않았어요</p><p class="team-notice-line">\'내 정보 수정\'에서 확인하고 저장하면 연결된 매장이 이 정보를 가져가요.</p></section>';
+    else if(needReview.length) h+='<section class="team-notice"><p class="team-notice-title">확인이 필요한 매장이 있어요</p><p class="team-notice-line">'+needReview.map(s=>escapeHtml(s.store_name)).join(", ")+' 의 정보가 내 정보와 달라요. 확인하기 전에는 바뀌지 않아요.</p></section>';
+    h+='<section class="category team-card"><p class="team-card-title">연결된 매장</p>'+stores.map(s=>'<div class="team-info-row"><span>'+escapeHtml(s.store_name)+'</span><b>'+(s.self_managed?'본인 관리':(s.differs?'확인 필요':'매장 입력값'))+'</b></div>').join("")+'</section>';
+    return h+'<button type="button" class="owner-primary" data-team-page="personal-edit">내 정보 수정</button>';
   }
   function teamEditPage(person, mgr){
     const ed=state.teamEdit;
     if(!ed||ed.step==="loading") return '<section class="category team-card"><p class="team-sub">불러오는 중이에요…</p></section>';
     if(ed.step==="fail") return '<section class="team-notice"><p class="team-notice-title">조회 실패</p><p class="team-notice-line">내 정보를 불러오지 못했어요. 입력칸을 비워 두지 않고 다시 불러올게요.</p><div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="reopen">다시 시도</button></div></section>';
     if(ed.step==="done"){
-      const r=ed.result, changed=(r.stores||[]).filter(s=>(s.updated_fields||[]).length);
+      const r=ed.result, list=r.stores||[];
       let h='<section class="category team-card"><p class="team-card-title team-title-lg">내 정보를 저장했어요</p><p class="team-sub">이제 이 정보는 내가 관리해요. 연결된 매장의 결과는 아래와 같아요.</p>';
-      (r.stores||[]).forEach(s=>{ const f=(s.updated_fields||[]).map(x=>TP_LABEL[x]||x); h+='<div class="team-info-row"><span>'+escapeHtml(s.store_name)+'</span><b>'+(f.length?escapeHtml(f.join(", "))+' 반영됨':'이미 같은 정보')+'</b></div>'; });
+      list.forEach(s=>{
+        const upd=(s.updated_fields||[]).map(x=>TP_LABEL[x]||x), held=(s.held_fields||[]).map(x=>TP_LABEL[x]||x), need=(s.needs_confirmation||[]).map(x=>TP_LABEL[x]||x);
+        const parts=[]; if(upd.length) parts.push(upd.join(", ")+" 반영됨"); if(need.length) parts.push(need.join(", ")+" 확인 전이라 바꾸지 않았어요"); if(held.length) parts.push(held.join(", ")+" 은행·계좌·예금주가 모두 있어야 반영돼요(기존 값 유지)");
+        h+='<div class="team-info-row"><span>'+escapeHtml(s.store_name)+'</span><b>'+(parts.length?parts.map(escapeHtml).join(" · "):'바뀐 항목 없음')+'</b></div>';
+      });
       h+='</section>';
-      if(changed.length) h+='<section class="team-notice"><p class="team-notice-line">사장님 화면에 변경된 항목 이름과 시각이 표시돼요. 계좌번호 같은 내용은 전달되지 않아요.</p></section>';
+      if(list.some(s=>(s.updated_fields||[]).length)) h+='<section class="team-notice"><p class="team-notice-line">사장님 화면에 변경된 항목 이름과 시각이 표시돼요. 계좌번호 같은 내용은 전달되지 않아요.</p></section>';
       return h+'<button type="button" class="owner-primary" data-tp-action="done">내 개인정보로 돌아가기</button>';
     }
     const f=ed.form;
     let err='';
-    if(ed.error) err='<section class="'+(ed.error.kind==="info"?'team-notice':'team-notice')+'" role="alert"><p class="team-notice-line">'+escapeHtml(ed.error.text)+'</p>'+(ed.error.kind==="conflict"?'<div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="reload">최신 정보 불러오기</button></div>':'')+'</section>';
+    if(ed.error) err='<section class="team-notice" role="alert"><p class="team-notice-line">'+escapeHtml(ed.error.text)+'</p>'+(ed.error.kind==="conflict"?'<div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="reload">최신 정보 불러오기</button></div>':'')+'</section>';
     if(ed.step==="confirm"){
-      const rows=TP_FIELDS.filter(([k])=>f[k]!==(ed.base[k]||"")).map(([k,label])=>{ const old=ed.base[k]||"미입력", nw=f[k]||"미입력"; const m=k==="account"?tpMask:(x=>x); return '<div class="team-info-row"><span>'+label+'</span><b>'+escapeHtml(k==="account"&&ed.base[k]?m(old):old)+' → '+escapeHtml(k==="account"&&f[k]?m(nw):nw)+'</b></div>'; }).join("");
+      const rows=TP_FIELDS.filter(([k])=>f[k]!==(ed.base[k]||"")).map(([k,label])=>{ const old=ed.base[k]||"미입력", nw=f[k]||"미입력"; return '<div class="team-info-row"><span>'+label+'</span><b>'+escapeHtml(k==="account"&&ed.base[k]?tpMask(old):old)+' → '+escapeHtml(k==="account"&&f[k]?tpMask(nw):nw)+'</b></div>'; }).join("");
       const impact=tpStoreChanges(ed);
-      let h=err+'<section class="category team-card"><p class="team-card-title team-title-lg">변경 내용 확인</p>'+(rows||'<p class="team-sub">내가 관리하는 정보와 같은 내용이에요. 저장하면 연결된 매장의 값이 이 정보로 맞춰져요.</p>')+'</section>';
-      h+='<section class="category team-card"><p class="team-card-title">반영될 매장</p>'+impact.map(s=>'<div class="team-info-row"><span>'+escapeHtml(s.store)+'</span><b>'+(s.fields.length?escapeHtml(s.fields.join(", "))+' 바뀜':'바뀌는 항목 없음')+'</b></div>').join("")+'<p class="team-sub">비워 둔 항목은 매장에 저장된 값을 지우지 않아요. 아이디와 근무·급여 설정은 바뀌지 않아요.</p></section>';
+      let h=err+'<section class="category team-card"><p class="team-card-title team-title-lg">변경 내용 확인</p>'+(rows||'<p class="team-sub">내가 관리하는 정보와 같은 내용이에요.</p>')+'</section>';
+      h+='<section class="category team-card"><p class="team-card-title">반영될 매장</p>';
+      impact.forEach(s=>{
+        h+='<div class="team-store-diff"><strong>'+escapeHtml(s.store)+'</strong>';
+        if(!s.diffs.length) h+='<p class="team-sub">바뀌는 항목 없음</p>';
+        s.diffs.forEach(d=>{ h+='<p class="team-diff"><span>'+d.label+'</span> '+escapeHtml(d.from)+' → '+escapeHtml(d.to)+'</p>'; });
+        if(s.held) h+='<p class="team-src">은행·계좌번호·예금주를 모두 입력해야 계좌 정보가 반영돼요. 이 매장의 기존 계좌 정보는 그대로 둬요.</p>';
+        if(s.needsConfirm) h+='<label class="team-check"><input type="checkbox" data-tp-store="'+escapeHtml(s.crew_id)+'"'+(ed.confirm[s.crew_id]?' checked':'')+'> 이 매장에 저장된 값을 위 내용으로 바꿀게요</label>';
+        else if(s.managed) h+='<p class="team-sub">본인 관리 정보라서 확인 후 바로 맞춰져요.</p>';
+        h+='</div>';
+      });
+      h+='<p class="team-sub">비워 둔 항목은 매장에 저장된 값을 지우지 않아요. 아이디와 근무·급여 설정은 바뀌지 않아요.</p></section>';
       return h+'<div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="back-form"'+(ed.saving?' disabled':'')+'>수정으로 돌아가기</button><button type="button" class="owner-primary" data-tp-action="save"'+(ed.saving?' disabled aria-busy="true"':'')+'>'+(ed.saving?'저장 중…':'저장')+'</button></div>';
     }
     let h=err+'<section class="category team-card">';
@@ -6813,9 +6924,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(ed.fieldErrors&&ed.fieldErrors[k]) h+='<p class="team-field-error" role="alert">'+escapeHtml(ed.fieldErrors[k])+'</p>';
       if(ed.conflict[k]) h+='<p class="team-sub">매장마다 값이 달라요. 맞는 값을 골라 주세요.</p>';
       else if(ed.fromStore[k]) h+='<p class="team-sub">매장에 저장된 값이에요. 맞는지 확인해 주세요.</p>';
-      const chips=(ed.chips[k]||[]).filter(c=>c.value!==f[k]);
-      if(chips.length&&!ed.base[k]||ed.conflict[k]) h+='<div class="team-chips">'+(ed.chips[k]||[]).map((c,i)=>'<button type="button" class="team-chip" data-tp-chip="'+k+':'+i+'">'+escapeHtml(c.store)+' · '+escapeHtml(k==="account"?tpMask(c.value):c.value)+'</button>').join("")+'</div>';
+      const differing=(ed.chips[k]||[]).filter(c=>c.value!==f[k]);
+      if(differing.length||ed.conflict[k]) h+='<div class="team-chips">'+(ed.chips[k]||[]).map((c,i)=>'<button type="button" class="team-chip" data-tp-chip="'+k+':'+i+'">'+escapeHtml(c.store)+' · '+escapeHtml(k==="account"?tpMask(c.value):c.value)+'</button>').join("")+'</div>';
     });
+    if(tpBankAny(f)&&!tpBankComplete(f)) h+='<div class="team-notice" style="margin:12px 0 0"><p class="team-notice-line">은행·계좌번호·예금주 중 일부만 입력했어요. 세 항목이 모두 있어야 매장의 계좌 정보가 바뀌어요. 지금은 매장의 기존 계좌 정보를 그대로 둬요.</p></div>';
     if(ed.raw.length) h+='<div class="team-notice" style="margin:14px 0 0"><p class="team-notice-title">나눌 수 없는 계좌 원문</p>'+ed.raw.map(r=>'<p class="team-notice-line">'+escapeHtml(r.store)+': '+escapeHtml(r.text)+'</p>').join("")+'<p class="team-notice-line">위 원문은 그대로 보관돼요. 은행·계좌번호·예금주는 직접 입력해 주세요.</p></div>';
     h+='</section>';
     return h+'<button type="button" class="owner-primary" data-tp-action="review">변경 내용 확인</button>';
@@ -6823,6 +6935,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function bindTeamProfileEvents(){
     const ed=()=>state.teamEdit;
     app.querySelectorAll("[data-tp-field]").forEach(inp=>inp.addEventListener("input",()=>{ if(ed()&&ed().form) ed().form[inp.getAttribute("data-tp-field")]=inp.value.trim(); }));
+    app.querySelectorAll("[data-tp-store]").forEach(cb=>cb.addEventListener("change",()=>{ if(ed()&&ed().confirm) ed().confirm[cb.getAttribute("data-tp-store")]=cb.checked; }));
     app.querySelectorAll("[data-tp-chip]").forEach(b=>b.addEventListener("click",()=>{
       const [k,i]=b.getAttribute("data-tp-chip").split(":"); const c=(ed().chips[k]||[])[Number(i)]; if(!c) return;
       ed().form[k]=c.value; delete ed().conflict[k]; render();
@@ -6832,7 +6945,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(a==="retry") teamProfileLoad();
       else if(a==="reopen") teamEditOpen();
       else if(a==="reload") teamEditReload();
-      else if(a==="done"){ state.teamEdit=null; state.teamPage="personal"; teamProfileLoad(); window.scrollTo(0,0); }
+      else if(a==="done"){ tpCancelEdit(); state.teamPage="personal"; teamProfileLoad(); window.scrollTo(0,0); }
       else if(a==="review"){
         const e=ed(); if(!e) return;
         const errs=tpCheck(e.form);
@@ -6845,32 +6958,47 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       else if(a==="save") teamEditSave();
     }));
   }
-  // owner: which employees changed their own basic info recently (field names and time only)
-  async function loadOwnerProfileChanges(){
+  // owner: which employees changed their own basic info recently (field names and time only).
+  // The lookup is started by an explicit trigger (entering the staff-management tab, the refresh button, a store change), never by render():
+  // a failure is shown once with a retry button instead of being re-requested in a loop.
+  async function loadOwnerProfileChanges(force){
     const store=state.store, id=state.storeIdMap[store];
     if(!id) return;
     const cur=state.ownerProfileChanges;
-    if(cur && cur.store===store && (cur.status==="loading"||cur.status==="ok")) return;
+    if(!force && cur && cur.store===store && cur.status==="loading") return;
     const alive=maneeLoadGuard("ownerProfileChanges");
-    state.ownerProfileChanges={store,status:"loading",list:[]};
+    state.ownerProfileChanges={store,status:"loading",list:(cur&&cur.store===store)?cur.list:[],at:0};
+    render();
     try{
       const {data,error}=await db.rpc("manee_owner_profile_changes",{p_store_id:id,p_days:30});
       if(error) throw error;
-      if(!alive()) return;
-      state.ownerProfileChanges={store,status:"ok",list:Array.isArray(data)?data:[]};
-    }catch(e){ if(!alive()) return; state.ownerProfileChanges={store,status:"fail",list:[]}; }
+      if(!alive()||state.store!==store) return;
+      state.ownerProfileChanges={store,status:"ok",list:Array.isArray(data)?data:[],at:Date.now()};
+    }catch(e){ if(!alive()||state.store!==store) return; state.ownerProfileChanges={store,status:"fail",list:[],at:Date.now()}; }
     render();
+  }
+  // called after every owner render: fetch once per visit of the staff-management tab (and again after a store change or leaving and re-entering)
+  function ownerProfileAfterRender(){
+    const on = state.role==="storeOwner" && ownerRouteGroup()==="people" && state.scheduleTab==="crew" && state.section!=="sales";
+    if(!on){ state.ownerProfileVisit=null; return; }
+    if(state.ownerProfileVisit===state.store) return;   // same visit: never an automatic repeat, after success or failure
+    state.ownerProfileVisit=state.store;
+    loadOwnerProfileChanges(false);
+  }
+  function ownerProfileBind(){
+    ownerProfileAfterRender();
+    app.querySelectorAll("[data-op-refresh]").forEach(b=>b.addEventListener("click",()=>loadOwnerProfileChanges(true)));
   }
   function renderOwnerProfileChanges(){
     if(state.role!=="storeOwner") return "";
-    loadOwnerProfileChanges();
     const c=state.ownerProfileChanges;
-    if(!c||c.store!==state.store||c.status==="loading") return "";
-    if(c.status==="fail") return '<p class="owner-note">직원이 직접 수정한 정보를 불러오지 못했어요.</p>';
-    if(!c.list.length) return "";
+    if(!c||c.store!==state.store) return "";
+    const refresh='<button type="button" class="crew-code-btn" data-op-refresh>'+(c.status==="loading"?'불러오는 중…':'새로고침')+'</button>';
+    if(c.status==="fail") return '<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보</h3><p class="crew-code-hint">불러오지 못했어요. 잠시 후 다시 시도해 주세요.</p>'+refresh+'</div>';
+    if(!c.list.length) return c.status==="loading"?"":'<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보</h3><p class="crew-code-hint">최근 30일 동안 수정한 직원이 없어요.</p>'+refresh+'</div>';
     const lab={name:"이름",phone:"연락처",bank_account:"계좌"};
     const when=iso=>{const d=new Date(iso);return (d.getMonth()+1)+"월 "+d.getDate()+"일 "+pad(d.getHours())+":"+pad(d.getMinutes());};
-    return '<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보 (최근 30일)</h3>'+c.list.map(x=>'<div class="team-info-row"><span>'+escapeHtml(x.crew_name||"")+'</span><b>'+escapeHtml((x.fields||[]).map(f=>lab[f]||f).join(", "))+' · '+escapeHtml(when(x.changed_at))+'</b></div>').join("")+'<p class="crew-code-hint" style="margin-top:8px;">변경된 항목 이름과 시각만 보여요. 내용은 직원 정보 화면에서 확인하세요.</p></div>';
+    return '<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보 (최근 30일)</h3>'+c.list.map(x=>'<div class="team-info-row"><span>'+escapeHtml(x.crew_name||"")+'</span><b>'+escapeHtml((x.fields||[]).map(f=>lab[f]||f).join(", "))+' · '+escapeHtml(when(x.changed_at))+'</b></div>').join("")+'<p class="crew-code-hint" style="margin-top:8px;">변경된 항목 이름과 시각만 보여요. 계좌·연락처의 내용은 전달되지 않아요.</p>'+refresh+'</div>';
   }
   function teamMe(person, mgr){
     const page=state.teamPage;
@@ -6967,7 +7095,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       render(); window.scrollTo(0,0);
     }));
     const pageBack=document.getElementById("team-page-back"); if(pageBack) pageBack.addEventListener("click",()=>{
-      if(state.teamPage==="personal-edit"){ state.teamEdit=null; state.teamPage="personal"; teamProfileLoad(); window.scrollTo(0,0); return; }
+      if(state.teamPage==="personal-edit"){ tpCancelEdit(); state.teamPage="personal"; teamProfileLoad(); window.scrollTo(0,0); return; }
       state.teamPage=null; render(); window.scrollTo(0,0);
     });
     bindTeamProfileEvents();
@@ -7442,8 +7570,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return html;
   }
 
-  function renderSalesTrendBars(unknown){
-    const trend = state.dashboardDailyTrend || {};
+  function renderSalesTrendBars(unknown, trendOverride){
+    const trend = trendOverride || state.dashboardDailyTrend || {};
     const days = [];
     for(let i=6;i>=0;i--){
       const d = new Date(bizDateObj().getTime() - i*86400000);
