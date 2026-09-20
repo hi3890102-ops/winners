@@ -642,6 +642,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   const now = new Date();
 
   // Lookups are applied only while the account/screen they were started for is still current.
+  const OW_STALE_HOURS = 16, OW_OPEN_LOOKBACK_DAYS = 14, OW_REFRESH_MS = 60000, OW_ENTER_REFRESH_MS = 15000;   // owner home "매장별 오늘 근무"
+  let ownerWorkTimer = null, ownerWorkToken = 0;
   let maneeViewEpoch = 0;            // bumped on logout/forced clear and whenever the signed-in account changes
   const maneeLoadSeq = {};           // per-loader request counter: the latest request wins (also orders month/store answers)
   // Identity/owner restore is one multi-step flow. Any newer restore, logout or account clear invalidates the older one,
@@ -722,6 +724,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     taxReminderInfo: null,
     notifBarExpanded: false,
     expandedStoreRows: {},
+    ownerWork: { stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 },
     dashboardDailyTrend: {},
     storeFoodLimitMap: {},
     dashboardTrendActiveDate: null,
@@ -1335,6 +1338,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   };
   function clearStaffAuthView(){
     maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
+    state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
     maneeRestoreSeq++;  // ...and so is an unfinished login/identity restore
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
     state.staffSignupUsernameCheck=null;state.ownerRequestUsernameCheck=null;
@@ -5343,11 +5347,195 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const fortune=ownerFortune(),open=state.ownerFortuneDay===fortune.day;
     return '<button class="owner-fortune" id="owner-fortune-btn" aria-expanded="'+open+'"><span class="cookie" aria-hidden="true"><svg width="34" height="34" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11 20h22l-3 7H12z" fill="#FFFDF4" stroke="#C89B54"/><path d="M20 7C10 5 3 12 4 21c1 7 8 12 15 12-3-6-3-14 1-26Z" fill="#EDB964" stroke="#C68B35" stroke-width="1.4"/><path d="M20 7c10-2 17 5 16 14-1 7-8 12-15 12 3-6 3-14-1-26Z" fill="#F7CC7D" stroke="#C68B35" stroke-width="1.4"/><path d="m17 29 3-8 3 8" stroke="#A7752E" stroke-width="1.5" stroke-linecap="round"/></svg></span><span><strong>'+(open?'오늘의 포춘쿠키':'사장님, 오늘의 운세 열어볼까요?')+'</strong><small>'+(open?escapeHtml(fortune.text):'하루 한 번, 가볍게 만나는 응원의 한마디')+'</small></span><span class="arrow" aria-hidden="true">'+(open?'✓':'›')+'</span></button>';
   }
+  // ---------- owner home: "매장별 오늘 근무" (read-only) ----------
+  // Independent of the monthly dashboard: it only SELECTs today's registered shifts, the open (not clocked out) attendance rows and crew
+  // names of the owner's own stores, using a fresh clock on every lookup (the page-level `now` is frozen at load). Nothing is written.
+  // Stale-open rule (the app had none): an open row counts as "working" while its check-in was at most OW_STALE_HOURS ago; an older (or
+  // future-dated) open row is listed as "퇴근 기록 확인 필요" and is never counted as working, never closed or edited automatically.
+  function ownerWorkYmd(d){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+  function ownerWorkBizDate(store, at){ const d=new Date(at.getTime()); if(d.getHours()<storeCutoffHour(store)) d.setDate(d.getDate()-1); return ownerWorkYmd(d); }
+  // staff_clock stores the BUSINESS date; a check-in before the cutoff hour happened on the next calendar day.
+  function ownerWorkCheckInAt(store, date, checkIn){
+    const [y,m,d]=String(date).split("-").map(Number), [hh,mm]=String(checkIn||"").split(":").map(Number);
+    if(!y||!m||!d||isNaN(hh)) return null;
+    const dt=new Date(y,m-1,d,hh,mm||0,0);
+    if(hh<storeCutoffHour(store)) dt.setDate(dt.getDate()+1);
+    return dt;
+  }
+  function ownerWorkCompute(store, raw, at){
+    const view={ store, bizDate:raw.bizDate, okAt:at.getTime(), sched:{ok:raw.shifts.ok,count:0,people:[]}, work:{ok:raw.att.ok,workers:[],checks:[]}, namesOk:raw.crew.ok };
+    const names={};(raw.crew.list||[]).forEach(c=>{names[c.id]=c;});
+    const nameOf=id=>names[id]?names[id].name:"(이름 확인 불가)";
+    if(raw.shifts.ok){
+      const by={};
+      raw.shifts.list.forEach(s=>{(by[s.crew_id]=by[s.crew_id]||[]).push({start:(s.start_time||"").slice(0,5),end:(s.end_time||"").slice(0,5)});});
+      view.sched.people=Object.keys(by).map(id=>({id,name:nameOf(id),times:by[id].sort((a,b)=>a.start.localeCompare(b.start))})).sort((a,b)=>a.times[0].start.localeCompare(b.times[0].start)||a.name.localeCompare(b.name));
+      view.sched.count=view.sched.people.length;
+    }
+    if(raw.att.ok){
+      const latest={};
+      raw.att.list.filter(a=>a.check_in).forEach(a=>{const t=ownerWorkCheckInAt(store,a.date,a.check_in);if(!t)return;const cur=latest[a.crew_id];if(!cur||t>cur.t)latest[a.crew_id]={t,a};});
+      Object.keys(latest).forEach(id=>{
+        const {t,a}=latest[id],ageH=(at.getTime()-t.getTime())/3600000,item={id,name:nameOf(id),position:(names[id]&&names[id].position)||"",checkIn:String(a.check_in).slice(0,5),date:a.date,t:t.getTime()};
+        if(ageH>=-0.1 && ageH<=OW_STALE_HOURS) view.work.workers.push(item); else view.work.checks.push(item);
+      });
+      view.work.workers.sort((a,b)=>a.t-b.t||a.name.localeCompare(b.name));   // by real check-in instant (01:00 after midnight comes after 22:00)
+      view.work.checks.sort((a,b)=>a.t-b.t||a.name.localeCompare(b.name));
+    }
+    return view;
+  }
+  async function loadOwnerWork(opts){
+    const w=state.ownerWork;
+    if(state.role!=="storeOwner"||!(state.myStores||[]).length) return;
+    if(w.inflight) return;
+    const alive=maneeLoadGuard("ownerWork"),token=++ownerWorkToken;
+    w.inflight=token;w.lastStartAt=Date.now();
+    if(opts&&opts.manual){w.refreshing=true;ownerWorkPaint();}
+    try{
+      const at=new Date(),from=new Date(at.getTime());from.setDate(from.getDate()-OW_OPEN_LOOKBACK_DAYS);
+      const stores=state.myStores.slice();
+      const results=await Promise.all(stores.map(async store=>{
+        const id=state.storeIdMap[store],bizDate=ownerWorkBizDate(store,at);
+        const pick=async q=>{try{const {data,error}=await q;if(error)throw error;return {ok:true,list:data||[]};}catch(e){return {ok:false,list:[]};}};
+        if(!id) return [store,{bizDate,shifts:{ok:false,list:[]},att:{ok:false,list:[]},crew:{ok:false,list:[]}}];
+        const [shifts,att,crew]=await Promise.all([
+          pick(db.from("shifts").select("id,crew_id,date,start_time,end_time").eq("store_id",id).eq("date",bizDate)),
+          pick(db.from("attendance").select("id,crew_id,date,check_in").eq("store_id",id).is("check_out",null).gte("date",ownerWorkYmd(from))),
+          pick(db.from("crew").select("id,name,position").eq("store_id",id))
+        ]);
+        return [store,{bizDate,shifts,att,crew}];
+      }));
+      if(!alive()) return;
+      const next={};
+      results.forEach(([store,raw])=>{next[store]=ownerWorkCompute(store,raw,at);});
+      w.stores=next;w.loadedOnce=true;
+    }catch(e){ /* every lookup is caught per piece above */ }
+    finally{
+      if(w.inflight===token) w.inflight=0;   // `w` is the state object of the account that started this run
+      if(alive()){w.refreshing=false;ownerWorkPaint();}
+    }
+  }
+  function ownerWorkStopTimer(){ if(ownerWorkTimer){clearInterval(ownerWorkTimer);ownerWorkTimer=null;} }
+  function ownerWorkActive(){
+    return state.role==="storeOwner" && !state.onboardingStep && ownerRouteGroup()==="home" && !state.showOwnerSalesForm && !state.showAddStoreForm && document.visibilityState==="visible" && (state.myStores||[]).length>0;
+  }
+  // Called after every owner render and when the page becomes visible/hidden: entering home refreshes once, then every 60 s while home is visible.
+  function ownerWorkSync(){
+    const w=state.ownerWork;
+    if(!ownerWorkActive()){ ownerWorkStopTimer(); w.wasHome=false; return; }
+    if(!ownerWorkTimer) ownerWorkTimer=setInterval(()=>{ if(ownerWorkActive()) loadOwnerWork(); else ownerWorkStopTimer(); },OW_REFRESH_MS);
+    if(!w.wasHome){ w.wasHome=true; if(!w.loadedOnce || Date.now()-w.lastStartAt>OW_ENTER_REFRESH_MS) loadOwnerWork(); }
+  }
+  function ownerWorkClock(t){ const d=new Date(t); return pad(d.getHours())+":"+pad(d.getMinutes()); }
+  function renderOwnerWork(){
+    const w=state.ownerWork,names=state.myStores||[];
+    let html='<section class="category owner-work" id="owner-work-card" aria-label="매장별 오늘 근무">';
+    html+='<div class="ow-head"><span class="ow-title"><span class="ow-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">'+navIcon('people')+'</svg></span>매장별 오늘 근무</span>';
+    html+='<button type="button" class="ow-refresh'+(w.refreshing?' spin':'')+'" id="owner-work-refresh" aria-label="근무 현황 새로고침"'+(w.refreshing?' aria-busy="true"':'')+'><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 1 1-2.6-5.9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20 4.5V9h-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>';
+    if(!w.loadedOnce){ return html+'<p class="ow-sub">근무 현황을 불러오는 중이에요…</p></section>'; }
+    const list=names.map(n=>w.stores[n]).filter(Boolean);
+    const okAts=list.map(v=>v.okAt).filter(Boolean);
+    const dates=Array.from(new Set(list.map(v=>v.bizDate)));
+    const fmt=ymd=>{const [,m,d]=ymd.split("-").map(Number);return m+"월 "+d+"일";};
+    const headDate=dates.length===1?fmt(dates[0]):fmt(ownerWorkYmd(new Date()));
+    // the time shown is the last time a lookup actually succeeded for at least one piece of data
+    const anyOk=list.some(v=>v.sched.ok||v.work.ok);
+    html+='<p class="ow-sub">'+headDate+(anyOk&&okAts.length?' · '+ownerWorkClock(Math.max.apply(null,okAts))+' 기준':'')+'</p>';
+    let exp=0,expOk=0,wk=0,wkOk=0;
+    list.forEach(v=>{ if(v.sched.ok){expOk++;exp+=v.sched.count;} if(v.work.ok){wkOk++;wk+=v.work.workers.length;} });
+    const total=list.length;
+    html+='<p class="ow-total"><span>오늘 예정 <b>'+(expOk?exp+'명':'—')+'</b></span><i aria-hidden="true"></i><span class="owner-status '+(wkOk&&wk>0?'ok':(wkOk?'none':'warn'))+'">현재 근무 '+(wkOk?wk+'명':'—')+'</span></p>';
+    if(expOk<total||wkOk<total){
+      html+='<p class="owner-status-fail ow-partial">'+((expOk||wkOk)?'조회된 매장 기준 · 일부 매장 확인 불가':'근무 현황을 조회하지 못했어요')+'</p>';
+    }
+    html+='<div class="ow-list">';
+    list.forEach(v=>{
+      const open=!!w.expanded[v.store],esc=escapeHtml(v.store);
+      const bad=!v.sched.ok||!v.work.ok;
+      const sched=!v.sched.ok?'예정 조회 실패':(v.sched.count===0?'등록된 스케줄 없음':'예정 <b>'+v.sched.count+'명</b>');
+      const chip=!v.work.ok?'<span class="owner-status warn">근무 조회 실패</span>':'<span class="owner-status '+(v.work.workers.length?'ok':'none')+'">근무 중 '+v.work.workers.length+'명</span>';
+      html+='<div class="ow-store"><div class="ow-row" role="button" tabindex="0" data-ow-toggle="'+esc+'" aria-expanded="'+open+'">';
+      html+='<div class="ow-name"><span>'+esc+(dates.length>1?' <em>'+fmt(v.bizDate)+' 영업일</em>':'')+'</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false" style="transform:rotate('+(open?180:0)+'deg)"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>';
+      html+='<p class="ow-line"><span>'+sched+'</span><span aria-hidden="true">·</span>'+chip+'</p>';
+      if(v.work.ok){
+        if(v.work.workers.length) html+='<p class="ow-names">'+(v.namesOk?v.work.workers.map(x=>escapeHtml(x.name)).join(" · "):'이름을 불러오지 못했어요')+'</p>';
+        else html+='<p class="ow-names none">현재 근무 중인 직원이 없어요</p>';
+        if(v.work.checks.length) html+='<p class="owner-status-fail ow-check">퇴근 기록 확인 필요 '+v.work.checks.length+'건</p>';
+      }
+      if(bad) html+='<p class="ow-names none">조회하지 못한 항목이 있어요. <button type="button" class="owner-retry" data-ow-retry>다시 시도</button></p>';
+      html+='</div>';
+      if(open){
+        html+='<div class="ow-detail">';
+        html+='<p class="ow-h">현재 근무</p>';
+        if(!v.work.ok) html+='<p class="ow-none">조회 실패</p>';
+        else if(!v.work.workers.length) html+='<p class="ow-none">현재 근무 중인 직원이 없어요</p>';
+        else v.work.workers.forEach(x=>{html+='<p class="ow-item">'+escapeHtml(x.name)+(x.position?' · '+escapeHtml(x.position):'')+' · '+escapeHtml(x.checkIn)+' 출근</p>';});
+        if(v.work.ok&&v.work.checks.length){
+          html+='<p class="ow-h">퇴근 기록 확인 필요</p>';
+          v.work.checks.forEach(x=>{html+='<p class="ow-item">'+escapeHtml(x.name)+' · '+escapeHtml(x.date)+' '+escapeHtml(x.checkIn)+' 출근 기록</p>';});
+        }
+        html+='<p class="ow-h">오늘 예정</p>';
+        if(!v.sched.ok) html+='<p class="ow-none">조회 실패</p>';
+        else if(!v.sched.count) html+='<p class="ow-none">등록된 스케줄 없음</p>';
+        else v.sched.people.forEach(x=>{html+='<p class="ow-item">'+escapeHtml(x.name)+' · '+x.times.map(t=>escapeHtml(t.start+"–"+t.end)).join(", ")+'</p>';});
+        html+='<button type="button" class="crew-code-btn ow-go" data-ow-att="'+esc+'">근태 보기</button></div>';
+      }
+      html+='</div>';
+    });
+    html+='</div><p class="ow-foot"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 11v5M12 8v.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>출퇴근 기록 기준 · 매장을 누르면 상세 보기</p></section>';
+    return html;
+  }
+  // Repaint only this card (no full render): expanded rows, other cards and the scroll position stay as they are.
+  function ownerWorkPaint(){
+    const card=document.getElementById("owner-work-card");
+    if(!card) return;
+    const html=renderOwnerWork();
+    if(card.getAttribute("data-painted")===html) return;
+    const tmp=document.createElement("div");tmp.innerHTML=html;const next=tmp.firstElementChild;
+    const active=document.activeElement;
+    let focusKey=null;
+    if(active&&card.contains(active)) focusKey=active.id?"#"+active.id:(active.getAttribute("data-ow-toggle")!==null?'[data-ow-toggle="'+CSS.escape(active.getAttribute("data-ow-toggle"))+'"]':null);
+    next.setAttribute("data-painted",html);card.replaceWith(next);ownerWorkBind(next);
+    if(focusKey){const el=next.querySelector(focusKey);if(el)el.focus({preventScroll:true});}
+  }
+  function ownerWorkBind(card){
+    if(!card) return;
+    const toggle=el=>{const s=el.getAttribute("data-ow-toggle");state.ownerWork.expanded[s]=!state.ownerWork.expanded[s];ownerWorkPaint();};
+    card.addEventListener("click",e=>{
+      if(e.target.closest("#owner-work-refresh")){ loadOwnerWork({manual:true}); return; }
+      if(e.target.closest("[data-ow-retry]")){ loadOwnerWork({manual:true}); return; }
+      const go=e.target.closest("[data-ow-att]");if(go){ ownerWorkOpenAttendance(go.getAttribute("data-ow-att")); return; }
+      const row=e.target.closest("[data-ow-toggle]");if(row) toggle(row);
+    });
+    card.addEventListener("keydown",e=>{const row=e.target.closest&&e.target.closest("[data-ow-toggle]");if(row&&e.target===row&&(e.key==="Enter"||e.key===" ")){e.preventDefault();toggle(row);}});
+  }
+  function ownerWorkBindAfterRender(){
+    const card=document.getElementById("owner-work-card");
+    if(card){card.setAttribute("data-painted",renderOwnerWork());ownerWorkBind(card);}
+    ownerWorkSync();
+  }
+  async function ownerWorkOpenAttendance(store){
+    const v=state.ownerWork.stores[store],date=v&&v.bizDate;
+    if(!date||!(state.myStores||[]).includes(store)) return;
+    const [y,m]=date.split("-").map(Number),alive=maneeLoadGuard("ownerWorkOpen");
+    state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.expandedCrewIds={};
+    const monthChanged=y!==state.monthYear||m!==state.monthNum;
+    if(monthChanged){state.monthYear=y;state.monthNum=m;state.dashboardData=null;}
+    state.section="schedule";state.scheduleTab="attendance";state.selectedDate=date;
+    try{
+      if(store!==state.store){ await switchOwnerStore(store); }
+      else if(monthChanged){ await loadAllForStore(state.store); }
+    }catch(e){ if(alive()) showToast("매장을 불러오지 못했어요. 다시 시도해 주세요."); }
+    if(!alive()) return;
+    render();window.scrollTo(0,0);
+  }
+  document.addEventListener("visibilitychange",()=>{ if(state.role==="storeOwner") ownerWorkSync(); else ownerWorkStopTimer(); });
   function renderOwnerHome(){
     let html='<div class="owner-greeting">'+renderRoleAvatar('owner',48)+'<div><h2>사장님, 오늘도 반가워요</h2><p>'+todayLabel()+' · 운영 현황을 확인해 보세요</p></div><button class="crew-code-btn" id="refresh-dashboard-btn" aria-label="운영 현황 새로고침">↻</button></div>';
     html+=renderOwnerFortune();
     html+='<div class="owner-quick">'+ownerRouteButton(navIcon('calendar')+'오늘 근무','schedule','attendance',false)+ownerRouteButton(navIcon('chart')+'매출보고','sales','sales',false)+ownerRouteButton(navIcon('check')+'체크리스트','checklist',null,false)+'</div>';
     html+='<div class="owner-alerts">'+renderNotifSummaryBar()+'</div>';
+    html+=renderOwnerWork();
     return html+renderDashboard();
   }
   function renderOwnerPeople(){
@@ -5447,6 +5635,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const alerts=document.getElementById('owner-alert-shortcut');if(alerts)alerts.addEventListener('click',()=>{const go=()=>{state.section='alerts';state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;render();};if(state.showOwnerSalesForm)askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else go();});
     app.querySelectorAll('[data-retry-dashboard]').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();retryDashboard();}));
     const fortune=document.getElementById('owner-fortune-btn');if(fortune)fortune.addEventListener('click',()=>{state.ownerFortuneDay=ownerFortune().day;render();});
+    ownerWorkBindAfterRender();
     // Existing personal fields remain editable. Only new self-service records are read-only here.
     state.crew.filter(c=>c.selfServiceProfile).forEach(c=>['editname','editphone','bank'].forEach(attr=>{const input=app.querySelector('[data-'+attr+'="'+c.id+'"]');if(input)input.readOnly=true;}));
   }
