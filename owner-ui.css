@@ -213,3 +213,21 @@
   .team-ui img.photo-thumb{border-color:#42594B}
   .team-ui .confirm-overlay .confirm-box,.team-ui .confirm-box{background:#22362B;color:#EAF4ED}
 }
+/* T5: 더보기 / 내 정보 menu, detail pages */
+.owner-ui .team-menu button{align-items:center;text-align:left}
+.owner-ui .team-menu .tm-text{display:grid;gap:2px;min-width:0}
+.owner-ui .team-menu .tm-text strong{font-size:15px;font-weight:700;color:var(--ink)}
+.owner-ui .team-menu .tm-text small{font-size:12px;font-weight:500;color:var(--ink-soft);line-height:1.4}
+.owner-ui .team-menu .tm-chev{margin-left:auto;font-size:18px;color:var(--ink-soft)}
+.owner-ui .team-logout{width:100%;min-height:48px;margin:4px 0 0;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font-size:15px;font-weight:700;cursor:pointer}
+.owner-ui .team-info-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.owner-ui .team-info-row span{color:var(--ink-soft);flex:none}.owner-ui .team-info-row b{font-weight:650;text-align:right;overflow-wrap:anywhere}
+.owner-ui .team-actions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}
+.owner-ui .team-actions .crew-code-btn{min-height:44px}
+.owner-ui .team-card input:not([type=checkbox]){width:100%;margin-bottom:8px;border:1px solid var(--line);background:#F6F8F5}
+@media (prefers-color-scheme: dark){
+  .team-ui .team-logout{background:#22362B;border-color:#42594B;color:#EAF4ED}
+  .team-ui .team-info-row{border-color:#42594B}
+  .team-ui .team-menu .tm-text strong{color:#EAF4ED}
+  .team-ui .team-menu .tm-text small,.team-ui .team-menu .tm-chev{color:#B2C3B8}
+}

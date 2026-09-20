@@ -58,3 +58,25 @@ test('dark mode exists for the staff/manager shell only', ()=>{
   assert.ok(/\.app\.team-ui\{--ink:/.test(dark));
   assert.ok(!/\n  \.owner-ui|\n  \.app\.owner-ui/.test(dark));   // nothing in the dark block targets the owner UI
 });
+
+// ---- T5: 더보기 / 내 정보 menus, detail pages, role label
+test('T5: menu order and detail pages; no unsupported promises', ()=>{
+  const me=slice('  function teamMe(person, mgr){','  function teamWorkTabs(person, mgr){');
+  const order=['work','personal','connection','notifications','password','settings','help'];
+  let last=-1;for(const k of order){const i=me.indexOf("teamMenuRow('"+k+"'");assert.ok(i>last,'order '+k);last=i;}
+  assert.ok(me.includes('id="switch-user-btn"'));
+  assert.ok(/if\(mgr\) html\+=teamMenuRow\('work'/.test(me)&&/if\(mgr\) html\+=teamMenuRow\('settings'/.test(me));   // manager-only rows
+  const pages=slice('  function teamPageBody(','  const TEAM_PAGE_TITLES');
+  assert.ok(!/자동 반영|내 정보 수정|변경 알림/.test(pages+me));   // features that do not exist are not offered or promised
+  assert.ok(pages.includes('recovery-change-submit')&&pages.includes("staffAuthButton('request'")&&pages.includes('push-toggle-btn'));
+});
+test('T5: back stays inside the app (no reload / re-login), role labels come from the confirmed membership role', ()=>{
+  const ev=slice('    app.querySelectorAll("[data-team-page]")','    const bell=document.getElementById("team-bell");');
+  assert.ok(ev.includes('state.teamPage=null; render();')&&!/history\.back|location\./.test(ev));
+  const lab=slice('  function staffRoleLabel(role){','  function renderStaffAuthAccount(){');
+  const f=new Function(lab+';return staffRoleLabel;')();
+  assert.deepEqual(['owner','manager','staff'].map(f),['사장님','매니저','직원']);
+  assert.ok(!/m\.role==='owner'\?'사장님':'스텝'/.test(html));
+  // request / cancel inside the staff app refresh in place instead of jumping to the legacy account screen
+  assert.ok(/state\.role==='staff'\) await teamConnectionRefresh\(\)/.test(html));
+});
