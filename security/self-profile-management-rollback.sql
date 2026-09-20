@@ -4,12 +4,11 @@
 -- and the staff-portal wrapper is restored to the previous version of new-staff-self-profile.sql.
 -- Also kept: private.profile_adoption (which stored value each person has taken over, v3) - it is what keeps a re-applied version from
 -- treating already protected values as free to overwrite. Nothing in this file touches it.
--- Re-apply later, IN THIS ORDER (each file is repeatable and none of them changes stored values):
---   1. security/self-profile-management.sql      (v1: tables, RPCs, guard trigger, portal wrapper)
---   2. security/self-profile-management-v2.sql   (per-store confirmation, masking, bank bundle)
---   3. security/self-profile-management-v3.sql   (per-field take-over records, per-person lock)
--- Running only step 1 would bring back the v1 rules (approval can overwrite an existing record); always finish with step 3, then
--- security/self-profile-management-verify.sql (problems must be 0).
+-- Re-open later (verified on the staging project): run security/self-profile-management-v3.sql ONLY, then security/self-profile-management-verify.sql
+-- (problems must be 0). v3 puts back the guard trigger, the grants, the public wrappers and the current portal wrapper, and it never adds a
+-- take-over record when the table already exists.
+-- Do NOT run v1 again after this rollback: the three-argument save function is still installed and v1's two-argument one clashes with it
+-- (SQLSTATE 42725). v1 -> v2 -> v3 is only the order for an installation that has none of these objects.
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='60s';

@@ -5381,7 +5381,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return dt;
   }
   function ownerWorkCompute(store, raw, at){
-    const view={ store, bizDate:raw.bizDate, okAt:at.getTime(), sched:{ok:raw.shifts.ok,count:0,people:[]}, work:{ok:raw.att.ok,workers:[],checks:[]}, namesOk:raw.crew.ok, sales:{ok:raw.sales.ok,days:{}} };
+    const view={ store, bizDate:raw.bizDate, okAt:at.getTime(), sched:{ok:raw.shifts.ok,count:0,people:[]}, work:{ok:raw.att.ok,workers:[],checks:[]}, namesOk:raw.crew.ok, sales:{ok:raw.sales.ok,days:{},from:raw.sales.from,to:raw.sales.to} };
     if(raw.sales.ok) raw.sales.list.forEach(r=>{ view.sales.days[r.date]=(view.sales.days[r.date]||0)+(Number(r.total_sales)||0); });
     const names={};(raw.crew.list||[]).forEach(c=>{names[c.id]=c;});
     const nameOf=id=>names[id]?names[id].name:"(이름 확인 불가)";
@@ -5413,17 +5413,18 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     try{
       const at=new Date(),from=new Date(at.getTime());from.setDate(from.getDate()-OW_OPEN_LOOKBACK_DAYS);
       const stores=state.myStores.slice();
+      const bizs=stores.map(st=>ownerWorkBizDate(st,at)).sort(), salesFrom=ownerYmdAdd(bizs[0],-6), salesTo=bizs[bizs.length-1];
       const results=await Promise.all(stores.map(async store=>{
         const id=state.storeIdMap[store],bizDate=ownerWorkBizDate(store,at);
         const pick=async q=>{try{const {data,error}=await q;if(error)throw error;return {ok:true,list:data||[]};}catch(e){return {ok:false,list:[]};}};
-        if(!id) return [store,{bizDate,shifts:{ok:false,list:[]},att:{ok:false,list:[]},crew:{ok:false,list:[]},sales:{ok:false,list:[]}}];
+        if(!id) return [store,{bizDate,shifts:{ok:false,list:[]},att:{ok:false,list:[]},crew:{ok:false,list:[]},sales:{ok:false,list:[],from:salesFrom,to:salesTo}}];
         const [shifts,att,crew,sales]=await Promise.all([
           pick(db.from("shifts").select("id,crew_id,date,start_time,end_time").eq("store_id",id).eq("date",bizDate)),
           pick(db.from("attendance").select("id,crew_id,date,check_in").eq("store_id",id).is("check_out",null).gte("date",ownerWorkYmd(from))),
           pick(db.from("crew").select("id,name,position").eq("store_id",id)),
-          pick(db.from("sales_reports").select("date,total_sales").eq("store_id",id).gte("date",ownerYmdAdd(bizDate,-6)).lte("date",bizDate))
+          pick(db.from("sales_reports").select("date,total_sales").eq("store_id",id).gte("date",salesFrom).lte("date",salesTo))
         ]);
-        return [store,{bizDate,shifts,att,crew,sales}];
+        return [store,{bizDate,shifts,att,crew,sales:{...sales,from:salesFrom,to:salesTo}}];
       }));
       if(!alive()) return;
       const next={};
@@ -5596,15 +5597,18 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const dates=known.map(v=>v.bizDate).sort(), ref=dates[0], mixed=dates[dates.length-1]!==ref;
     const days=[];
     for(let i=6;i>=0;i--){
-      const key=ownerYmdAdd(ref,-i); let sum=0,entered=0,failed=0;
-      scope.forEach(n=>{ const v=w.stores[n]; if(!v||!v.sales||!v.sales.ok) failed++; else if(Object.prototype.hasOwnProperty.call(v.sales.days,key)){ entered++; sum+=v.sales.days[key]; } });
-      days.push({key,sum,entered,failed,total:scope.length});
+      const key=ownerYmdAdd(ref,-i); let sum=0,entered=0,failed=0,unfetched=0;
+      scope.forEach(n=>{ const v=w.stores[n];
+        if(!v||!v.sales||!v.sales.ok) failed++;
+        else if(!v.sales.from||key<v.sales.from||key>v.sales.to) unfetched++;     // this store's lookup did not cover that day
+        else if(Object.prototype.hasOwnProperty.call(v.sales.days,key)){ entered++; sum+=v.sales.days[key]; } });
+      days.push({key,sum,entered,failed,unfetched,total:scope.length});
     }
     return {ref,days,mixed,failedAll:false};
   }
   function ownerTrendLabel(d){   // what a day shows: an amount, "미입력" (no report), or a failed lookup
-    if(d.entered===0) return d.failed>0?"조회 실패":"미입력";
-    return Math.round(d.sum/10000).toLocaleString()+"만원"+(d.failed>0?" (일부 조회 실패)":"");
+    if(d.entered===0) return d.failed>0?"조회 실패":(d.unfetched>0?"조회 전":"미입력");
+    return Math.round(d.sum/10000).toLocaleString()+"만원"+(d.failed>0?" (일부 조회 실패)":(d.unfetched>0?" (일부 미조회)":""));
   }
   function renderOwnerTrend(scope){
     const t=ownerHomeTrend(scope);
@@ -5619,7 +5623,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     t.days.forEach(d=>{
       const [y,m,dd]=d.key.split("-").map(Number),isRef=d.key===t.ref,isActive=d.key===active,empty=d.entered===0;
       const h=empty?6:Math.max(6,Math.round((d.sum/max)*80));
-      const top=empty?(d.failed>0?"실패":"미입력"):Math.round(d.sum/10000).toLocaleString()+"만";
+      const top=empty?(d.failed>0?"실패":(d.unfetched>0?"조회 전":"미입력")):Math.round(d.sum/10000).toLocaleString()+"만";
       html+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;position:relative;cursor:pointer;" data-trenddate="'+d.key+'" role="button" aria-label="'+m+'월 '+dd+'일 '+escapeHtml(ownerTrendLabel(d))+'">';
       if(isActive) html+='<span style="font-size:10.5px;font-weight:800;color:var(--brick);position:absolute;top:-18px;white-space:nowrap;">'+top+'</span>';
       html+='<div style="width:100%;background:'+(empty?'transparent':(isActive?'var(--brick)':'var(--brick-dim)'))+';'+(empty?'border:1px dashed var(--brick-dim);':'')+'border-radius:4px 4px 0 0;height:'+h+'px;"></div>';
@@ -5629,7 +5633,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const sel=t.days.find(d=>d.key===active),[,sm,sd]=sel.key.split("-").map(Number);
     const calToday=ownerWorkYmd(new Date());
     html+='<div class="oh-ov-head oh-today"><span class="oh-label">'+sm+'월 '+sd+'일'+(sel.key===t.ref?(t.ref===calToday?' · 오늘':' · 영업일 기준 오늘'):'')+'</span><strong>'+escapeHtml(ownerTrendLabel(sel))+'</strong></div>';
-    if(t.mixed) html+='<p class="oh-note">매장마다 영업일 기준 시각이 달라, 모든 매장이 마감한 영업일('+md(t.ref)+')까지 표시해요.</p>';
+    if(t.mixed) html+='<p class="oh-note">매장마다 영업일이 바뀌는 시각이 달라, 영업일이 가장 늦은 매장의 현재 영업일('+md(t.ref)+')까지 표시해요.</p>';
     return html+'</div>';
   }
   // month sales + ratios for the stores in view. Sales, labor and food are judged on their OWN inputs: a failed expense lookup

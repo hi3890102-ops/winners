@@ -246,7 +246,7 @@ test('V2-03: sales, labor and food are judged on their own inputs (a failed expe
 test('V2-04: the last 7 days use one business day, separate "not entered" / 0 won / failed, and do not depend on the month view', ()=>{
   const st={ownerWork:{loadedOnce:true,stores:{}},dashboardTrendActiveDate:null};
   const {ownerHomeTrend,ownerTrendLabel,renderOwnerTrend}=new Function('state','pad','ownerWorkYmd','escapeHtml',ovSrc()+';return {ownerHomeTrend,ownerTrendLabel,renderOwnerTrend};')(st,n=>String(n).padStart(2,'0'),()=>'2026-10-03',x=>String(x));
-  const store=(name,biz,days,ok=true)=>({store:name,bizDate:biz,sales:{ok,days}});
+  const store=(name,biz,days,ok=true)=>({store:name,bizDate:biz,sales:{ok,days,from:'2026-09-01',to:'2026-10-31'}});
   // month start (Oct 2): Sept 30 comes from the stores' own last-7-days lookup; no report on Oct 1 is "미입력", a reported 0 won is 0
   st.ownerWork.stores={A:store('A','2026-10-02',{'2026-09-30':1500000,'2026-10-02':0}),B:store('B','2026-10-02',{'2026-09-30':500000})};
   let t=ownerHomeTrend(['A','B']);
@@ -268,7 +268,7 @@ test('V2-04: the last 7 days use one business day, separate "not entered" / 0 wo
   // not loaded yet: no invented zeros
   st.ownerWork.loadedOnce=false;assert.ok(renderOwnerTrend(['A','B']).includes('불러오는 중'));
   // the lookup itself is the stores' own last-7-days query, not the month view
-  assert.ok(html.includes('sales_reports").select("date,total_sales").eq("store_id",id).gte("date",ownerYmdAdd(bizDate,-6)).lte("date",bizDate)'));
+  assert.ok(html.includes('sales_reports").select("date,total_sales").eq("store_id",id).gte("date",salesFrom).lte("date",salesTo)'));
 });
 test('owner header follows the mockup and AI / store-request are independent detail screens', ()=>{
   const shell=slice('  function renderOwnerShell(){','  function bindOwnerUIEvents(){');
@@ -282,4 +282,51 @@ test('owner header follows the mockup and AI / store-request are independent det
   assert.ok(html.includes("state.showAddStoreForm=false;\n      if(ownerRouteGroup()==='home')"));
   const open=slice('    const addStoreRequestBtn = document.getElementById("add-store-request-btn");','    const closeAddStoreBtn');
   assert.ok(!/insert|update|submitAdditionalStoreRequest/.test(open));
+});
+
+// ---- v3 recheck: V3-02 (every displayed day is looked up for every store in view)
+const loaderRun=async(salesByStore,{failStore}={})=>{
+  const code=slice('  function ownerWorkYmd(d){','  // staff_clock stores the BUSINESS date')+slice('  function ownerWorkCompute(store, raw, at){','  async function loadOwnerWork(opts){')+slice('  async function loadOwnerWork(opts){','  function ownerWorkStopTimer()')+ovSrc();
+  const FIXED=new Date(2026,8,20,2,0,0).getTime();   // 9/20 02:00 local
+  class FakeDate extends Date{constructor(...a){ if(a.length===0) super(FIXED); else super(...a); }}
+  const queries=[];
+  const db={from(table){const q={table,f:{},select(){return q;},eq(k,v){q.f[k]=v;return q;},gte(k,v){q.f.gte=v;return q;},lte(k,v){q.f.lte=v;return q;},is(){return q;},
+    then(res){queries.push({table,...q.f});
+      if(table==='sales_reports'){ if(failStore&&q.f.store_id===failStore) return res({data:null,error:new Error('x')});
+        return res({data:(salesByStore[q.f.store_id]||[]).filter(r=>r.date>=q.f.gte&&r.date<=q.f.lte),error:null}); }
+      return res({data:[],error:null}); }};return q;}};
+  const state={role:'storeOwner',myStores:['A','B'],storeIdMap:{A:'ida',B:'idb'},homeStore:'__all__',storeCutoffMap:{A:6,B:0},ownerWork:{stores:{},expanded:{},loadedOnce:false,inflight:0}};
+  const f=new Function('state','db','Date','pad','maneeLoadGuard','ownerWorkPaint','ownerRouteGroup','render','OW_OPEN_LOOKBACK_DAYS','OW_STALE_HOURS','storeCutoffHour','escapeHtml',
+    'let ownerWorkToken=0;'+code+';return {loadOwnerWork,ownerHomeTrend,ownerTrendLabel,renderOwnerTrend};');
+  const api=f(state,db,FakeDate,n=>String(n).padStart(2,'0'),()=>()=>true,()=>{},()=>'home',()=>{},7,12,s=>state.storeCutoffMap[s],x=>String(x));
+  await api.loadOwnerWork();
+  return {state,queries,api};
+};
+test('V3-02: stores with different business-day cutoffs are all asked for every day the chart shows', async()=>{
+  // 9/20 02:00: A (cutoff 6) is still on 9/19, B (cutoff 0) is already on 9/20; both have 1,000,000 won on 9/13
+  const {state,queries,api}=await loaderRun({ida:[{date:'2026-09-13',total_sales:1000000}],idb:[{date:'2026-09-13',total_sales:1000000}]});
+  const sq=queries.filter(q=>q.table==='sales_reports');
+  assert.equal(sq.length,2);
+  for(const q of sq){ assert.equal(q.gte,'2026-09-13'); assert.equal(q.lte,'2026-09-20'); }     // same range for both stores: earliest business day - 6 ... latest business day
+  const t=api.ownerHomeTrend(['A','B']);
+  assert.equal(t.ref,'2026-09-19');assert.equal(t.days[0].key,'2026-09-13');
+  assert.equal(api.ownerTrendLabel(t.days[0]),'200만원');                                       // first day: both stores counted (was 100만원)
+  // only B has a report on the first day: it is B's amount, not "미입력"
+  const b=await loaderRun({ida:[],idb:[{date:'2026-09-13',total_sales:1000000}]});
+  const tb=api.ownerHomeTrend.call(null,['A','B']);void tb;
+  assert.equal(b.api.ownerTrendLabel(b.api.ownerHomeTrend(['A','B']).days[0]),'100만원');
+  assert.equal(b.api.ownerTrendLabel(b.api.ownerHomeTrend(['A','B']).days[1]),'미입력');          // looked up, nothing reported
+  // one store's lookup failed: partial vs total failure, never 0 or 미입력
+  const c=await loaderRun({ida:[{date:'2026-09-13',total_sales:1000000}]},{failStore:'idb'});
+  assert.equal(c.api.ownerTrendLabel(c.api.ownerHomeTrend(['A','B']).days[0]),'100만원 (일부 조회 실패)');
+  assert.equal(c.api.ownerTrendLabel(c.api.ownerHomeTrend(['A','B']).days[1]),'조회 실패');
+  assert.equal(c.api.ownerTrendLabel(c.api.ownerHomeTrend(['B']).days[0]),'조회 실패');
+  // a day outside a store's lookup window is "조회 전" (not looked up), never "미입력"
+  c.state.ownerWork.stores.A.sales={ok:true,days:{},from:'2026-09-15',to:'2026-09-19'};
+  c.state.ownerWork.stores.B.sales={ok:true,days:{},from:'2026-09-15',to:'2026-09-19'};
+  assert.equal(c.api.ownerTrendLabel(c.api.ownerHomeTrend(['A','B']).days[0]),'조회 전');
+  assert.equal(c.api.ownerTrendLabel(c.api.ownerHomeTrend(['A','B']).days[3]),'미입력');
+  // the note names what the basis really is
+  const out=api.renderOwnerTrend(['A','B']);
+  assert.ok(out.includes('영업일이 가장 늦은 매장의 현재 영업일(9.19)')&&!out.includes('모든 매장이 마감한'));
 });

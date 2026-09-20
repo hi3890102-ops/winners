@@ -11,29 +11,36 @@
 --            - the record was created empty by the approval (approve_new).
 --          Saving an empty profile, saving the same values, or saving a partial bank bundle takes nothing over.
 --          Rows that were already flagged before this version get all three fields recorded as taken over (the meaning the flag had), so
---          normal behaviour for them does not change. That backfill only INSERTS rows into the new private table.
+--          normal behaviour for them does not change. That carry-over runs ONCE, when the table is created; it only INSERTS rows into the
+--          new private table. Running the file again never adds a record (V3-01).
 --   V2-C1  approve_new and save now take the same per-person advisory lock, so a new store record is initialised from the profile that is
 --          current when the approval commits, and a save that finishes later sees the new store record.
 begin;
 set local lock_timeout='5s';
 set local statement_timeout='60s';
 
-create table if not exists private.profile_adoption(
-  crew_id uuid not null references public.crew(id) on delete cascade,
-  user_id uuid not null,
-  field text not null check (field in ('name','phone','bank_account')),
-  adopted_at timestamptz not null default now(),
-  primary key (crew_id,user_id,field));
+-- The take-over records are created, and the one-time carry-over below is made, ONLY when the table does not exist yet (first application).
+-- Running this file again (for example after a rollback) never adds a record: what the person consented to (or held back) stays exactly as recorded.
+do $$
+begin
+  if to_regclass('private.profile_adoption') is null then
+    create table private.profile_adoption(
+      crew_id uuid not null references public.crew(id) on delete cascade,
+      user_id uuid not null,
+      field text not null check (field in ('name','phone','bank_account')),
+      adopted_at timestamptz not null default now(),
+      primary key (crew_id,user_id,field));
+    -- first application only: rows the old flag already covered count as taken over (insert only, no stored value is touched)
+    insert into private.profile_adoption(crew_id,user_id,field)
+      select c.id,m.user_id,f.field from public.crew c
+        join public.store_memberships m on m.crew_id=c.id and m.status='active'
+        cross join (values ('name'),('phone'),('bank_account')) f(field)
+       where c.self_service_profile
+      on conflict do nothing;
+  end if;
+end $$;
 revoke all on private.profile_adoption from public,anon,authenticated;
 alter table private.profile_adoption enable row level security;
-
--- records for rows the flag already covered (insert only)
-insert into private.profile_adoption(crew_id,user_id,field)
-  select c.id,m.user_id,f.field from public.crew c
-    join public.store_memberships m on m.crew_id=c.id and m.status='active'
-    cross join (values ('name'),('phone'),('bank_account')) f(field)
-   where c.self_service_profile
-  on conflict do nothing;
 
 -- ---- one row: take over what may be taken over, report the rest ---------------------------------------------------------------
 create or replace function private.sync_self_profile_to_crew(p_uid uuid,p_crew uuid,p_source text,p_mode text default 'self',p_confirmed boolean default false) returns jsonb
@@ -226,4 +233,23 @@ end;
 $$;
 revoke all on function private.manee_staff_portal(text,jsonb) from public,anon;
 grant execute on function private.manee_staff_portal(text,jsonb) to authenticated;
+
+-- ---- (re)open the way in: safe to run after a rollback (security/self-profile-management-rollback.sql revoked these and dropped the trigger) ----
+-- After a rollback run THIS FILE ONLY. Do not run v1 again: its two-argument save function would clash with the three-argument one that is
+-- still installed (SQLSTATE 42725). v1 -> v2 -> v3 is the order for an installation that has none of these objects.
+drop trigger if exists manee_guard_self_managed_crew on public.crew;
+create trigger manee_guard_self_managed_crew before update on public.crew for each row execute function private.guard_self_managed_crew();
+revoke all on function private.my_profile_state(boolean),private.save_my_profile(jsonb,integer,jsonb),private.owner_profile_changes(uuid,integer) from public,anon,authenticated;
+grant execute on function private.my_profile_state(boolean),private.save_my_profile(jsonb,integer,jsonb),private.owner_profile_changes(uuid,integer) to authenticated;
+create or replace function public.manee_my_profile_state(p_reveal boolean default false) returns jsonb language sql security invoker set search_path='' as $$
+  select private.my_profile_state(p_reveal);
+$$;
+create or replace function public.manee_save_my_profile(p_profile jsonb,p_expected_revision integer,p_confirm jsonb default null) returns jsonb language sql security invoker set search_path='' as $$
+  select private.save_my_profile(p_profile,p_expected_revision,p_confirm);
+$$;
+create or replace function public.manee_owner_profile_changes(p_store_id uuid,p_days integer default 30) returns jsonb language sql security invoker set search_path='' as $$
+  select private.owner_profile_changes(p_store_id,p_days);
+$$;
+revoke all on function public.manee_my_profile_state(boolean),public.manee_save_my_profile(jsonb,integer,jsonb),public.manee_owner_profile_changes(uuid,integer) from public,anon;
+grant execute on function public.manee_my_profile_state(boolean),public.manee_save_my_profile(jsonb,integer,jsonb),public.manee_owner_profile_changes(uuid,integer) to authenticated;
 commit;
