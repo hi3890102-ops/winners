@@ -48,6 +48,10 @@
 .owner-quick svg{width:21px;height:21px;color:var(--brick)}
 .owner-primary{width:100%;min-height:48px;background:var(--brick);color:white;border:0;border-radius:12px;font-size:15px;font-weight:700;padding:12px 16px}
 .owner-menu{display:grid;gap:10px}.owner-menu button{display:flex;align-items:center;gap:12px;text-align:left;background:#fff;border:1px solid var(--line);padding:16px;border-radius:14px;font-size:15px;color:var(--ink);font-weight:650}.owner-menu svg{width:22px;height:22px}.owner-menu span:last-child{margin-left:auto}
+.owner-ui .owner-subhead{display:flex;align-items:center;gap:8px;margin:0 0 18px}.owner-ui .owner-subhead h2{margin:0;min-width:0;overflow-wrap:anywhere}
+.owner-ui .owner-back{flex:none;display:grid;place-items:center;width:44px;height:44px;margin:0 0 0 -11px;padding:0;border:0;border-radius:12px;background:transparent;box-shadow:none;color:var(--ink);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.owner-ui .owner-back svg{width:22px;height:22px;display:block;pointer-events:none}
+.owner-ui .owner-back:active{background:var(--brick-dim)}
 .owner-note{padding:12px 14px;background:#ECF3ED;border-radius:12px;font-size:13px;line-height:1.6;margin:0 0 16px;color:#425E4B}
 .owner-pending{display:inline-block;background:#FFF2D7;color:#805715;font-size:12px;font-weight:700;border-radius:6px;padding:3px 7px;margin-top:6px}
 .owner-warning{padding:12px;background:#FFF2D7;color:#755012;border-radius:10px;margin:10px 0;font-size:13px}

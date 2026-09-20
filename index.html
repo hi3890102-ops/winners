@@ -5379,10 +5379,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(state.section==='reservations') return html+renderOwnerReservations();
     return html+renderChecklist();
   }
+  // Owner sub-screen header: back arrow (same in-app route as every other owner button, no history.back) + the screen's own title.
+  function ownerSubHeader(title){
+    return '<div class="owner-subhead"><button type="button" class="owner-back" data-owner-route="more" aria-label="더보기로 돌아가기"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M14.5 5L7.5 12L14.5 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><h2>'+escapeHtml(title)+'</h2></div>';
+  }
   function renderOwnerMore(){
+    if(state.section==='settings') return ownerSubHeader('매장 설정')+renderCrewManage('settings');
+    if(state.section==='alerts') return ownerSubHeader('알림 모아보기')+renderNotifDetails();
     let html='<h2>더보기</h2>';
-    if(state.section==='settings') return html+ownerRouteButton('‹ 전체 메뉴','more',null,false)+renderCrewManage('settings');
-    if(state.section==='alerts') return html+ownerRouteButton('‹ 전체 메뉴','more',null,false)+renderNotifDetails();
     return html+'<div class="owner-menu">'+ownerRouteButton(navIcon('store')+'매장 설정<span>›</span>','settings',null,false)+ownerRouteButton(navIcon('bell')+'알림 모아보기<span>›</span>','alerts',null,false)+'<button id="open-ai-chat-btn">✨ AI 물어보기<span>›</span></button><button id="add-store-request-btn">'+navIcon('store')+'매장 추가 신청<span>›</span></button><button id="switch-user-btn">다른 사용자로 전환<span>›</span></button></div>';
   }
   function renderOwnerShell(){
