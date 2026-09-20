@@ -128,3 +128,34 @@
 .owner-ui .ow-go{margin-top:12px;min-height:44px}
 .owner-ui .ow-foot{display:flex;align-items:center;gap:6px;margin:0;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-soft)}
 .owner-ui .ow-foot svg{flex:none}
+/* 직원·매니저 앱 (team shell): same tokens, cards, chips and header as the owner UI */
+.owner-ui .owner-badge.staff{color:#146D44;background:#E3F1E8;border-color:#C7E2D2}
+.owner-ui .team-store{flex:1;min-width:0;display:flex;align-items:center;gap:8px;min-height:46px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#F6F8F5;color:var(--ink);font-weight:650}
+.owner-ui .team-store svg{width:20px;height:20px;flex:none}.owner-ui .team-store span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.owner-ui #team-bell{position:relative;min-height:46px;min-width:46px;padding:10px}.owner-ui #team-bell svg{width:22px;height:22px}
+.owner-ui .team-dot{position:absolute;top:9px;right:10px;width:8px;height:8px;border-radius:50%;background:var(--danger)}
+.owner-ui .team-card{padding:16px;margin-bottom:14px}
+.owner-ui .team-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.owner-ui .team-card-title{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:800;color:var(--ink);min-width:0}
+.owner-ui .team-card-title svg{color:var(--ink-soft);flex:none}
+.owner-ui .team-card-title.team-title-lg{font-size:15px}
+.owner-ui .team-time{margin:12px 0 2px;font-size:28px;line-height:1.25;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.owner-ui .team-time small{font-size:13px;font-weight:650;color:var(--ink-soft);letter-spacing:0}
+.owner-ui .team-none{font-size:16px;font-weight:650;color:var(--ink-soft);letter-spacing:0}
+.owner-ui .team-sub{margin:4px 0 0;font-size:12px;line-height:1.6;color:var(--ink-soft)}
+.owner-ui .team-status{margin:6px 0 12px;font-size:13px;color:var(--ink-soft)}
+.owner-ui .team-card .owner-primary{margin-top:12px}
+.owner-ui .team-notice{background:#FFF6E5;border:1px solid #EDDFC3;border-radius:14px;padding:12px 14px;margin:0 0 14px;color:#6B4500}
+.owner-ui .team-notice-title{margin:0 0 6px;font-size:13px;font-weight:800}
+.owner-ui .team-notice-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;font-size:13px}
+.owner-ui .team-notice-line{margin:2px 0;font-size:12.5px}
+.owner-ui .team-progress{height:8px;margin:14px 0 8px;border-radius:999px;background:#E1E8E3;overflow:hidden}.owner-ui .team-progress i{display:block;height:100%;border-radius:999px;background:var(--brick)}
+.owner-ui .team-progress-note{display:flex;justify-content:space-between;gap:8px;margin:0;font-size:13px;color:var(--ink)}.owner-ui .team-progress-note span:last-child{color:var(--ink-soft);font-size:12px}
+.owner-ui .team-link{border:0;background:transparent;color:var(--brick);font-size:13px;font-weight:800;min-height:44px;padding:0 0 0 8px;margin:-10px -4px -10px 0;cursor:pointer}
+.owner-ui .team-me{display:flex;align-items:center;gap:12px;margin-bottom:8px}.owner-ui .team-me strong{display:block;font-size:16px}.owner-ui .team-me span{display:block;font-size:13px;color:var(--ink-soft);margin-top:2px;overflow-wrap:anywhere}
+.owner-ui .team-menu{margin:0 0 14px}
+.owner-ui .bottom-nav .team-count{font-style:normal;margin-left:3px;padding:1px 6px;border-radius:999px;background:var(--danger);color:#fff;font-size:11px;font-weight:750}
+.owner-ui .team-quick svg{width:21px;height:21px;color:var(--brick)}
+.team-ui .staff-back{display:inline-flex;align-items:center;min-height:44px;margin:0 0 8px;padding:0;border:0;background:transparent;color:var(--ink);font-size:15px;font-weight:700;cursor:pointer}
+.team-ui .staff-back:active{background:var(--brick-dim)}
+.team-ui .coworkers{display:flex;flex-wrap:wrap;gap:12px 18px;margin-top:10px}
