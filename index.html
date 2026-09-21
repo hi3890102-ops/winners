@@ -1917,7 +1917,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   // BEGIN MANEE_STORE_PERMISSIONS
   function canManageBusinessData(){
     if(!MANEE_STAFF_AUTH_ENABLED) return ['storeOwner','hq','franchise'].includes(state.role) || !!state.crew.find(c=>c.id===state.myCrewId && c.isManager);
-    return (state.authMemberships||[]).some(m=>m.store_id===currentStoreId() && ['owner','manager'].includes(m.role));
+    const links=(state.authMemberships||[]).filter(m=>m.store_id===currentStoreId());
+    if(links.some(m=>['owner','manager'].includes(m.role))) return true;
+    // The database (private.has_store_membership) also treats a staff member whose employee record is flagged as manager as a manager
+    // (older accounts were flagged before the membership role was synced), so the screen has to as well.
+    return links.some(m=>m.role==='staff' && (state.crew||[]).some(c=>c.id===m.crew_id && c.isManager));
   }
   function canDeleteFinancialData(){
     if(canManageBusinessData()) return true;

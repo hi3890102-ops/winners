@@ -191,3 +191,17 @@ test('SQL rollback: only revokes the RPC; column and values stay; re-run is docu
   assert.equal(/drop|delete|update|alter/i.test(code),false);
   assert.match(rollback,/labor-ratio-threshold\.sql ONLY/);
 });
+
+// ---- expense edit/delete buttons: the screen follows the database's notion of "manager" (owner, manager, or staff flagged as manager)
+test('canManageBusinessData: a staff membership whose employee record is flagged as manager counts as manager, like the database', ()=>{
+  const src=html.slice(html.indexOf('  function canManageBusinessData(){'),html.indexOf('  function canDeleteFinancialData(){'));
+  const mk=(state)=>new Function('state','MANEE_STAFF_AUTH_ENABLED','currentStoreId',src+';return canManageBusinessData;')(state,true,()=> 'S1');
+  const st=(role,flag,storeId='S1',crewId='C1')=>({authMemberships:[{store_id:storeId,role,crew_id:crewId}],crew:[{id:'C1',isManager:flag},{id:'C2',isManager:true}]});
+  assert.equal(mk(st('owner',false))(),true);
+  assert.equal(mk(st('manager',false))(),true);
+  assert.equal(mk(st('staff',true))(),true);            // the reported case: manager flag on the employee record, membership role staff
+  assert.equal(mk(st('staff',false))(),false);          // plain staff: no
+  assert.equal(mk(st('staff',true,'OTHER'))(),false);   // flagged in another store only: no
+  assert.equal(mk(st('staff',false,'S1','C2'))(),true); // the link points at the crew record that carries the flag
+  assert.equal(mk({authMemberships:[],crew:[]})(),false);
+});
