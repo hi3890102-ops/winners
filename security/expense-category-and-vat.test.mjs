@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 // Covers the 2026-09-22 monthly-report redesign: expense category split (식자재/주류·음료/소모품/기타, NOT a tax
-// classification), the extended food-ratio verdict (adds "pending" when unclassified expense remains), and the
-// VAT (부가세) simple-estimate math. See renderMonthlyReport / renderVatDetail in index.html for the UI that
-// consumes these. Net-profit formula and calcCrewPay/calcCrewPayFrom are untouched by this change (not retested here).
+// classification - kept for expense-list organization only, does not affect 지출비율/verdict, see the later
+// 2026-09-22 owner decision reverting the ratio to TOTAL expense), and the VAT (부가세) simple-estimate math.
+// See renderMonthlyReport / renderVatDetail in index.html for the UI that consumes these. Net-profit formula and
+// calcCrewPay/calcCrewPayFrom are untouched by this change (not retested here).
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 function fnText(name){const a=html.indexOf('  function '+name+'(');const b=html.indexOf('  async function '+name+'(');const s=a>=0?a:b;if(s<0)throw new Error('missing '+name);const e=html.indexOf('\n  }\n',s);return html.slice(s,e+5);}
 function line(re){const m=html.match(re);if(!m)throw new Error('missing '+re);return m[0];}
@@ -61,30 +62,25 @@ test('splitExpenseByCategory: empty/missing input never throws',()=>{
   assert.deepEqual(plain(r.api.splitExpenseByCategory(undefined)),{total:0,food:0,unclassified:0});
 });
 
+// 2026-09-22 owner decision: 지출비율 verdict is the TOTAL expense ratio (all categories, classification never
+// affects it) - the earlier "pending while unclassified expense remains" behavior was reverted; see git history.
 test('foodRatioVerdict: null ratio -> none; unreadable limit -> unknown regardless of ratio',()=>{
   const r=harness();
-  assert.equal(r.api.foodRatioVerdict('A',null,false).state,'none');
+  assert.equal(r.api.foodRatioVerdict('A',null).state,'none');
   r.api.setLimit('A',false); // unreadable
-  assert.equal(r.api.foodRatioVerdict('A',10,false).state,'unknown');
+  assert.equal(r.api.foodRatioVerdict('A',10).state,'unknown');
 });
-test('foodRatioVerdict: strictly over the limit is "over" even with unclassified expense present (can only go higher once classified)',()=>{
+test('foodRatioVerdict: strictly over the limit is "over"',()=>{
   const r=harness(); r.api.setLimit('A',35);
-  assert.equal(r.api.foodRatioVerdict('A',35.1,true).state,'over');
-  assert.equal(r.api.foodRatioVerdict('A',35.1,false).state,'over');
+  assert.equal(r.api.foodRatioVerdict('A',35.1).state,'over');
 });
 test('foodRatioVerdict: exactly at the limit is NOT over',()=>{
   const r=harness(); r.api.setLimit('A',35);
-  assert.equal(r.api.foodRatioVerdict('A',35,false).state,'ok');
+  assert.equal(r.api.foodRatioVerdict('A',35).state,'ok');
 });
-test('foodRatioVerdict: at/under the limit but some expense is unclassified -> "pending", never "ok" (안정 는 아님)',()=>{
+test('foodRatioVerdict: under the limit -> "ok"',()=>{
   const r=harness(); r.api.setLimit('A',35);
-  assert.equal(r.api.foodRatioVerdict('A',20,true).state,'pending');
-  assert.equal(r.api.foodRatioVerdict('A',35,true).state,'pending');
-});
-test('foodRatioVerdict: at/under the limit and fully classified -> "ok"',()=>{
-  const r=harness(); r.api.setLimit('A',35);
-  assert.equal(r.api.foodRatioVerdict('A',20,false).state,'ok');
-  assert.equal(r.api.foodRatioVerdict('A',20,undefined).state,'ok');
+  assert.equal(r.api.foodRatioVerdict('A',20).state,'ok');
 });
 
 test('vatOutputEstimate: sales/11 rounded to the nearest won; zero and negative handled without throwing',()=>{

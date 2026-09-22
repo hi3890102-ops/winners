@@ -212,20 +212,17 @@ function statusCtx(){
   vm.runInContext(html.match(/  const OWNER_STATUS_TEXT[\s\S]*?\n  function ownerStatusChip/)[0].replace(/\n  function ownerStatusChip$/,'')+html.match(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/)[0]+fn('formatLimit')+fn('ownerStatusChip')+fn('ownerCostNote')+fn('ownerLaborLimit')+fn('ownerStoreStatus')+fn('ownerOverallKind')+fn('renderOwnerStatusSummary')+';this.ownerOverallKind=ownerOverallKind;',ctx);
   return ctx;
 }
-// foodConfirmedRatio mirrors expenseRatio by default in these mocks (every mocked expense is confirmed 식자재, no
-// unclassified amount) - these tests are about the labor/food VERDICT logic, not the category split itself
-// (see expense-category-and-vat.test.mjs for that, and food-limit-display.test.mjs for the display consequences).
+// 지출비율 = expenseRatio (total expense ÷ sales, every category) - owner decision 2026-09-22. These tests are about
+// the labor/expense VERDICT logic (see expense-category-and-vat.test.mjs for the category-split utility itself).
 const store=(o)=>{
   const base={store:'S',salesSum:0,salesReportCount:0,laborPay:0,laborRatio:null,expenseSum:0,expenseRatio:null,...o};
-  if(base.foodConfirmedRatio===undefined) base.foodConfirmedRatio=base.expenseRatio;
-  if(base.hasUnclassifiedExpense===undefined) base.hasUnclassifiedExpense=false;
   return base;
 };
 test('Thresholds (owner decision 2026-09-21): labor 22% and food 40% are only the DEFAULTS of per-store settings; the old 25% / 35% are gone',()=>{
   assert.match(html,/const DEFAULT_LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;/);
   const dash=fn('renderDashboard');
   assert.ok(dash.includes('const laborBad = d.laborRatio!==null && rowLaborLimit!==null && d.laborRatio>rowLaborLimit;'));
-  assert.ok(dash.includes('const foodBad = d.foodConfirmedRatio!==null && rowFoodLimit!==null && d.foodConfirmedRatio>rowFoodLimit;'));
+  assert.ok(dash.includes('const foodBad = d.expenseRatio!==null && rowFoodLimit!==null && d.expenseRatio>rowFoodLimit;'));
   assert.ok(dash.includes('const hasIssue = laborBad || foodBad;'));
   // no hard-coded ratio thresholds remain in any verdict / colour / label code
   const code=[fn('ownerStoreStatus'),fn('ownerOverallKind'),dash,fn('renderStaffHomeContent'),fn('renderManagerSummaryCard'),fn('renderMonthlyReport')].join('\n');
@@ -245,17 +242,17 @@ test('Per-store verdicts: 22% labor / 40% default food decide "관리 필요", b
   assert.equal(labor.kind,'attention');assert.equal(JSON.stringify(labor.reasons),JSON.stringify(['인건비율 22% 초과']));
   assert.equal(c.ownerStoreStatus(store({salesSum:1e6,laborRatio:24,expenseRatio:10})).kind,'attention','the old 25% line no longer applies');
   const food=c.ownerStoreStatus(store({salesSum:1e6,laborRatio:5,expenseRatio:40.1}));
-  assert.equal(food.kind,'attention');assert.equal(JSON.stringify(food.reasons),JSON.stringify(['식자재비율 40% 초과']));
+  assert.equal(food.kind,'attention');assert.equal(JSON.stringify(food.reasons),JSON.stringify(['지출비율 40% 초과']));
   assert.equal(c.ownerStoreStatus(store({salesSum:1e6,laborRatio:5,expenseRatio:37})).kind,'ok','35..40 is fine at the default');
-  assert.equal(JSON.stringify(c.ownerStoreStatus(store({salesSum:1e6,laborRatio:30,expenseRatio:50})).reasons),JSON.stringify(['인건비율 22% 초과','식자재비율 40% 초과']));
+  assert.equal(JSON.stringify(c.ownerStoreStatus(store({salesSum:1e6,laborRatio:30,expenseRatio:50})).reasons),JSON.stringify(['인건비율 22% 초과','지출비율 40% 초과']));
 });
 test('A store\'s own food limit decides its verdict and its wording; an unreadable limit is never a verdict',()=>{
   const c=statusCtx();
   assert.equal(c.ownerStoreStatus(store({salesSum:1e6,laborRatio:5,expenseRatio:38,foodThreshold:38})).kind,'ok','exactly equal to the limit is not over');
   const over=c.ownerStoreStatus(store({salesSum:1e6,laborRatio:5,expenseRatio:38.1,foodThreshold:38}));
-  assert.equal(over.kind,'attention');assert.equal(JSON.stringify(over.reasons),JSON.stringify(['식자재비율 38% 초과']));
+  assert.equal(over.kind,'attention');assert.equal(JSON.stringify(over.reasons),JSON.stringify(['지출비율 38% 초과']));
   assert.equal(c.ownerStoreStatus(store({salesSum:1e6,laborRatio:5,expenseRatio:44,foodThreshold:45})).kind,'ok','a raised limit is honoured');
-  assert.equal(JSON.stringify(c.ownerStoreStatus(store({salesSum:1e6,laborRatio:5,expenseRatio:38.5,foodThreshold:37.5})).reasons),JSON.stringify(['식자재비율 37.5% 초과']));
+  assert.equal(JSON.stringify(c.ownerStoreStatus(store({salesSum:1e6,laborRatio:5,expenseRatio:38.5,foodThreshold:37.5})).reasons),JSON.stringify(['지출비율 37.5% 초과']));
   const unknown=c.ownerStoreStatus(store({salesSum:1e6,laborRatio:5,expenseRatio:90,foodThreshold:null,loadFailures:['식자재 기준']}));
   assert.equal(unknown.kind,'error');assert.deepEqual(Array.from(unknown.failures),['식자재 기준']);assert.equal(unknown.reasons.length,0);
 });

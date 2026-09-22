@@ -130,7 +130,7 @@ test('an unreadable labor limit is neutral ("판정 불가") and never the defau
   const s=ownerStoreStatus(row({laborRatio:80,laborThreshold:null,loadFailures:['인건비 기준']}));
   assert.equal(s.kind,'error');assert.deepEqual(JSON.parse(JSON.stringify(s.reasons)),[]);assert.ok(s.failures.includes('인건비 기준'));
   const f=ownerStoreStatus(row({laborRatio:80,laborThreshold:null,expenseRatio:55,foodThreshold:40,loadFailures:['인건비 기준']}));
-  assert.equal(f.kind,'attention');assert.deepEqual(JSON.parse(JSON.stringify(f.reasons)),['식자재비율 40% 초과']);   // food is judged on its own
+  assert.equal(f.kind,'attention');assert.deepEqual(JSON.parse(JSON.stringify(f.reasons)),['지출비율 40% 초과']);   // expense is judged on its own
 });
 test('all stores: each store is judged by its own limit; one store over its own limit is "관리 필요" even if the others are fine',()=>{
   const {ownerStoreStatus,ownerOverallKind}=ctxFor();
@@ -165,8 +165,8 @@ test('every screen that judges labor reads the store\'s own limit: owner home ca
 test('settings card: one "비율 경고 기준" card, two independent rows, owner only, RPC only',()=>{
   const start=html.indexOf('<h3 style="margin:0 0 6px;">비율 경고 기준</h3>');assert.ok(start>0);
   const block=html.slice(html.lastIndexOf('if(state.role === "storeOwner"){',start),html.indexOf("알림</h3>'",start));
-  assert.ok(block.includes('설정한 비율을 넘으면 관리 필요로 표시해요. 이 매장의 사장님·매니저 화면에 같은 기준이 적용돼요.'));
-  assert.ok(block.includes("'인건비율 경고 기준','labor'")&&block.includes("'식자재비율 경고 기준 (주류·음료 포함)','food'"));
+  assert.ok(block.includes('넘으면 관리 필요로 표시해요. 이 매장의 사장님·매니저 화면에 같은 기준이 적용돼요.'));
+  assert.ok(block.includes("'인건비율 경고 기준','labor'")&&block.includes("'지출비율 경고 기준','food'"));
   assert.ok(block.includes("kind+'-limit-input\"")&&block.includes("kind+'-limit-save-btn\"")&&block.includes("kind+'-limit-reset-btn\""));
   assert.ok(block.includes("if(typeof saved === \"number\")"));                                    // reset only when a user value exists
   assert.ok(html.includes('saveLaborLimit(state.store, (document.getElementById("labor-limit-input")||{}).value)')&&html.includes('saveLaborLimit(state.store, null)'));
