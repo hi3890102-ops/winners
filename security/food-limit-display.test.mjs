@@ -12,24 +12,28 @@ const text=h=>h.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ');
 
 // limit states as the app stores them: undefined/null = not set (default 40), number = saved, false = could not be read
 function screens(limitState,{sales=1000000,expense=600000}={}){
+  // every mocked expense is classified 'food' (fully confirmed, no unclassified amount) - this test is about the
+  // threshold/verdict display, not about the category split itself (see expense-category-and-vat.test.mjs for that).
   const state={role:'storeOwner',store:'A',myStores:['A'],monthYear:2026,monthNum:9,storeFoodLimitMap:limitState===undefined?{}:{A:limitState},
     salesReports:[{totalSales:sales,deliveryBaemin:0,deliveryCoupang:0,deliveryYogiyo:0}],crew:[],fixedExpenses:[],expandedStoreRows:{},
+    expenseEntries:expense?[{amount:expense,category:'food'}]:[],
     dashboardLoading:false,storeList:['A'],dashboardDailyTrend:{},dashboardTrendActiveDate:null};
   const ctx=vm.createContext({state,console,escapeHtml:s=>String(s),daysInMonth:()=>30,computeVendorBreakdown:()=>[{name:'식자재',amount:expense}],calcCrewPay:()=>({pay:0,hours:0,days:0}),
     navIcon:()=> '',renderRoleAvatar:()=> '',ownerRouteButton:()=> '',pad:n=>String(n).padStart(2,'0'),bizDateObj:()=>new Date(2026,8,19),
-    renderFixedExpenseManage:()=> '',labelWithIcon:(i,l)=>l,renderSalesReportRows:()=> '',OWNER_STATUS_TEXT:{attention:'관리 필요',ok:'안정',norevenue:'매출 없음',pending:'집계 전',error:'확인 필요'}});
-  vm.runInContext([line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/),line(/  const FOOD_LIMIT_UNKNOWN_TEXT[^\n]*\n/),line(/  function formatLimit\([^\n]*\n/),
-    ...['foodRatioLimit','foodRatioVerdict','laborRatioLimit','laborRatioVerdict','ownerFoodReadable','ownerLaborReadable','ownerLaborLimit','renderManagerSummaryCard','renderMonthlyReport','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary','renderSalesTrendBars','renderDashboard'].map(fnText),
+    renderFixedExpenseManage:()=> '',labelWithIcon:(i,l)=>l,renderSalesReportRows:()=> '',renderVatSummaryCard:()=> '',canManageBusinessData:()=>true,MANEE_STAFF_AUTH_ENABLED:false,
+    OWNER_STATUS_TEXT:{attention:'관리 필요',ok:'안정',norevenue:'매출 없음',pending:'집계 전',error:'확인 필요'}});
+  vm.runInContext([line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/),line(/  const FOOD_LIMIT_UNKNOWN_TEXT[^\n]*\n/),line(/  const FOOD_RATIO_PENDING_TEXT[^\n]*\n/),line(/  const FOOD_RATIO_CATEGORY_SET[^\n]*\n/),line(/  function formatLimit\([^\n]*\n/),
+    ...['foodRatioLimit','foodRatioVerdict','laborRatioLimit','laborRatioVerdict','ownerFoodReadable','ownerLaborReadable','ownerLaborLimit','renderManagerSummaryCard','renderMonthlyReport','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary','renderSalesTrendBars','renderDashboard','splitExpenseByCategory','foodRatioColor','foodRatioNote'].map(fnText),
     ';this.api={renderManagerSummaryCard,renderMonthlyReport,renderDashboard,foodRatioVerdict};'].join('\n'),ctx);
   const ratio=expense/sales*100;
   const failure=limitState===false;
-  const dashRow={store:'A',foodThreshold:failure?null:(typeof limitState==='number'?limitState:40),salesSum:sales,salesReportCount:1,deliverySum:0,laborPay:0,laborRatio:5,expenseSum:expense,expenseRatio:ratio,
+  const dashRow={store:'A',foodThreshold:failure?null:(typeof limitState==='number'?limitState:40),salesSum:sales,salesReportCount:1,deliverySum:0,laborPay:0,laborRatio:5,expenseSum:expense,expenseRatio:ratio,foodConfirmedRatio:ratio,hasUnclassifiedExpense:false,
     prevMonthSalesSum:0,prevMonthFailed:false,loadFailures:failure?['식자재 기준']:[],dailySales:{},crewCount:0};
   state.dashboardData=[dashRow];
   return {
     owner:text(ctx.api.renderDashboard()),
     report:ctx.api.renderMonthlyReport(),
-    manager:ctx.api.renderManagerSummaryCard({salesSum:sales,deliverySum:0,laborRatio:10,expenseRatio:ratio,checklistPct:50}),
+    manager:ctx.api.renderManagerSummaryCard({salesSum:sales,deliverySum:0,laborRatio:10,expenseRatio:ratio,foodConfirmedRatio:ratio,hasUnclassifiedExpense:false,checklistPct:50}),
     api:ctx.api
   };
 }

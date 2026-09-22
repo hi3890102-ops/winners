@@ -702,6 +702,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     salesSectionTab: "sales",
     monthYear: now.getFullYear(),
     monthNum: now.getMonth()+1,
+    showVatDetail: false,
+    vatMode: "quarter", // quarter | half - reference aggregation period only, never assumed to be the owner's real filing cycle
+    vatYear: null, // null = derive from state.monthYear when first opened; then sticky - the report's month-nav never changes it
+    vatQuarter: null, // null = derive from state.monthNum when first opened
+    vatHalf: null,
+    vatShowAllStores: false,
+    vatData: null, // cache keyed by "mode:period:scope" - see loadVatData()
+    vatLoading: false,
+    classifyVendor: null,
     crew: [],
     shifts: [],
     attendance: [],
@@ -1065,6 +1074,42 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   // stores.food_ratio_threshold (default 40%). The defaults are used ONLY for "not set"; a value that could not be read is never a default.
   // "over" means strictly greater than the limit.
   const DEFAULT_LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;
+  // Expense category: added 2026-09-22 for operating-cost tracking only (NOT a tax/VAT classification - never used to
+  // decide taxable/exempt or VAT-deductible). null = 미분류 (existing rows stay this way; never auto-assigned from vendor name).
+  const EXPENSE_CATEGORIES = [
+    { value:"food", label:"식자재" },
+    { value:"beverage", label:"주류·음료" },
+    { value:"supplies", label:"소모품" },
+    { value:"other", label:"기타" }
+  ];
+  const FOOD_RATIO_CATEGORY_SET = new Set(["food","beverage"]);
+  function expenseCategoryLabel(cat){
+    const found = EXPENSE_CATEGORIES.find(c=>c.value===cat);
+    return found ? found.label : "미분류";
+  }
+  // total = every entry (unchanged meaning, used for 예상 순수익 and 전체 지출비율).
+  // food = confirmed 식자재+주류·음료 only (never includes unclassified amounts).
+  // unclassified = entries with no category yet (existing rows, or new rows saved without one).
+  function splitExpenseByCategory(entries){
+    let total=0, food=0, unclassified=0;
+    (entries||[]).forEach(e=>{
+      const amt = Number(e.amount)||0;
+      total += amt;
+      if(e.category && FOOD_RATIO_CATEGORY_SET.has(e.category)) food += amt;
+      else if(!e.category) unclassified += amt;
+    });
+    return { total, food, unclassified };
+  }
+  const FOOD_RATIO_PENDING_TEXT = "미분류 지출 있음 · 판정 보류";
+  // Shared color+note for any food-ratio verdict badge (never green while "pending" - only fully-classified periods show 안정).
+  function foodRatioNote(state){
+    if(state==="unknown") return FOOD_LIMIT_UNKNOWN_TEXT;
+    if(state==="pending") return FOOD_RATIO_PENDING_TEXT;
+    return "";
+  }
+  function foodRatioColor(state){
+    return (state==="none"||state==="unknown"||state==="pending") ? "var(--ink-soft)" : (state==="over" ? "var(--danger)" : "var(--olive)");
+  }
   // state.storeFoodLimitMap[store]: number = saved by the owner, null = not set (default), false = could not be read.
   function foodRatioLimit(store){
     const v = state.storeFoodLimitMap ? state.storeFoodLimitMap[store] : null;
@@ -1086,11 +1131,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   // ONE verdict for a food ratio against the store's limit, used by the manager home and the owner's monthly report (the dashboard reads the
   // same limit per store). "unknown" = the limit could not be read: the ratio may be shown, but it is never green ("안정"), never red.
   const FOOD_LIMIT_UNKNOWN_TEXT = "기준 조회 실패 · 판정 불가";
-  function foodRatioVerdict(store, ratio){
+  // ratio here MUST be the confirmed 식자재+주류·음료 ratio (splitExpenseByCategory().food / sales), never the total expense
+  // ratio - the two differ once any expense has a non-food category. hasUnclassified: some expense in the period has no
+  // category yet, so a ratio at/under the limit is never "ok" (안정) - only "pending" (미분류 지출 있음 · 판정 보류), since the
+  // true food ratio could turn out higher once those amounts are classified. A ratio already over the limit stays "over"
+  // regardless of unclassified amounts (it can only go higher, never lower, once classified).
+  function foodRatioVerdict(store, ratio, hasUnclassified){
     if(ratio === null || ratio === undefined) return { state:"none", limit:null };
     const limit = foodRatioLimit(store);
     if(limit === null) return { state:"unknown", limit:null };
-    return { state: ratio > limit ? "over" : "ok", limit:limit };
+    if(ratio > limit) return { state:"over", limit:limit };
+    return { state: hasUnclassified ? "pending" : "ok", limit:limit };
   }
   function formatLimit(n){ return String(Math.round(Number(n)*10)/10); }
   async function loadFoodLimit(store){
@@ -1187,15 +1238,16 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     let html = "";
     const laborV = laborRatioVerdict(state.store, sum.laborRatio);
     const ratioColor = (laborV.state==="none" || laborV.state==="unknown") ? "var(--ink-soft)" : (laborV.state==="over" ? "var(--danger)" : "var(--olive)");
-    const foodV = foodRatioVerdict(state.store, sum.expenseRatio);
-    const foodColor = (foodV.state==="none" || foodV.state==="unknown") ? "var(--ink-soft)" : (foodV.state==="over" ? "var(--danger)" : "var(--olive)");
+    const foodV = foodRatioVerdict(state.store, sum.foodConfirmedRatio, sum.hasUnclassifiedExpense);
+    const foodColor = foodRatioColor(foodV.state);
+    const foodNote = foodRatioNote(foodV.state);
     html += '<div class="s-card">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'+labelWithIcon('chart','이번 달 매장 요약')+'</div>';
     html += '<p class="s-main">'+sum.salesSum.toLocaleString()+'원</p>';
     html += '<p class="crew-code-hint" style="margin-top:2px;">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>';
     html += '<div style="display:flex;gap:14px;margin-top:10px;flex-wrap:wrap;">';
     html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">인건비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+ratioColor+';">'+(sum.laborRatio===null?'—':sum.laborRatio.toFixed(1)+'%')+'</div>'+(laborV.state==="unknown"?'<div class="labor-limit-unknown" style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_LIMIT_UNKNOWN_TEXT+'</div>':'')+'</div>';
-    html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">식자재비율</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+foodColor+';">'+(sum.expenseRatio===null?'—':sum.expenseRatio.toFixed(1)+'%')+'</div>'+(foodV.state==="unknown"?'<div class="food-limit-unknown" style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_LIMIT_UNKNOWN_TEXT+'</div>':'')+'</div>';
+    html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">식자재비율<small style="font-weight:400;"> (주류·음료 포함)</small></div><div style="font-weight:700;font-size:13.5px;margin-top:2px;color:'+foodColor+';">'+(sum.foodConfirmedRatio===null?'—':sum.foodConfirmedRatio.toFixed(1)+'%')+'</div>'+(foodNote?'<div class="food-limit-unknown" style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+foodNote+'</div>':'')+'</div>';
     html += '<div style="flex:1;min-width:70px;"><div style="font-size:11px;color:var(--ink-soft);">오늘 체크리스트</div><div style="font-weight:700;font-size:13.5px;margin-top:2px;">'+(sum.checklistPct===null?'—':sum.checklistPct+'%')+'</div></div>';
     html += '</div></div>';
     return html;
@@ -1210,12 +1262,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     let laborPay = 0;
     (state.crew||[]).forEach(c=>{ laborPay += calcCrewPayFrom(c, state.attendance||[], y, m).pay; });
     const laborRatio = salesSum>0 ? (laborPay/salesSum*100) : null;
-    let expenseSum = 0;
-    (state.expenseEntries||[]).forEach(e=> expenseSum += Number(e.amount)||0);
+    const expenseSplit = splitExpenseByCategory(state.expenseEntries||[]);
+    const expenseSum = expenseSplit.total;
     const expenseRatio = salesSum>0 ? (expenseSum/salesSum*100) : null;
+    const foodConfirmedRatio = salesSum>0 ? (expenseSplit.food/salesSum*100) : null;
+    const hasUnclassifiedExpense = expenseSplit.unclassified > 0;
     const all = countAllFrom(state.homeChecklistItems, state.homeChecklistChecks);
     const checklistPct = all.total>0 ? Math.round(all.done/all.total*100) : null;
-    return { salesSum, deliverySum, laborRatio, expenseRatio, checklistPct };
+    return { salesSum, deliverySum, laborRatio, expenseSum, expenseRatio, foodConfirmedRatio, unclassifiedExpense: expenseSplit.unclassified, hasUnclassifiedExpense, checklistPct };
   }
 
   function addStore(){
@@ -2235,8 +2289,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(storeName === state.store) return;
     state.store = storeName;
     state.showAddStoreForm = false;
+    state.showVatDetail = false;
+    state.vatData = null;
+    state.classifyVendor = null;
     await loadAllForStore(storeName);
     render();
+    if(state.salesSectionTab==='report') loadVatData();
   }
 
   function adminEntryLandingMode(){
@@ -3355,7 +3413,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const { data, error } = await db.from('expense_entries').select('*').eq('store_id', storeId).gte('date', start).lte('date', end).order('created_at');
       if(error) throw error;
       if(!alive()) return;
-      state.expenseEntries = (data||[]).map(r=>({ id:r.id, date:r.date, description:r.description, amount:r.amount||0 }));
+      state.expenseEntries = (data||[]).map(r=>({ id:r.id, date:r.date, description:r.description, amount:r.amount||0, category:r.category||null }));
     }catch(e){ if(alive()) state.expenseEntries = []; }
   }
   async function loadVendors(store){
@@ -3461,19 +3519,22 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const vendorSel = document.getElementById("expense-vendor-select");
     const amtInp = document.getElementById("expense-amount-input");
     const signBtn = document.getElementById("expense-sign-btn");
+    const catSel = document.getElementById("expense-category-select");
     if(!vendorSel || !amtInp) return;
     const vendorId = vendorSel.value;
     const vendorName = vendorSel.options[vendorSel.selectedIndex] ? vendorSel.options[vendorSel.selectedIndex].text : "";
     const sign = signBtn && signBtn.getAttribute("data-sign")==="-1" ? -1 : 1;
     const amount = sign * (parseInt(amtInp.value||"0",10));
+    const category = catSel ? (catSel.value||null) : null;
     if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
+    if(catSel && !category){ showToast("지출 분류를 선택해 주세요."); return; }
     const storeId = currentStoreId();
     const dateStr = state.salesEditDate || bizToday();
     try{
-      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount }).select().single();
+      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount, category }).select().single();
       if(error) throw error;
-      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount });
-      amtInp.value = "";
+      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount, category:data.category||null });
+      amtInp.value = ""; if(catSel) catSel.value = "";
       render();
     }catch(e){ showToast("지출 저장에 실패했어요."); }
   }
@@ -3481,19 +3542,22 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const vendorSel = document.getElementById("quick-expense-vendor-select");
     const amtInp = document.getElementById("quick-expense-amount-input");
     const signBtn = document.getElementById("quick-expense-sign-btn");
+    const catSel = document.getElementById("quick-expense-category-select");
     if(!vendorSel || !amtInp) return;
     const vendorId = vendorSel.value;
     const vendorName = vendorSel.options[vendorSel.selectedIndex] ? vendorSel.options[vendorSel.selectedIndex].text : "";
     const sign = signBtn && signBtn.getAttribute("data-sign")==="-1" ? -1 : 1;
     const amount = sign * (parseInt(amtInp.value||"0",10));
+    const category = catSel ? (catSel.value||null) : null;
     if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
+    if(catSel && !category){ showToast("지출 분류를 선택해 주세요."); return; }
     const storeId = currentStoreId();
     const dateStr = bizToday();
     try{
-      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount }).select().single();
+      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount, category }).select().single();
       if(error) throw error;
-      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount });
-      amtInp.value = "";
+      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount, category:data.category||null });
+      amtInp.value = ""; if(catSel) catSel.value = "";
       render();
       showToast("지출을 등록했어요. 오늘 매출보고에 자동으로 반영돼요.");
     }catch(e){ showToast("지출 저장에 실패했어요."); }
@@ -3586,17 +3650,26 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       sendReservationCancelPush(res, storeIdForPush);
     });
   }
+  function expenseCategorySelectHtml(attr, id, current){
+    let html = '<select data-'+attr+'="'+id+'" style="border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;">';
+    html += '<option value="">미분류</option>';
+    EXPENSE_CATEGORIES.forEach(c=> html += '<option value="'+c.value+'"'+(current===c.value?' selected':'')+'>'+c.label+'</option>');
+    html += '</select>';
+    return html;
+  }
   function renderExpenseEntryLine(e){
     const canEdit = !MANEE_STAFF_AUTH_ENABLED || canDeleteFinancialData();
     if(state.editingExpenseEntryId === e.id){
       return '<div class="pay-list-item" style="flex-wrap:wrap;gap:6px;">'
         +'<input type="text" data-editexpensedesc="'+e.id+'" value="'+escapeHtml(e.description)+'" style="flex:1;min-width:80px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;">'
         +'<input type="number" min="0" inputmode="numeric" data-editexpenseamount="'+e.id+'" value="'+e.amount+'" style="width:90px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;">'
+        +expenseCategorySelectHtml('editexpensecategory', e.id, e.category)
         +'<button class="crew-code-btn" data-saveexpense="'+e.id+'">저장</button>'
         +'<button class="switch-link" data-cancelexpense="1">취소</button>'
         +'</div>';
     }
-    return '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'</span><span>'+Number(e.amount).toLocaleString()+'원'
+    const catBadge = '<small style="color:var(--ink-soft);margin-left:6px;">'+escapeHtml(expenseCategoryLabel(e.category))+'</small>';
+    return '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+catBadge+'</span><span>'+Number(e.amount).toLocaleString()+'원'
       +(canEdit ? ' <button class="crew-code-btn" data-editexpense="'+e.id+'" style="margin-left:6px;padding:2px 8px;font-size:11.5px;">수정</button><button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button>' : '')
       +'</span></div>';
   }
@@ -3630,13 +3703,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!entry) return;
     const descInp = app.querySelector('[data-editexpensedesc="'+id+'"]');
     const amountInp = app.querySelector('[data-editexpenseamount="'+id+'"]');
+    const catInp = app.querySelector('[data-editexpensecategory="'+id+'"]');
     const description = String(descInp ? descInp.value : entry.description).trim();
     const amount = Math.max(0, Number(amountInp ? amountInp.value : entry.amount) || 0);
+    const category = catInp ? (catInp.value||null) : (entry.category||null);
     if(!description){ showToast("내용을 입력해주세요."); return; }
     if(MANEE_STAFF_AUTH_ENABLED){
       try{
-        const r = await checkedBusinessMutation(db.from('expense_entries').update({ description, amount }).eq('id', id).select('id,description,amount'));
-        entry.description = r.description; entry.amount = r.amount;
+        const r = await checkedBusinessMutation(db.from('expense_entries').update({ description, amount, category }).eq('id', id).select('id,description,amount,category'));
+        entry.description = r.description; entry.amount = r.amount; entry.category = r.category||null;
         state.editingExpenseEntryId = null;
         render();
         showToast("지출 내역을 수정했어요.");
@@ -3645,11 +3720,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       return;
     }
     try{
-      const { data, error } = await db.from('expense_entries').update({ description, amount }).eq('id', id).select('id');
+      const { data, error } = await db.from('expense_entries').update({ description, amount, category }).eq('id', id).select('id');
       if(error) throw error;
       if(!data || data.length===0){ showToast("저장 권한이 없어서 반영되지 않았어요."); return; }
     }catch(e){ showToast("저장에 실패했어요."); return; }
-    entry.description = description; entry.amount = amount;
+    entry.description = description; entry.amount = amount; entry.category = category;
     state.editingExpenseEntryId = null;
     render();
     showToast("지출 내역을 수정했어요.");
@@ -3808,7 +3883,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(state.dashboardData){
       ctx.allStoresThisMonth = state.dashboardData.map(d=>({
         store: d.store, salesSum: d.salesSum, deliverySum: d.deliverySum, laborPay: d.laborPay,
-        laborRatio: d.laborRatio, expenseSum: d.expenseSum, expenseRatio: d.expenseRatio, crewCount: d.crewCount
+        laborRatio: d.laborRatio, expenseSum: d.expenseSum, expenseRatio: d.expenseRatio, foodConfirmedRatio: d.foodConfirmedRatio, hasUnclassifiedExpense: d.hasUnclassifiedExpense, crewCount: d.crewCount
       }));
     }
     // 지난 3개월 요약 (월별 총매출/인건비만 가볍게)
@@ -4511,9 +4586,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       try{
         if(storeId){
           const { start, end } = monthDateRange(mKey);
-          const { data, error } = await db.from('expense_entries').select('amount').eq('store_id', storeId).gte('date', start).lte('date', end);
+          const { data, error } = await db.from('expense_entries').select('amount,category').eq('store_id', storeId).gte('date', start).lte('date', end);
           if(error) throw error;
-          expenseArr = (data||[]).map(r=>({ amount: r.amount||0 }));
+          expenseArr = (data||[]).map(r=>({ amount: r.amount||0, category: r.category||null }));
         }
       }catch(e){ failed.push("지출"); }
 
@@ -4527,9 +4602,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const laborReadable = failed.indexOf("직원")<0 && failed.indexOf("근태")<0 && failed.indexOf("매출")<0;
       const expenseReadable = failed.indexOf("지출")<0 && failed.indexOf("매출")<0;
       const laborRatio = (laborReadable && salesSum>0) ? (laborPay/salesSum*100) : null;
-      let expenseSum = 0;
-      expenseArr.forEach(e=> expenseSum += Number(e.amount)||0);
+      const expenseSplit = splitExpenseByCategory(expenseArr);
+      const expenseSum = expenseSplit.total;
       const expenseRatio = (expenseReadable && salesSum>0) ? (expenseSum/salesSum*100) : null;
+      // 식자재비율 (food+beverage only, confirmed classification): same readability gate as expenseRatio.
+      const foodConfirmedRatio = (expenseReadable && salesSum>0) ? (expenseSplit.food/salesSum*100) : null;
+      const hasUnclassifiedExpense = expenseReadable && expenseSplit.unclassified > 0;
 
       let total=0, done=0;
       if(items){
@@ -4594,7 +4672,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const dailySales = {};
       salesArr.forEach(s=>{ dailySales[s.date] = (dailySales[s.date]||0) + (Number(s.totalSales)||0); });
 
-      return { store, foodThreshold, laborThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
+      return { store, foodThreshold, laborThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, foodConfirmedRatio, hasUnclassifiedExpense, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
     }));
     if(!alive()) return;
     results.sort((a,b)=> b.salesSum - a.salesSum);
@@ -4806,6 +4884,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
     const vendorBreakdown = computeVendorBreakdown();
     let totalExpense = 0; vendorBreakdown.forEach(v=> totalExpense += v.amount);
+    const expenseSplit = splitExpenseByCategory(state.expenseEntries);
     const expenseRows = [["거래처","합계","비율(%)"]];
     vendorBreakdown.forEach(v=>{
       const pct = totalExpense>0 ? Number((v.amount/totalExpense*100).toFixed(1)) : 0;
@@ -4824,7 +4903,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
     const laborRatio = totalSales>0 ? Number((totalLabor/totalSales*100).toFixed(1)) : 0;
     const expenseRatio = totalSales>0 ? Number((totalExpense/totalSales*100).toFixed(1)) : 0;
-    const summaryRows = [["항목","값"],["총매출", totalSales],["배달매출", totalBaemin+totalCoupang+totalYogiyo],["총지출", totalExpense],["총인건비", totalLabor],["인건비율(%)", laborRatio],["식자재비율(%)", expenseRatio]];
+    const foodConfirmedRatio = totalSales>0 ? Number((expenseSplit.food/totalSales*100).toFixed(1)) : 0;
+    const summaryRows = [["항목","값"],["총매출", totalSales],["배달매출", totalBaemin+totalCoupang+totalYogiyo],["총지출(전체)", totalExpense],["총인건비", totalLabor],["인건비율(%)", laborRatio],["전체지출비율(%)", expenseRatio],["식자재비율(%, 확정분·주류음료 포함)", foodConfirmedRatio],["식자재+주류음료(확정)", expenseSplit.food],["미분류지출", expenseSplit.unclassified]];
 
     const wb = XLSX.utils.book_new();
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows); styleWorksheet(wsSummary, summaryRows);
@@ -5571,6 +5651,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         if(st.kind==="attention") html+='<p class="oh-reason bad"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.8v5M12 16.2v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>관리 필요 · '+st.reasons.join(" · ")+'</p>'+(st.failures.length?'<p class="oh-reason warn">판정 불가 · 읽지 못한 항목: '+st.failures.join("·")+'</p>':'');
         else if(st.failures.length) html+='<p class="oh-reason warn">판정 불가 · 읽지 못한 항목: '+st.failures.join("·")+'</p>';
         else if(st.kind==="pending"||st.kind==="norevenue") html+='<p class="oh-reason">'+(st.kind==="pending"?'매출 집계 전이라 비율은 판정하지 않아요':'매출이 없어 비율은 판정하지 않아요')+'</p>';
+        else if(st.foodPending) html+='<p class="oh-reason"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 3"/></svg>인건비 안정 · '+FOOD_RATIO_PENDING_TEXT+'</p>';
         else html+='<p class="oh-reason ok"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M8.3 12.4l2.5 2.5 4.9-5.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>안정 · 인건비 '+(ownerLaborLimit(d)===null?'기준 확인 불가':formatLimit(ownerLaborLimit(d))+'%')+' · 식자재 '+(d.foodThreshold==null?'기준 확인 불가':formatLimit(d.foodThreshold)+'%')+' 이내</p>';
       }
       html+='</div>';
@@ -5589,8 +5670,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         else if(!v.sched.count) html+='<p class="ow-none">스케줄 미등록</p>';
         else v.sched.people.forEach(x=>{html+='<p class="ow-item">'+escapeHtml(x.name)+' · '+x.times.map(t=>escapeHtml(t.start+"–"+t.end)).join(", ")+'</p>';});
         if(d&&!ownerSalesUnreadable(d)){
-          const lb=d.laborRatio, fb=d.expenseRatio;
-          html+='<p class="ow-h">이번 달 비율</p><p class="ow-item">인건비율 '+(lb===null?'—':lb.toFixed(1)+'%')+' (기준 '+(ownerLaborLimit(d)===null?'확인 불가':formatLimit(ownerLaborLimit(d))+'%')+') · 식자재비율 '+(fb===null?'—':fb.toFixed(1)+'%')+' (기준 '+(d.foodThreshold==null?'확인 불가':formatLimit(d.foodThreshold)+'%')+') · 배달매출 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만원(별도 집계)</p>';
+          const lb=d.laborRatio, fb=d.foodConfirmedRatio;
+          html+='<p class="ow-h">이번 달 비율</p><p class="ow-item">인건비율 '+(lb===null?'—':lb.toFixed(1)+'%')+' (기준 '+(ownerLaborLimit(d)===null?'확인 불가':formatLimit(ownerLaborLimit(d))+'%')+') · 식자재비율(주류·음료 포함) '+(fb===null?'—':fb.toFixed(1)+'%')+' (기준 '+(d.foodThreshold==null?'확인 불가':formatLimit(d.foodThreshold)+'%')+')'+(d.hasUnclassifiedExpense?' · 미분류 지출 있음':'')+' · 배달매출 '+Math.round((d.deliverySum||0)/10000).toLocaleString()+'만원(별도 집계)</p>';
         }
         html+='<div class="team-actions"><button type="button" class="crew-code-btn ow-go" data-ow-att="'+esc+'">근태 보기</button><button type="button" class="crew-code-btn ow-go" data-ow-sales="'+esc+'">매출 보기</button></div></div>';
       }
@@ -5715,7 +5796,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(state.dashboardLoading||!state.dashboardData) return '<section class="category oh-overview" aria-label="월 매출 요약"><p class="oh-muted">'+scope.length+'개 매장의 매출을 불러오는 중이에요…</p></section>';
     const data=state.dashboardData.filter(d=>scope.includes(d.store));
     const has=(d,k)=>(d.loadFailures||[]).indexOf(k)>=0;
-    let total=0,readable=0,foodUnknown=false,laborUnknown=false;
+    let total=0,readable=0,foodUnknown=false,laborUnknown=false,foodPending=false;
     const lab={sales:0,pay:0,n:0,over:false}, food={sales:0,exp:0,n:0,over:false}, failedItems={};
     data.forEach(d=>{
       if(!ownerSalesUnreadable(d)){ total+=d.salesSum; readable++; }
@@ -5727,16 +5808,18 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         else if(d.laborRatio!==null&&d.laborRatio>ll) lab.over=true;   // each store against its OWN limit
       }
       if(foodOk){
-        food.sales+=d.salesSum; food.exp+=(d.expenseSum||0); food.n++;
+        // food.exp is the CONFIRMED 식자재+주류·음료 amount only (never the total expense figure).
+        food.sales+=d.salesSum; food.exp+=(d.foodConfirmedRatio!==null && d.salesSum>0 ? d.foodConfirmedRatio/100*d.salesSum : 0); food.n++;
+        if(d.hasUnclassifiedExpense) foodPending=true;
         if(d.foodThreshold===null) foodUnknown=true;
-        else if(d.expenseRatio!==null&&d.foodThreshold!==undefined&&d.expenseRatio>d.foodThreshold) food.over=true;
+        else if(d.foodConfirmedRatio!==null&&d.foodThreshold!==undefined&&d.foodConfirmedRatio>d.foodThreshold) food.over=true;
       }
       (d.loadFailures||[]).forEach(k=>{ (failedItems[k]=failedItems[k]||[]).push(d.store); });
     });
     const unknown=data.length>0&&readable===0, partial=readable>0&&readable<data.length;
     const entered=data.some(d=>!ownerSalesUnreadable(d)&&(d.salesReportCount||0)>0);   // at least one sales report exists (0 won is a real number, "집계 전" is not)
     const labor=lab.sales>0?lab.pay/lab.sales*100:null, foodR=food.sales>0?food.exp/food.sales*100:null;
-    const laborFull=lab.n===data.length&&!laborUnknown, foodFull=food.n===data.length&&!foodUnknown;
+    const laborFull=lab.n===data.length&&!laborUnknown, foodFull=food.n===data.length&&!foodUnknown&&!foodPending;
     const laborCls=labor===null?'':(lab.over?'bad':(laborFull?'ok':''));
     const foodCls=foodR===null?'':(food.over?'bad':(foodFull?'ok':''));
     let html='<section class="category oh-overview" aria-label="월 매출 요약"><div class="oh-ov-head"><span class="oh-label">'+state.monthNum+'월 누적 매출 · '+(scope.length===(state.myStores||[]).length?'전체 '+scope.length+'곳':escapeHtml(scope[0]||''))+'</span>'+ownerRouteButton('상세 ›','sales','report',false)+'</div>';
@@ -5744,7 +5827,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     else if(!entered) html+='<p class="oh-big oh-muted">집계 전</p><p class="oh-note">아직 입력된 매출보고가 없어요.</p>';
     else html+='<p class="oh-big">'+total.toLocaleString()+'<small>원</small></p>'+(partial?'<p class="owner-amount-partial oh-note">조회 성공 '+readable+'/'+data.length+'곳 합계 (조회 실패 매장 제외)</p>':'');
     const scopeNote=(n)=>(n<data.length?'<small class="oh-of">'+n+'/'+data.length+'곳</small>':'');
-    html+='<p class="oh-ratios"><span>인건비율 <b class="'+laborCls+'">'+(labor===null?'—':labor.toFixed(1)+'%')+'</b>'+(labor===null?'':scopeNote(lab.n))+'</span><span>식자재비율 <b class="'+foodCls+'">'+(foodR===null?'—':foodR.toFixed(1)+'%')+'</b>'+(foodR===null?'':scopeNote(food.n))+'</span>'+(laborUnknown?'<span class="oh-note">인건비 기준 확인 불가</span>':'')+(foodUnknown?'<span class="oh-note">식자재 기준 확인 불가</span>':'')+'</p>';
+    html+='<p class="oh-ratios"><span>인건비율 <b class="'+laborCls+'">'+(labor===null?'—':labor.toFixed(1)+'%')+'</b>'+(labor===null?'':scopeNote(lab.n))+'</span><span>식자재비율<small style="font-weight:400;"> (주류·음료 포함)</small> <b class="'+foodCls+'">'+(foodR===null?'—':foodR.toFixed(1)+'%')+'</b>'+(foodR===null?'':scopeNote(food.n))+'</span>'+(laborUnknown?'<span class="oh-note">인건비 기준 확인 불가</span>':'')+(foodUnknown?'<span class="oh-note">식자재 기준 확인 불가</span>':'')+(foodPending&&!foodUnknown?'<span class="oh-note">'+FOOD_RATIO_PENDING_TEXT+'</span>':'')+'</p>';
     const failKeys=Object.keys(failedItems);
     if(failKeys.length&&!unknown) html+='<p class="owner-status-fail oh-partial">일부 항목을 읽지 못했어요 · '+failKeys.map(k=>escapeHtml(k)+' 조회 실패('+failedItems[k].map(escapeHtml).join(", ")+')').join(" · ")+'. 위 비율은 읽은 매장만으로 계산했고, 기준을 읽지 못한 항목은 판정하지 않아요. <button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button></p>';
     html+=renderOwnerTrend(scope)+'</section>';
@@ -6659,6 +6742,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '<select id="quick-expense-vendor-select" class="field-input" style="flex:1;">';
       state.vendors.forEach(v=> html += '<option value="'+v.id+'">'+escapeHtml(v.name)+'</option>');
       html += '</select>';
+      html += '<select id="quick-expense-category-select" class="field-input" style="flex:0 0 92px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select>';
       html += '<input id="quick-expense-amount-input" type="number" min="0" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
       html += '<button type="button" id="quick-expense-sign-btn" class="crew-code-btn" data-sign="1" style="flex:0 0 auto;">지출</button>';
       html += '<button id="add-quick-expense-btn">등록</button>';
@@ -6789,19 +6873,20 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   // No sales yet -> neutral "집계 전"; food limit unreadable -> neutral "판정 불가" (never shown as 안정).
   function teamRatioCard(label, value, kind, limitText){
     const icons={ok:'<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M8.3 12.4l2.5 2.5 4.9-5.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',over:'<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.8v5M12 16.2v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',none:'<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 3"/></svg>'};
-    const word={ok:'안정',over:'관리 필요',none:'집계 전',unknown:'판정 불가'}[kind];
-    return '<div class="team-ratio '+kind+'"><span class="team-ratio-label">'+label+'</span><strong>'+(value===null?'—':value.toFixed(1)+'%')+'</strong><span class="team-verdict">'+(icons[kind]||icons.none)+word+'</span><small>'+limitText+'</small></div>';
+    const word={ok:'안정',over:'관리 필요',none:'집계 전',unknown:'판정 불가',pending:'판정 보류'}[kind];
+    const cls = kind==='pending' ? 'unknown' : kind;
+    return '<div class="team-ratio '+cls+'"><span class="team-ratio-label">'+label+'</span><strong>'+(value===null?'—':value.toFixed(1)+'%')+'</strong><span class="team-verdict">'+(icons[kind]||icons.none)+word+'</span><small>'+limitText+'</small></div>';
   }
   function renderTeamSummaryCard(sum){
     const lv = laborRatioVerdict(state.store, sum.laborRatio);
     const laborKind = lv.state;
     const laborLimitText = lv.state==='unknown' ? '기준을 조회하지 못했어요' : formatLimit(laborRatioLimit(state.store)===null?DEFAULT_LABOR_RATIO_LIMIT:laborRatioLimit(state.store))+'% 이하 안정';
-    const fv = foodRatioVerdict(state.store, sum.expenseRatio);
-    const foodKind = fv.state==='unknown' ? 'unknown' : fv.state;
-    const foodLimit = fv.state==='unknown' ? '기준을 조회하지 못했어요' : (fv.limit!==null ? formatLimit(fv.limit)+'% 이하 안정' : formatLimit(foodRatioLimit(state.store)===null?DEFAULT_FOOD_RATIO_LIMIT:foodRatioLimit(state.store))+'% 이하 안정');
+    const fv = foodRatioVerdict(state.store, sum.foodConfirmedRatio, sum.hasUnclassifiedExpense);
+    const foodKind = fv.state;
+    const foodLimit = fv.state==='unknown' ? '기준을 조회하지 못했어요' : (fv.state==='pending' ? '주류·음료 포함 · 미분류 지출 있어요' : (fv.limit!==null ? formatLimit(fv.limit)+'% 이하 안정' : formatLimit(foodRatioLimit(state.store)===null?DEFAULT_FOOD_RATIO_LIMIT:foodRatioLimit(state.store))+'% 이하 안정'));
     return '<section class="category team-card" aria-label="이번 달 매장 요약"><div class="team-card-head"><span class="team-card-title team-title-lg">이번 달 매장 요약</span><span class="team-sub team-mo">'+state.monthNum+'월 누적</span></div>'+
       '<p class="team-sub" style="margin-top:10px">누적 매출</p><p class="team-big">'+sum.salesSum.toLocaleString()+'원</p><p class="team-sub">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>'+
-      '<div class="team-ratios">'+teamRatioCard('인건비율',sum.laborRatio,laborKind,laborLimitText)+teamRatioCard('식자재비율',sum.expenseRatio,foodKind,foodLimit)+'</div>'+
+      '<div class="team-ratios">'+teamRatioCard('인건비율',sum.laborRatio,laborKind,laborLimitText)+teamRatioCard('식자재비율',sum.foodConfirmedRatio,foodKind,foodLimit)+'</div>'+
       '<p class="team-legend"><span class="ok"><i></i>안정</span><span class="over"><i></i>관리 필요</span><span class="none"><i></i>집계 전·판정 불가</span></p></section>';
   }
   function teamPayPill(person){
@@ -7603,6 +7688,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '<select id="expense-vendor-select" class="field-input" style="flex:1;">';
       state.vendors.forEach(v=> html += '<option value="'+v.id+'">'+escapeHtml(v.name)+'</option>');
       html += '</select>';
+      html += '<select id="expense-category-select" class="field-input" style="flex:0 0 92px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select>';
       html += '<input id="expense-amount-input" type="number" min="0" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
       html += '<button type="button" id="expense-sign-btn" class="crew-code-btn" data-sign="1" style="flex:0 0 auto;">지출</button>';
       html += '<button id="add-expense-btn">추가</button>';
@@ -7895,7 +7981,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const foodLimit = d.foodThreshold===undefined ? DEFAULT_FOOD_RATIO_LIMIT : d.foodThreshold;   // null = the store's limit could not be read
     const laborLimit = ownerLaborLimit(d);   // null = the store's limit could not be read
     const laborBad = d.laborRatio!==null && laborLimit!==null && d.laborRatio>laborLimit;
-    const foodBad = d.expenseRatio!==null && foodLimit!==null && d.expenseRatio>foodLimit;
+    // 식자재비율 verdict uses the CONFIRMED food+beverage ratio only, never the total expense ratio.
+    const foodBad = d.foodConfirmedRatio!==null && foodLimit!==null && d.foodConfirmedRatio>foodLimit;
+    // Not over, but some of this period's expense has no category yet: the true ratio could still turn out higher -
+    // never shown as 안정 ("ok") in that case, only flagged as pending.
+    const foodPending = !foodBad && !!d.hasUnclassifiedExpense && d.foodConfirmedRatio!==null && foodLimit!==null;
     const reasons = [];
     if(laborBad) reasons.push("인건비율 "+formatLimit(laborLimit)+"% 초과");
     if(foodBad) reasons.push("식자재비율 "+formatLimit(foodLimit)+"% 초과");
@@ -7906,7 +7996,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     else if(d.salesSum>0) kind = "ok";
     else if((d.salesReportCount||0)>0) kind = "norevenue";
     else kind = "pending";
-    return {kind, reasons, failures, costNote: (kind==="pending"||kind==="norevenue") ? ownerCostNote(d.laborPay, d.expenseSum) : ""};
+    return {kind, reasons, failures, foodPending, costNote: (kind==="pending"||kind==="norevenue") ? ownerCostNote(d.laborPay, d.expenseSum) : ""};
   }
   // A store whose sales lookup failed has an UNKNOWN amount, not 0. Other failed lookups (crew, attendance, expenses) do not make its sales unknown.
   // Which inputs each ratio needs (a failure of one item never blocks the verdict of another).
@@ -8011,21 +8101,23 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
     const data = state.dashboardData;
     const ownerView = state.role==="storeOwner";
-    let totalSales = 0, totalPay = 0, totalExpense = 0, totalDelivery = 0, totalPrevMonth = 0;
+    let totalSales = 0, totalPay = 0, totalExpense = 0, totalFoodConfirmed = 0, totalDelivery = 0, totalPrevMonth = 0;
     // Owner view: a store whose figures could not be read is left out of the totals (and named in the summary), not counted as zero.
     // Owner view: amounts (sales, delivery) add up every store whose SALES were read; ratios only use stores whose inputs were ALL read.
     // A store that could not be read is never counted as 0.
     let ratioSales = 0, salesReadable = 0;
     data.forEach(d=>{
-      if(!ownerView){ totalSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); ratioSales += d.salesSum; salesReadable++; return; }
+      const foodConfirmedAmt = (d.foodConfirmedRatio!==null && d.salesSum>0) ? d.foodConfirmedRatio/100*d.salesSum : 0;
+      if(!ownerView){ totalSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalFoodConfirmed += foodConfirmedAmt; totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); ratioSales += d.salesSum; salesReadable++; return; }
       if(!ownerSalesUnreadable(d)){ totalSales += d.salesSum; totalDelivery += (d.deliverySum||0); totalPrevMonth += (d.prevMonthSalesSum||0); salesReadable++; }
-      if(!(d.loadFailures && d.loadFailures.length)){ ratioSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); }
+      if(!(d.loadFailures && d.loadFailures.length)){ ratioSales += d.salesSum; totalPay += d.laborPay; totalExpense += (d.expenseSum||0); totalFoodConfirmed += foodConfirmedAmt; }
     });
     const overallRatio = ratioSales>0 ? (totalPay/ratioSales*100) : 0;
-    const overallExpenseRatio = ratioSales>0 ? (totalExpense/ratioSales*100) : 0;
+    const overallFoodRatio = ratioSales>0 ? (totalFoodConfirmed/ratioSales*100) : 0;
     const overallKind = ownerOverallKind(data);
     // Combined food colour: red only if some readable store is over ITS OWN limit (limits differ per store).
-    const anyFoodBad = data.some(d=>ownerFoodReadable(d) && d.expenseRatio!==null && d.foodThreshold!=null && d.expenseRatio>d.foodThreshold);
+    const anyFoodBad = data.some(d=>ownerFoodReadable(d) && d.foodConfirmedRatio!==null && d.foodThreshold!=null && d.foodConfirmedRatio>d.foodThreshold);
+    const anyFoodPending = data.some(d=>ownerFoodReadable(d) && d.hasUnclassifiedExpense && !(d.foodConfirmedRatio!==null && d.foodThreshold!=null && d.foodConfirmedRatio>d.foodThreshold));
     // Labor colour: red if some store is over ITS OWN limit; grey while any store's limit could not be read (never the default); else green.
     const anyLaborBad = data.some(d=>ownerLaborReadable(d) && d.laborRatio!==null && ownerLaborLimit(d)!==null && d.laborRatio>ownerLaborLimit(d));
     const anyLaborUnknown = data.some(d=>ownerLaborLimit(d)===null);
@@ -8070,7 +8162,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<p style="margin:0 0 12px;font-size:12px;color:var(--ink-soft);">배달매출 '+(salesUnknown?'— (조회 실패)':totalDelivery.toLocaleString()+'원 (별도 집계)')+'</p>';
     html += '<div style="display:flex;gap:16px;margin-bottom:40px;">';
     html += '<div><span style="font-size:11px;color:var(--ink-soft);">인건비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(ratioUnknown?'var(--ink-soft)':(anyLaborBad?'var(--danger)':(anyLaborUnknown?'var(--ink-soft)':'var(--olive)')))+';">'+(ratioUnknown?'—':overallRatio.toFixed(1)+'%')+'</span></div>';
-    html += '<div><span style="font-size:11px;color:var(--ink-soft);">식자재비율 </span><span style="font-size:12.5px;font-weight:800;color:'+(ratioUnknown?'var(--ink-soft)':(anyFoodBad?'var(--danger)':(data.some(d=>d.foodThreshold===null)?'var(--ink-soft)':'var(--olive)')))+';">'+(ratioUnknown?'—':overallExpenseRatio.toFixed(1)+'%')+'</span></div>';
+    html += '<div><span style="font-size:11px;color:var(--ink-soft);">식자재비율<small> (주류·음료 포함)</small> </span><span style="font-size:12.5px;font-weight:800;color:'+(ratioUnknown?'var(--ink-soft)':(anyFoodBad?'var(--danger)':((data.some(d=>d.foodThreshold===null)||anyFoodPending)?'var(--ink-soft)':'var(--olive)')))+';">'+(ratioUnknown?'—':overallFoodRatio.toFixed(1)+'%')+'</span>'+(!ratioUnknown&&anyFoodPending&&!anyFoodBad?'<div style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_RATIO_PENDING_TEXT+'</div>':'')+'</div>';
     html += '</div>';
     html += renderSalesTrendBars(salesUnknown);
     html += '</div>';
@@ -8082,7 +8174,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const rowFoodLimit = d.foodThreshold===undefined ? DEFAULT_FOOD_RATIO_LIMIT : d.foodThreshold;
       const rowLaborLimit = ownerLaborLimit(d);
       const laborBad = d.laborRatio!==null && rowLaborLimit!==null && d.laborRatio>rowLaborLimit;
-      const foodBad = d.expenseRatio!==null && rowFoodLimit!==null && d.expenseRatio>rowFoodLimit;
+      const foodBad = d.foodConfirmedRatio!==null && rowFoodLimit!==null && d.foodConfirmedRatio>rowFoodLimit;
+      const foodRowPending = !foodBad && !!d.hasUnclassifiedExpense && d.foodConfirmedRatio!==null && rowFoodLimit!==null;
       const hasIssue = laborBad || foodBad;
       const expanded = !!state.expandedStoreRows[d.store];
       html += '<div style="'+(idx < data.length-1 ? 'border-bottom:1px solid var(--line);' : '')+'">';
@@ -8103,10 +8196,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '</div>';
       if(expanded){
         const ratioText = d.laborRatio===null ? "—" : d.laborRatio.toFixed(1)+"%";
-        const foodText = d.expenseRatio===null ? "—" : d.expenseRatio.toFixed(1)+"%";
+        const foodText = d.foodConfirmedRatio===null ? "—" : d.foodConfirmedRatio.toFixed(1)+"%";
         html += '<div style="padding:0 0 14px 20px;display:flex;gap:28px;">';
         html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">인건비율</div><div style="font-size:16px;font-weight:800;color:'+(laborBad?'var(--danger)':((rowLaborLimit===null||(ownerView&&d.laborRatio===null))?'var(--ink-soft)':'var(--olive)'))+';">'+ratioText+'</div>'+(laborBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">'+formatLimit(rowLaborLimit)+'% 초과</div>':(rowLaborLimit===null&&d.laborRatio!==null?'<div class="labor-limit-unknown" style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_LIMIT_UNKNOWN_TEXT+'</div>':''))+'</div>';
-        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">식자재비율</div><div style="font-size:16px;font-weight:800;color:'+(foodBad?'var(--danger)':((rowFoodLimit===null||(ownerView&&d.expenseRatio===null))?'var(--ink-soft)':'var(--olive)'))+';">'+foodText+'</div>'+(foodBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">'+formatLimit(rowFoodLimit)+'% 초과</div>':'')+'</div>';
+        html += '<div><div style="font-size:11px;color:var(--ink-soft);margin-bottom:3px;">식자재비율<small> (주류·음료 포함)</small></div><div style="font-size:16px;font-weight:800;color:'+(foodBad?'var(--danger)':((rowFoodLimit===null||(ownerView&&d.foodConfirmedRatio===null)||foodRowPending)?'var(--ink-soft)':'var(--olive)'))+';">'+foodText+'</div>'+(foodBad?'<div style="font-size:10.5px;color:var(--danger);margin-top:1px;">'+formatLimit(rowFoodLimit)+'% 초과</div>':(foodRowPending?'<div style="font-size:10.5px;color:var(--ink-soft);margin-top:1px;">'+FOOD_RATIO_PENDING_TEXT+'</div>':''))+'</div>';
         html += '</div>';
       }
       html += '</div>';
@@ -8254,6 +8347,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function renderMonthlyReport(){
+    if(state.showVatDetail) return renderVatDetail();
     const y = state.monthYear, m = state.monthNum;
     let html = '<div class="month-nav"><button id="prev-month">‹</button><span class="month-label">'+y+'년 '+m+'월</span><button id="next-month">›</button></div>';
 
@@ -8268,27 +8362,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const reportedDays = state.salesReports.length;
     const lastDay = daysInMonth(y, m);
 
-    html += '<div class="pay-summary c-blue" style="margin-bottom:14px;">';
-    html += '<p class="label">'+y+'년 '+m+'월 매출 합산 ('+reportedDays+'/'+lastDay+'일 보고됨)</p>';
-    html += '<p class="amount">'+totalSales.toLocaleString()+'원</p>';
-    html += '<p class="meta">배달매출 '+totalDelivery.toLocaleString()+'원 (배민 '+totalBaemin.toLocaleString()+'원 · 쿠팡 '+totalCoupang.toLocaleString()+'원 · 요기요 '+totalYogiyo.toLocaleString()+'원)</p>';
-    html += '</div>';
-
     const vendorBreakdown = computeVendorBreakdown();
     let totalExpense = 0; vendorBreakdown.forEach(v=> totalExpense += v.amount);
     const expenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : null;
-    html += '<div class="day-panel" style="margin-bottom:14px;">';
-    html += '<h3>지출 합산 (거래처별)</h3>';
-    if(vendorBreakdown.length===0){
-      html += '<div class="empty-note" style="padding:8px 0;">등록된 지출이 없어요.</div>';
-    }else{
-      vendorBreakdown.forEach(v=>{
-        const pct = totalExpense>0 ? (v.amount/totalExpense*100) : 0;
-        html += '<div class="pay-list-item"><span class="d">'+escapeHtml(v.name)+'</span><span>'+v.amount.toLocaleString()+'원 · '+pct.toFixed(1)+'%</span></div>';
-      });
-      html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalExpense.toLocaleString()+'원'+(expenseRatio!==null?' (매출대비 '+expenseRatio.toFixed(1)+'%)':'')+'</span></div>';
-    }
-    html += '</div>';
+    const expenseSplit = splitExpenseByCategory(state.expenseEntries);
+    const foodConfirmedRatio = totalSales>0 ? (expenseSplit.food/totalSales*100) : null;
+    const hasUnclassifiedExpense = expenseSplit.unclassified > 0;
 
     let totalLabor = 0;
     const perPerson = state.crew.map(c=>{
@@ -8298,8 +8377,74 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }).sort((a,b)=> b.pay-a.pay);
     const laborRatio = totalSales>0 ? (totalLabor/totalSales*100) : null;
 
-    html += '<div class="day-panel" style="margin-bottom:14px;">';
-    html += '<h3>인건비 합산 (개인별)</h3>';
+    let totalFixed = 0;
+    state.fixedExpenses.forEach(f=> totalFixed += Number(f.amount)||0);
+    const fixedRegistered = state.fixedExpenses.length>0;
+
+    // 예상 순수익: unchanged formula, always the full expense total regardless of classification (분류 여부와 무관).
+    const netProfit = totalSales - totalExpense - totalLabor - totalFixed;
+    const laborV = laborRatioVerdict(state.store, laborRatio);
+    const foodV = foodRatioVerdict(state.store, foodConfirmedRatio, hasUnclassifiedExpense);
+
+    // ---- top: net profit + one-line metric rows ----
+    html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
+    html += '<p class="label">이번 달 예상 순수익</p>';
+    html += '<p class="amount">'+netProfit.toLocaleString()+'원</p>';
+    html += '<p class="meta">'+reportedDays+'/'+lastDay+'일 매출 보고'+(fixedRegistered?'':' · 고정지출 미등록 (반영 안 됨)')+'</p>';
+    html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.25);display:flex;flex-direction:column;gap:6px;">';
+    html += '<div style="display:flex;justify-content:space-between;"><span>매출</span><strong>'+totalSales.toLocaleString()+'원</strong></div>';
+    const laborBad = laborV.state==="over";
+    const laborRatioColor = laborBad ? '#FF8A8F' : 'inherit';
+    html += '<div style="display:flex;justify-content:space-between;align-items:baseline;"><span>지출</span><span><strong>'+totalExpense.toLocaleString()+'원</strong>'+(expenseRatio!==null?' <small style="opacity:.85;">'+expenseRatio.toFixed(1)+'%</small>':'')+'</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:baseline;"><span>인건비</span><span><strong>'+totalLabor.toLocaleString()+'원</strong>'+(laborRatio!==null?' <small class="labor-verdict" data-state="'+laborV.state+'" style="opacity:'+(laborBad?1:.85)+';color:'+laborRatioColor+';font-weight:'+(laborBad?700:400)+';">'+laborRatio.toFixed(1)+'%'+(laborBad?' · 관리 필요':'')+'</small>':'')+'</span></div>';
+    html += '<div style="display:flex;justify-content:space-between;"><span>고정지출</span><strong>'+(fixedRegistered?totalFixed.toLocaleString()+'원':'미등록')+'</strong></div>';
+    html += '</div>';
+    // separate 식자재 (주류·음료 포함) badge - only this item colors/flags on its own, never the whole card or the plain 지출 row above.
+    const foodTone = foodV.state==="over" ? '#FF8A8F' : ((foodV.state==="unknown"||foodV.state==="pending") ? '#F3D9A4' : '#7CE6A6');
+    const foodWord = foodV.state==="over" ? '관리필요' : (foodV.state==="unknown" ? FOOD_LIMIT_UNKNOWN_TEXT : (foodV.state==="pending" ? FOOD_RATIO_PENDING_TEXT : '안정'));
+    if(foodV.state!=="none"){
+      html += '<div style="margin-top:8px;display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;"><span style="opacity:.85;">식자재비율 (주류·음료 포함)</span><span class="food-verdict" data-state="'+foodV.state+'" style="color:'+foodTone+';font-weight:700;">'+(foodConfirmedRatio!==null?foodConfirmedRatio.toFixed(1)+'% · ':'')+'식자재 '+foodWord+'</span></div>';
+    }
+    html += '<div style="margin-top:6px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.25);font-size:11px;opacity:.85;">경고 기준 · 인건비 '+(laborV.limit!=null?formatLimit(laborV.limit):formatLimit(DEFAULT_LABOR_RATIO_LIMIT))+'% · 식자재 '+(foodV.limit!=null?formatLimit(foodV.limit):formatLimit(DEFAULT_FOOD_RATIO_LIMIT))+'%</div>';
+    html += '</div>';
+
+    // ---- VAT summary card (links to detail screen) ----
+    html += renderVatSummaryCard();
+
+    // ---- collapsible detail sections ----
+    html += '<p class="crew-code-hint" style="margin:2px 0 8px;font-weight:700;">월간 상세 내역</p>';
+    html += '<details style="margin-bottom:10px;"><summary style="cursor:pointer;display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);"><span>매출 내역<br><small style="color:var(--ink-soft);font-weight:400;">배달 플랫폼별 금액</small></span><strong>'+totalSales.toLocaleString()+'원</strong></summary>';
+    html += '<div style="padding:8px 0;"><div class="pay-list-item"><span class="d">매출 합계</span><span>'+totalSales.toLocaleString()+'원</span></div><div class="pay-list-item"><span class="d">배달매출</span><span>'+totalDelivery.toLocaleString()+'원</span></div><div class="pay-list-item"><span class="d">· 배달의민족</span><span>'+totalBaemin.toLocaleString()+'원</span></div><div class="pay-list-item"><span class="d">· 쿠팡이츠</span><span>'+totalCoupang.toLocaleString()+'원</span></div><div class="pay-list-item"><span class="d">· 요기요</span><span>'+totalYogiyo.toLocaleString()+'원</span></div></div></details>';
+
+    html += '<details style="margin-bottom:10px;"><summary style="cursor:pointer;display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);"><span>거래처별 지출<br><small style="color:var(--ink-soft);font-weight:400;">큰 금액순 · 분류 포함</small></span><strong>'+totalExpense.toLocaleString()+'원</strong></summary>';
+    html += '<div style="padding:8px 0;">';
+    if(vendorBreakdown.length===0){
+      html += '<div class="empty-note" style="padding:8px 0;">등록된 지출이 없어요.</div>';
+    }else{
+      const canClassifyHere = !MANEE_STAFF_AUTH_ENABLED || canManageBusinessData();
+      vendorBreakdown.forEach(v=>{
+        const pct = totalExpense>0 ? (v.amount/totalExpense*100) : 0;
+        html += '<div class="pay-list-item"><span class="d">'+escapeHtml(v.name)+'</span><span>'+v.amount.toLocaleString()+'원 · '+pct.toFixed(1)+'%</span></div>';
+        if(canClassifyHere){
+          const vendorEntries = (state.expenseEntries||[]).filter(e=>e.description===v.name);
+          const unclassified = vendorEntries.filter(e=>!e.category);
+          if(unclassified.length>0){
+            const unclassifiedSum = unclassified.reduce((s,e)=>s+(Number(e.amount)||0),0);
+            const open = state.classifyVendor===v.name;
+            html += '<div style="padding:0 0 8px 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><small style="color:var(--ink-soft);">미분류 '+unclassified.length+'건 · '+unclassifiedSum.toLocaleString()+'원</small><button type="button" class="switch-link" data-classifyvendor="'+escapeHtml(v.name)+'">'+(open?'닫기':'분류하기')+'</button></div>';
+            if(open){
+              html += '<div class="add-row" style="padding:0 0 12px 4px;background:transparent;flex-wrap:wrap;"><select id="bulk-classify-category-select" class="field-input" style="flex:1;min-width:100px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select><button type="button" id="bulk-classify-confirm-btn" data-classifyconfirm="'+escapeHtml(v.name)+'">'+unclassified.length+'건 '+unclassifiedSum.toLocaleString()+'원 적용</button></div>';
+            }
+          }
+        }
+      });
+      html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalExpense.toLocaleString()+'원'+(expenseRatio!==null?' (전체 지출비율 '+expenseRatio.toFixed(1)+'%)':'')+'</span></div>';
+      html += '<p class="crew-code-hint" style="margin-top:6px;">식자재비율은 \'식자재\'·\'주류·음료\'로 분류한 금액만 반영해요. 미분류 금액은 분류 후 반영돼요.</p>';
+    }
+    html += '</div></details>';
+
+    html += '<details style="margin-bottom:10px;"><summary style="cursor:pointer;display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);"><span>인건비 내역<br><small style="color:var(--ink-soft);font-weight:400;">직원별 급여·근무</small></span><strong>'+totalLabor.toLocaleString()+'원</strong></summary>';
+    html += '<div style="padding:8px 0;">';
     if(perPerson.length===0){
       html += '<div class="empty-note" style="padding:8px 0;">등록된 스텝이 없어요.</div>';
     }else{
@@ -8308,45 +8453,177 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       });
       html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalLabor.toLocaleString()+'원'+(laborRatio!==null?' (매출대비 '+laborRatio.toFixed(1)+'%)':'')+'</span></div>';
     }
-    html += '</div>';
+    html += '</div></details>';
 
-    let totalFixed = 0;
-    state.fixedExpenses.forEach(f=> totalFixed += Number(f.amount)||0);
-    html += '<div class="day-panel" style="margin-bottom:14px;">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h3 style="margin:0;">고정지출</h3><button class="crew-code-btn" id="toggle-fixedexpense-manage-btn">'+(state.showFixedExpenseManage?'닫기':'관리')+'</button></div>';
-    if(state.fixedExpenses.length===0){
-      html += '<div class="empty-note" style="padding:8px 0;">등록된 고정지출이 없어요.</div>';
+    html += '<details style="margin-bottom:14px;"><summary style="cursor:pointer;display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);"><span>고정지출<br><small style="color:var(--ink-soft);font-weight:400;">월세·관리비 등</small></span><strong>'+(fixedRegistered?totalFixed.toLocaleString()+'원':'미등록')+'</strong></summary>';
+    html += '<div style="padding:8px 0;">';
+    html += '<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><button class="crew-code-btn" id="toggle-fixedexpense-manage-btn">'+(state.showFixedExpenseManage?'닫기':'관리')+'</button></div>';
+    if(!fixedRegistered){
+      html += '<div class="empty-note" style="padding:8px 0;">등록된 고정지출이 없어요. 입력되지 않은 비용은 예상 순수익에 반영되지 않아요.</div>';
     }else{
       state.fixedExpenses.forEach(f=>{
         html += '<div class="pay-list-item"><span class="d">'+escapeHtml(f.name)+'</span><span>'+f.amount.toLocaleString()+'원</span></div>';
       });
       html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalFixed.toLocaleString()+'원</span></div>';
     }
-    html += '</div>';
     if(state.showFixedExpenseManage) html += renderFixedExpenseManage();
-
-    const netProfit = totalSales - totalExpense - totalLabor - totalFixed;
-    const laborV = laborRatioVerdict(state.store, laborRatio);
-    const foodV = foodRatioVerdict(state.store, expenseRatio);
-    html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
-    html += '<p class="label">이번 달 순수익 (예상) · 종합비율</p>';
-    html += '<p class="amount">'+netProfit.toLocaleString()+'원</p>';
-    html += '<p class="meta">매출 '+totalSales.toLocaleString()+'원 − 지출 '+totalExpense.toLocaleString()+'원 − 인건비 '+totalLabor.toLocaleString()+'원 − 고정지출 '+totalFixed.toLocaleString()+'원</p>';
-    html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.25);">';
-    html += '<p class="meta">인건비율 '+(laborRatio!==null?laborRatio.toFixed(1):"0.0")+'% · 식자재비율 '+(expenseRatio!==null?expenseRatio.toFixed(1):"0.0")+'%</p>';
-    if(laborV.state!=="none"){
-      const laborTone = laborV.state==="over" ? '#FF8A8F' : (laborV.state==="unknown" ? '#F3D9A4' : '#7CE6A6');
-      const laborWord = laborV.state==="over" ? '관리필요' : (laborV.state==="unknown" ? FOOD_LIMIT_UNKNOWN_TEXT : '안정');
-      html += '<span class="labor-verdict" data-state="'+laborV.state+'" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+laborTone+';margin-top:6px;margin-right:14px;"><span style="width:6px;height:6px;border-radius:50%;background:'+laborTone+';display:inline-block;"></span>인건비 '+laborWord+'</span>';
-    }
-    if(foodV.state!=="none"){
-      const foodTone = foodV.state==="over" ? '#FF8A8F' : (foodV.state==="unknown" ? '#F3D9A4' : '#7CE6A6');
-      const foodWord = foodV.state==="over" ? '관리필요' : (foodV.state==="unknown" ? FOOD_LIMIT_UNKNOWN_TEXT : '안정');
-      html += '<span class="food-verdict" data-state="'+foodV.state+'" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:'+foodTone+';margin-top:6px;"><span style="width:6px;height:6px;border-radius:50%;background:'+foodTone+';display:inline-block;"></span>식자재 '+foodWord+'</span>';
-    }
-    html += '</div></div>';
+    html += '</div></details>';
 
     html += '<button class="crew-code-btn" id="export-monthly-report-excel-btn">이번 달 리포트 엑셀로 내보내기</button>';
+    return html;
+  }
+  // ---------- 부가세 예상액 (단순 추정) ----------
+  // Output-VAT-only estimate: expense_entries has no taxable/exempt or VAT-inclusion column (confirmed against the real
+  // schema), and the new 식자재/주류·음료/소모품/기타 split above is an operating-cost category, NOT a tax classification -
+  // it must never be used to decide what's VAT-deductible. So the input (매입) side is always shown as "분류 미확인" and
+  // never subtracted; only the sales side (assumed VAT-inclusive taxable sales) is estimated.
+  function vatOutputEstimate(salesSum){ return Math.round((Number(salesSum)||0)/11); }
+  function vatPeriodMeta(mode, periodNum, year){
+    const size = mode==='quarter' ? 3 : 6;
+    const start = (periodNum-1)*size+1, end = periodNum*size;
+    const name = size===3 ? periodNum+'분기' : (periodNum===1?'상반기':'하반기');
+    return { size, start, end, name, title: year+'년 '+name+' · '+start+'~'+end+'월' };
+  }
+  function vatDefaultPeriod(mode, monthNum){ return mode==='quarter' ? Math.ceil(monthNum/3) : (monthNum<=6?1:2); }
+  function vatCurrentPeriodNum(){ return state.vatMode==='quarter' ? (state.vatQuarter||vatDefaultPeriod('quarter',state.monthNum)) : (state.vatHalf||vatDefaultPeriod('half',state.monthNum)); }
+  // The VAT screen's own year, independent of the monthly report's month-nav (which must never move the VAT period).
+  function vatYear(){ return state.vatYear || state.monthYear; }
+  function vatThroughLabel(meta, year){
+    const now = new Date(), todayM = now.getMonth()+1, todayY = now.getFullYear();
+    const through = (year===todayY && todayM>=meta.start && todayM<=meta.end) ? todayM : meta.end;
+    const lastDay = (through===todayM && year===todayY) ? now.getDate() : new Date(year, through, 0).getDate();
+    return meta.start+'.1 – '+through+'.'+lastDay+' 입력분 누적';
+  }
+  async function loadVatStoreSales(storeName, year, startMonth, endMonth){
+    const storeId = state.storeIdMap[storeName];
+    if(!storeId) return { ok:false, byMonth:{} };
+    const start = year+"-"+pad(startMonth)+"-01";
+    const lastDay = new Date(year, endMonth, 0).getDate();
+    const end = year+"-"+pad(endMonth)+"-"+pad(lastDay);
+    try{
+      const { data, error } = await db.from('sales_reports').select('date,total_sales').eq('store_id', storeId).gte('date', start).lte('date', end);
+      if(error) throw error;
+      const byMonth = {};
+      for(let mo=startMonth; mo<=endMonth; mo++) byMonth[mo]=0;
+      (data||[]).forEach(r=>{ const mo=Number(String(r.date).slice(5,7)); byMonth[mo]=(byMonth[mo]||0)+(Number(r.total_sales)||0); });
+      return { ok:true, byMonth };
+    }catch(e){ return { ok:false, byMonth:{} }; }
+  }
+  async function loadVatData(){
+    const mode = state.vatMode, periodNum = vatCurrentPeriodNum(), year = vatYear();
+    const meta = vatPeriodMeta(mode, periodNum, year);
+    const key = mode+':'+periodNum+':'+year+':'+state.store+':'+(state.vatShowAllStores?'all':'one');
+    if(state.vatData && state.vatData.key===key) return;
+    state.vatLoading = true; render();
+    const alive = maneeLoadGuard("vatData");
+    const main = await loadVatStoreSales(state.store, year, meta.start, meta.end);
+    let perStore = null;
+    if(state.vatShowAllStores && state.myStores && state.myStores.length>1){
+      perStore = await Promise.all(state.myStores.map(async s=>({ store:s, res: await loadVatStoreSales(s, year, meta.start, meta.end) })));
+    }
+    if(!alive()) return;
+    state.vatLoading = false;
+    state.vatData = { key, mode, periodNum, year, meta, main, perStore };
+    render();
+  }
+  function openVatDetail(){
+    if(!state.vatYear) state.vatYear = state.monthYear;
+    if(!state.vatQuarter) state.vatQuarter = vatDefaultPeriod('quarter', state.monthNum);
+    if(!state.vatHalf) state.vatHalf = vatDefaultPeriod('half', state.monthNum);
+    state.showVatDetail = true;
+    render();
+    loadVatData();
+  }
+  function closeVatDetail(){ state.showVatDetail = false; render(); }
+  function setVatMode(mode){ if(state.vatMode===mode) return; state.vatMode = mode; render(); loadVatData(); }
+  function setVatPeriod(n){ if(state.vatMode==='quarter') state.vatQuarter=n; else state.vatHalf=n; render(); loadVatData(); }
+  function toggleVatAllStores(){ state.vatShowAllStores = !state.vatShowAllStores; render(); loadVatData(); }
+  function renderVatSummaryCard(){
+    const mode = state.vatMode, periodNum = vatCurrentPeriodNum(), year = vatYear(), meta = vatPeriodMeta(mode, periodNum, year);
+    const d = state.vatData;
+    const ready = d && d.mode===mode && d.periodNum===periodNum && d.year===year;
+    let bodyValue = '불러오는 중…';
+    if(ready){
+      if(!d.main.ok) bodyValue = '조회 실패';
+      else{
+        let sum=0; for(let mo=meta.start; mo<=meta.end; mo++) sum += (d.main.byMonth[mo]||0);
+        const vat = vatOutputEstimate(sum);
+        bodyValue = (vat<0?'':'약 ')+vat.toLocaleString()+'원';
+      }
+    }
+    let html = '<button type="button" id="open-vat-detail-btn" class="day-panel" style="width:100%;text-align:left;border:0;cursor:pointer;margin-bottom:14px;display:block;">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;"><h3 style="margin:0;">부가세 예상액</h3><span style="font-size:11px;color:var(--ink-soft);background:var(--line);border-radius:999px;padding:2px 8px;">단순 추정</span></div>';
+    html += '<p style="margin:6px 0 0;font-size:12px;color:var(--ink-soft);">'+meta.title+'</p>';
+    html += '<p style="margin:4px 0 0;font-size:20px;font-weight:800;">'+bodyValue+'</p>';
+    html += '<p style="margin:2px 0 0;font-size:11px;color:var(--ink-soft);">'+vatThroughLabel(meta, year)+' · 기납부세액 차감 전</p>';
+    html += '<p style="margin:8px 0 0;font-size:12px;color:var(--brick);">기간 선택 · 계산 내역 보기 ›</p>';
+    html += '</button>';
+    return html;
+  }
+  function renderVatDetail(){
+    const mode = state.vatMode, periodNum = vatCurrentPeriodNum(), year = vatYear(), meta = vatPeriodMeta(mode, periodNum, year);
+    const d = state.vatData;
+    const ready = d && d.mode===mode && d.periodNum===periodNum && d.year===year && !state.vatLoading;
+    let html = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><button type="button" id="vat-back-btn" class="crew-code-btn" style="padding:4px 10px;">‹ 월간 리포트</button><h2 style="margin:0;font-size:16px;">부가세 예상액</h2></div>';
+    html += '<div style="display:flex;gap:8px;margin-bottom:10px;">';
+    html += '<button type="button" data-vatmode="quarter" class="crew-code-btn" style="flex:1;'+(mode==='quarter'?'background:var(--brick);color:#fff;border-color:var(--brick);':'')+'">분기 누적</button>';
+    html += '<button type="button" data-vatmode="half" class="crew-code-btn" style="flex:1;'+(mode==='half'?'background:var(--brick);color:#fff;border-color:var(--brick);':'')+'">반기 누적</button>';
+    html += '</div>';
+    const maxN = mode==='quarter'?3:2;
+    html += '<select id="vat-period-select" class="field-input" style="margin-bottom:10px;">';
+    for(let n=maxN;n>=1;n--){ const mm=vatPeriodMeta(mode,n,year); html += '<option value="'+n+'"'+(n===periodNum?' selected':'')+'>'+mm.title+'</option>'; }
+    html += '</select>';
+    html += '<p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">'+escapeHtml(state.store)+' · '+meta.title+'</p>';
+
+    if(!ready){ html += '<div class="empty-note">불러오는 중이에요…</div>'; return html; }
+    if(!d.main.ok){ html += '<div class="empty-note">매출 자료를 조회하지 못했어요. <button type="button" class="owner-retry" id="vat-retry-btn">다시 시도</button></div>'; return html; }
+
+    let periodSales=0, cumulative=0; const monthRows=[];
+    for(let mo=meta.start; mo<=meta.end; mo++){
+      const s = d.main.byMonth[mo]||0; periodSales += s;
+      const vatMo = vatOutputEstimate(s); cumulative += vatMo;
+      monthRows.push({mo, vat:vatMo, cumulative});
+    }
+    const totalVat = vatOutputEstimate(periodSales);
+    const negative = totalVat<0;
+    html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
+    html += '<p class="label">'+(negative?'누적 계산 차액':'누적 예상액')+' · 단순 추정</p>';
+    html += '<p class="amount">'+(negative?'':'약 ')+totalVat.toLocaleString()+'원</p>';
+    html += '<p class="meta">'+vatThroughLabel(meta, year)+'</p>';
+    html += '<p class="meta">기납부세액 차감 전</p>';
+    if(negative) html += '<p class="meta">음수는 단순 계산 차액이며, 환급 확정 금액이 아니에요.</p>';
+    html += '</div>';
+
+    html += '<div class="day-panel" style="margin-bottom:14px;"><h3>월별 추정 · 누적</h3><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr><th style="text-align:left;">월</th><th style="text-align:right;">해당 월 추정</th><th style="text-align:right;">누적 추정</th></tr></thead><tbody>';
+    monthRows.forEach(r=>{ html += '<tr><td style="text-align:left;padding:4px 0;">'+r.mo+'월</td><td style="text-align:right;">'+r.vat.toLocaleString()+'원</td><td style="text-align:right;">'+r.cumulative.toLocaleString()+'원</td></tr>'; });
+    html += '</tbody></table><p class="crew-code-hint" style="margin-top:6px;">기간이 끝날 때까지 입력된 매출보고에 따라 누적돼요.</p></div>';
+
+    html += '<div class="day-panel" style="margin-bottom:14px;"><h3>매출에서 계산한 금액</h3><div class="pay-list-item"><span class="d">등록된 매출</span><span>'+periodSales.toLocaleString()+'원</span></div><div class="pay-list-item" style="font-weight:800;"><span class="d">매출 부가세 추정</span><span>'+totalVat.toLocaleString()+'원</span></div><p class="crew-code-hint" style="margin-top:6px;">부가세 포함 10% 과세 매출로 가정해요.</p></div>';
+
+    html += '<div class="day-panel" style="margin-bottom:14px;"><h3>매입세액(지출 공제)</h3><p class="crew-code-hint">지출 자료에는 과세·면세, 세금계산서 수취 여부가 구분되어 있지 않아요(운영비 분류인 식자재·주류음료·소모품·기타와는 별개예요). 그래서 이번 버전은 지출을 매입세액 공제에 자동으로 반영하지 않고 \'분류 미확인\'으로 남겨두며, 매출 기준으로만 추정해요 — 실제 납부액은 이 추정치보다 낮을 수 있어요.</p></div>';
+
+    if(state.myStores && state.myStores.length>1){
+      html += '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:10px;"><input type="checkbox" id="vat-allstores-toggle" '+(state.vatShowAllStores?'checked':'')+'> 내 매장 전체 참고 합계 보기</label>';
+      if(state.vatShowAllStores && d.perStore){
+        html += '<div class="day-panel" style="margin-bottom:14px;"><h3>매장별 참고 합계</h3>';
+        d.perStore.forEach(row=>{
+          if(!row.res.ok){ html += '<div class="pay-list-item"><span class="d">'+escapeHtml(row.store)+'</span><span>조회 실패</span></div>'; return; }
+          let s=0; for(let mo=meta.start; mo<=meta.end; mo++) s += (row.res.byMonth[mo]||0);
+          const v = vatOutputEstimate(s);
+          html += '<div class="pay-list-item"><span class="d">'+escapeHtml(row.store)+'</span><span>'+(v<0?'':'약 ')+v.toLocaleString()+'원</span></div>';
+        });
+        html += '<p class="crew-code-hint" style="margin-top:6px;">같은 기간의 참고 합계이며, 하나의 신고·납부액을 뜻하지 않아요.</p></div>';
+      }
+    }
+
+    html += '<details class="day-panel" style="margin-bottom:14px;"><summary style="cursor:pointer;font-weight:700;">계산 기준 및 안내</summary>';
+    html += '<p class="crew-code-hint" style="margin-top:8px;">일반과세 방식을 가정한 단순 계산이에요. 매출보고에 입력된 금액을 부가세 포함 10% 과세 매출로 보고, 매출액 ÷ 11로 매출 부가세를 추정해요.</p>';
+    html += '<p class="crew-code-hint">지출(매입) 자료는 과세·면세, 세금계산서 수취 여부를 구분할 수 없어 매입세액 공제는 이번 버전에 반영하지 않았어요.</p>';
+    html += '<p class="crew-code-hint">의제매입세액, 추가 세액공제, 이미 납부한 세액(기납부세액)은 반영하지 않았어요. 간이과세 계산은 적용하지 않았어요.</p>';
+    html += '<p class="crew-code-hint">분기·반기는 참고 집계 기간이에요. 선택만으로 사업자 유형이나 실제 신고·납부 주기가 정해지는 건 아니에요.</p>';
+    html += '</details>';
+
+    html += '<p class="crew-code-hint" style="margin-bottom:14px;"><b>입력 자료 기준 단순 예상액으로 실제 신고·납부액과 다를 수 있어요.</b></p>';
     return html;
   }
 
@@ -8431,17 +8708,56 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<button class="crew-code-btn" id="export-expense-excel-btn" style="flex:1;">엑셀로 내보내기</button>';
     html += '</div>';
     if(state.showVendorManage) html += renderVendorManage();
+    const canClassify = !MANEE_STAFF_AUTH_ENABLED || canManageBusinessData();
     if(vendorBreakdown.length===0){
       html += '<div class="empty-note" style="padding:8px 0;">이번 달 등록된 지출이 없어요.</div>';
     }else{
       vendorBreakdown.forEach(v=>{
         const pct = totalExpenseMonth>0 ? (v.amount/totalExpenseMonth*100) : 0;
         html += '<div class="pay-list-item"><span class="d">'+escapeHtml(v.name)+'</span><span>'+v.amount.toLocaleString()+'원 · '+pct.toFixed(1)+'%</span></div>';
+        if(canClassify){
+          const vendorEntries = (state.expenseEntries||[]).filter(e=>e.description===v.name);
+          const unclassified = vendorEntries.filter(e=>!e.category);
+          if(unclassified.length>0){
+            const unclassifiedSum = unclassified.reduce((s,e)=>s+(Number(e.amount)||0),0);
+            const open = state.classifyVendor===v.name;
+            html += '<div style="padding:0 0 8px 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+            html += '<small style="color:var(--ink-soft);">미분류 '+unclassified.length+'건 · '+unclassifiedSum.toLocaleString()+'원</small>';
+            html += '<button type="button" class="switch-link" data-classifyvendor="'+escapeHtml(v.name)+'">'+(open?'닫기':'분류하기')+'</button>';
+            html += '</div>';
+            if(open){
+              html += '<div class="add-row" style="padding:0 0 12px 4px;background:transparent;flex-wrap:wrap;">';
+              html += '<select id="bulk-classify-category-select" class="field-input" style="flex:1;min-width:100px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select>';
+              html += '<button type="button" id="bulk-classify-confirm-btn" data-classifyconfirm="'+escapeHtml(v.name)+'">'+unclassified.length+'건 '+unclassifiedSum.toLocaleString()+'원 적용</button>';
+              html += '</div>';
+            }
+          }
+        }
       });
     }
     html += '</div>';
 
     return html;
+  }
+  function toggleClassifyVendor(name){ state.classifyVendor = state.classifyVendor===name ? null : name; render(); }
+  async function bulkClassifyVendorExpenses(vendorName){
+    const sel = document.getElementById("bulk-classify-category-select");
+    const category = sel ? sel.value : "";
+    if(!category){ showToast("적용할 분류를 선택해 주세요."); return; }
+    const targets = (state.expenseEntries||[]).filter(e=>e.description===vendorName && !e.category);
+    if(!targets.length){ showToast("분류할 미분류 지출이 없어요."); state.classifyVendor=null; render(); return; }
+    const storeId = currentStoreId();
+    const ids = targets.map(e=>e.id);
+    try{
+      const { data, error } = await db.from('expense_entries').update({ category }).eq('store_id', storeId).in('id', ids).select('id');
+      if(error) throw error;
+      const okIds = new Set((data||[]).map(r=>r.id));
+      if(okIds.size===0){ showToast("분류 저장 권한이 없어서 반영되지 않았어요."); return; }
+      targets.forEach(e=>{ if(okIds.has(e.id)) e.category = category; });
+      state.classifyVendor = null;
+      render();
+      showToast(okIds.size+"건을 "+expenseCategoryLabel(category)+"(으)로 분류했어요.");
+    }catch(e){ showToast("분류 저장에 실패했어요."); }
   }
 
   function renderSalesReportsOwnerTab(){
@@ -8884,9 +9200,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       };
       html += '<div class="day-panel" style="margin-bottom:12px;">';
       html += '<h3 style="margin:0 0 6px;">비율 경고 기준</h3>';
-      html += '<p class="crew-code-hint" style="margin-bottom:0;">설정한 비율을 넘으면 관리 필요로 표시해요. 이 매장의 사장님·매니저 화면에 같은 기준이 적용돼요.</p>';
+      html += '<p class="crew-code-hint" style="margin-bottom:0;">설정한 비율을 넘으면 관리 필요로 표시해요. 이 매장의 사장님·매니저 화면에 같은 기준이 적용돼요. 식자재비율은 지출 내역에서 \'식자재\'·\'주류·음료\'로 분류한 금액만으로 계산해요 (전체 지출과 달라요).</p>';
       html += ratioRow('인건비율 경고 기준','labor',state.storeLaborLimitMap,laborRatioLimit,DEFAULT_LABOR_RATIO_LIMIT);
-      html += ratioRow('식자재비율 경고 기준','food',state.storeFoodLimitMap,foodRatioLimit,DEFAULT_FOOD_RATIO_LIMIT);
+      html += ratioRow('식자재비율 경고 기준 (주류·음료 포함)','food',state.storeFoodLimitMap,foodRatioLimit,DEFAULT_FOOD_RATIO_LIMIT);
       html += '</div>';
       html += '<div class="day-panel" style="margin-bottom:12px;">';
       html += '<h3 style="margin:0 0 6px;">알림</h3>';
@@ -9305,6 +9621,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     app.querySelectorAll("[data-cancelexpense]").forEach(btn=>{
       btn.addEventListener("click", cancelEditExpenseEntry);
     });
+    app.querySelectorAll("[data-classifyvendor]").forEach(btn=>{
+      btn.addEventListener("click", ()=> toggleClassifyVendor(btn.getAttribute("data-classifyvendor")));
+    });
+    app.querySelectorAll("[data-classifyconfirm]").forEach(btn=>{
+      btn.addEventListener("click", ()=> bulkClassifyVendorExpenses(btn.getAttribute("data-classifyconfirm")));
+    });
     app.querySelectorAll("[data-confirmatt]").forEach(btn=>{
       btn.addEventListener("click", ()=> toggleAttendanceConfirm(btn.getAttribute("data-confirmatt")));
     });
@@ -9656,7 +9978,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
   function bindSalesSectionEvents(){
     app.querySelectorAll("[data-salestab]").forEach(btn=>{
-      btn.addEventListener("click", ()=>{ state.salesSectionTab = btn.getAttribute("data-salestab"); render(); });
+      btn.addEventListener("click", ()=>{ const tab=btn.getAttribute("data-salestab"); if(tab!=="report"){ state.showVatDetail=false; } state.salesSectionTab = tab; render(); if(tab==="report") loadVatData(); });
     });
     const prevM = document.getElementById("prev-month");
     const nextM = document.getElementById("next-month");
@@ -9690,6 +10012,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     app.querySelectorAll("[data-cancelexpense]").forEach(btn=>{
       btn.addEventListener("click", cancelEditExpenseEntry);
     });
+    app.querySelectorAll("[data-classifyvendor]").forEach(btn=>{
+      btn.addEventListener("click", ()=> toggleClassifyVendor(btn.getAttribute("data-classifyvendor")));
+    });
+    app.querySelectorAll("[data-classifyconfirm]").forEach(btn=>{
+      btn.addEventListener("click", ()=> bulkClassifyVendorExpenses(btn.getAttribute("data-classifyconfirm")));
+    });
     const toggleVendorManageBtn = document.getElementById("toggle-vendor-manage-btn");
     if(toggleVendorManageBtn) toggleVendorManageBtn.addEventListener("click", ()=>{ state.showVendorManage = !state.showVendorManage; render(); });
     const exportExpenseExcelBtn = document.getElementById("export-expense-excel-btn");
@@ -9698,6 +10026,19 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(exportMonthlyReportBtn) exportMonthlyReportBtn.addEventListener("click", exportExcelMonthlyReport);
     const toggleFixedExpenseBtn = document.getElementById("toggle-fixedexpense-manage-btn");
     if(toggleFixedExpenseBtn) toggleFixedExpenseBtn.addEventListener("click", ()=>{ state.showFixedExpenseManage = !state.showFixedExpenseManage; render(); });
+    const openVatDetailBtn = document.getElementById("open-vat-detail-btn");
+    if(openVatDetailBtn) openVatDetailBtn.addEventListener("click", openVatDetail);
+    const vatBackBtn = document.getElementById("vat-back-btn");
+    if(vatBackBtn) vatBackBtn.addEventListener("click", closeVatDetail);
+    app.querySelectorAll("[data-vatmode]").forEach(btn=>{
+      btn.addEventListener("click", ()=> setVatMode(btn.getAttribute("data-vatmode")));
+    });
+    const vatPeriodSelect = document.getElementById("vat-period-select");
+    if(vatPeriodSelect) vatPeriodSelect.addEventListener("change", ()=> setVatPeriod(Number(vatPeriodSelect.value)));
+    const vatAllStoresToggle = document.getElementById("vat-allstores-toggle");
+    if(vatAllStoresToggle) vatAllStoresToggle.addEventListener("change", toggleVatAllStores);
+    const vatRetryBtn = document.getElementById("vat-retry-btn");
+    if(vatRetryBtn) vatRetryBtn.addEventListener("click", ()=>{ state.vatData=null; loadVatData(); });
     const addFixedExpenseBtn = document.getElementById("add-fixedexpense-btn");
     if(addFixedExpenseBtn) addFixedExpenseBtn.addEventListener("click", addFixedExpense);
     app.querySelectorAll("[data-delfixedexpense]").forEach(btn=>{

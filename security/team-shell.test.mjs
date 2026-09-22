@@ -43,7 +43,7 @@ test('T4: manager summary verdicts (22 / saved food limit, equal is not over, un
   const src=slice('  function teamRatioCard(','  function teamPayPill(person){');
   const build=(limit,llim=22)=>new Function('state','DEFAULT_LABOR_RATIO_LIMIT','DEFAULT_FOOD_RATIO_LIMIT','laborRatioVerdict','laborRatioLimit','foodRatioVerdict','foodRatioLimit','formatLimit',src+';return renderTeamSummaryCard;')(
     {store:'A',monthNum:9},22,40,(s,r)=>r==null?{state:'none',limit:null}:(llim===null?{state:'unknown',limit:null}:{state:r>llim?'over':'ok',limit:llim}),()=>llim,(s,r)=>r==null?{state:'none',limit:null}:(limit===null?{state:'unknown',limit:null}:{state:r>limit?'over':'ok',limit}),()=>limit,n=>String(Math.round(Number(n)*10)/10));
-  const card=(labor,food,limit,sales=1000000)=>build(limit)({salesSum:sales,deliverySum:0,laborRatio:labor,expenseRatio:food});
+  const card=(labor,food,limit,sales=1000000)=>build(limit)({salesSum:sales,deliverySum:0,laborRatio:labor,expenseRatio:food,foodConfirmedRatio:food,hasUnclassifiedExpense:false});
   let h=card(25.6,51.6,40); assert.ok(h.includes('관리 필요')&&h.includes('22% 이하 안정')&&h.includes('40% 이하 안정')&&!/team-ratio ok/.test(h));
   h=card(22,40,40); assert.equal((h.match(/team-ratio ok/g)||[]).length,2);           // equal to the limit is not over
   h=card(22.1,40.1,40); assert.equal((h.match(/team-ratio over/g)||[]).length,2);
@@ -228,19 +228,21 @@ test('V2-01 client: a confirmation is required per field that was not taken over
 });
 const ovSrc=()=>slice('  function ownerYmdAdd(ymd,n){','  function renderOwnerHome(){');
 test('V2-03: sales, labor and food are judged on their own inputs (a failed expense lookup does not hide a readable labor cost)', ()=>{
+  // foodConfirmedRatio mirrors expenseRatio in these mocks (every mocked expense is confirmed 식자재) - this test is
+  // about which STORE'S inputs feed the combined ratio, not about the category split (see expense-category-and-vat.test.mjs).
   const st={monthNum:9,dashboardLoading:false,myStores:['A','B'],ownerWork:{loadedOnce:false,stores:{}},dashboardData:[
-    {store:'A',salesSum:1000000,salesReportCount:1,laborPay:100000,laborRatio:10,expenseSum:100000,foodThreshold:40,expenseRatio:10,loadFailures:[],dailySales:{}},
-    {store:'B',salesSum:1000000,salesReportCount:1,laborPay:600000,laborRatio:60,expenseSum:0,foodThreshold:40,expenseRatio:null,loadFailures:['지출'],dailySales:{}}]};
+    {store:'A',salesSum:1000000,salesReportCount:1,laborPay:100000,laborRatio:10,expenseSum:100000,foodThreshold:40,expenseRatio:10,foodConfirmedRatio:10,hasUnclassifiedExpense:false,loadFailures:[],dailySales:{}},
+    {store:'B',salesSum:1000000,salesReportCount:1,laborPay:600000,laborRatio:60,expenseSum:0,foodThreshold:40,expenseRatio:null,foodConfirmedRatio:null,hasUnclassifiedExpense:false,loadFailures:['지출'],dailySales:{}}]};
   const f=new Function('state','ownerHomeScope','ownerSalesUnreadable','DEFAULT_LABOR_RATIO_LIMIT','ownerRouteButton','escapeHtml','pad','ownerWorkYmd',slice('  function ownerLaborLimit(d){','  function ownerLaborReadable(d){')+ovSrc()+';return renderOwnerOverview;')(st,()=>['A','B'],d=>(d.loadFailures||[]).includes('매출'),22,()=>'',x=>String(x),n=>String(n).padStart(2,'0'),()=>'2026-09-20');
   const out=f();
   assert.ok(/인건비율 <b class="bad">35\.0%<\/b>/.test(out),out.slice(0,600));           // (100k+600k)/(2M) - not 10 %
-  assert.ok(/식자재비율 <b class="">10\.0%<\/b><small class="oh-of">1\/2곳/.test(out));   // food: only store A, neutral (never green when partial), range shown
+  assert.ok(/식자재비율<small[^>]*> \(주류·음료 포함\)<\/small> <b class="">10\.0%<\/b><small class="oh-of">1\/2곳/.test(out));   // food: only store A, neutral (never green when partial), range shown
   assert.ok(out.includes('지출 조회 실패(B)')&&out.includes('읽은 매장만으로 계산'));
   // every input readable: green "ok" is allowed again
-  st.dashboardData[1]={...st.dashboardData[1],expenseSum:100000,expenseRatio:10,loadFailures:[],laborPay:100000,laborRatio:10};
-  const ok=f();assert.ok(/인건비율 <b class="ok">10\.0%/.test(ok)&&/식자재비율 <b class="ok">10\.0%/.test(ok)&&!ok.includes('조회 실패('));
+  st.dashboardData[1]={...st.dashboardData[1],expenseSum:100000,expenseRatio:10,foodConfirmedRatio:10,hasUnclassifiedExpense:false,loadFailures:[],laborPay:100000,laborRatio:10};
+  const ok=f();assert.ok(/인건비율 <b class="ok">10\.0%/.test(ok)&&/식자재비율<small[^>]*> \(주류·음료 포함\)<\/small> <b class="ok">10\.0%/.test(ok)&&!ok.includes('조회 실패('));
   // sales failed for B: B leaves every ratio, "조회 성공 1/2곳" is shown, nothing is turned into 0
-  st.dashboardData[1]={store:'B',salesSum:0,salesReportCount:0,laborPay:0,expenseSum:0,foodThreshold:40,expenseRatio:null,loadFailures:['매출'],dailySales:{}};
+  st.dashboardData[1]={store:'B',salesSum:0,salesReportCount:0,laborPay:0,expenseSum:0,foodThreshold:40,expenseRatio:null,foodConfirmedRatio:null,hasUnclassifiedExpense:false,loadFailures:['매출'],dailySales:{}};
   const sf=f();assert.ok(sf.includes('조회 성공 1/2곳')&&/인건비율 <b class="">10\.0%<\/b><small class="oh-of">1\/2곳/.test(sf));
 });
 test('V2-04: the last 7 days use one business day, separate "not entered" / 0 won / failed, and do not depend on the month view', ()=>{

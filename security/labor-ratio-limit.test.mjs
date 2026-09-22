@@ -107,7 +107,14 @@ const ctxFor=()=>{
   vm.runInContext(line(/  const OWNER_STATUS_TEXT[\s\S]*?\n  function ownerStatusChip/).replace(/\n  function ownerStatusChip$/,'')+line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/)+line(/  function formatLimit\([^\n]*\n/)+['ownerStatusChip','ownerCostNote','ownerLaborLimit','ownerStoreStatus','ownerOverallKind'].map(fnText).join('\n')+';this.api={ownerStoreStatus,ownerOverallKind};',ctx);
   return ctx.api;
 };
-const row=(o)=>({store:'S',salesSum:1000000,salesReportCount:1,laborPay:0,laborRatio:null,expenseSum:0,expenseRatio:null,foodThreshold:40,laborThreshold:22,loadFailures:[],...o});
+// foodConfirmedRatio mirrors expenseRatio by default (every mocked expense is confirmed 식자재) - see
+// expense-category-and-vat.test.mjs for the category-split tests themselves.
+const row=(o)=>{
+  const base={store:'S',salesSum:1000000,salesReportCount:1,laborPay:0,laborRatio:null,expenseSum:0,expenseRatio:null,foodThreshold:40,laborThreshold:22,loadFailures:[],...o};
+  if(base.foodConfirmedRatio===undefined) base.foodConfirmedRatio=base.expenseRatio;
+  if(base.hasUnclassifiedExpense===undefined) base.hasUnclassifiedExpense=false;
+  return base;
+};
 test('per-store status: limit 30 -> 30.0 is not over, 30.1 is over with the store\'s own wording',()=>{
   const {ownerStoreStatus}=ctxFor();
   assert.equal(ownerStoreStatus(row({laborRatio:30,laborThreshold:30})).kind,'ok');
@@ -159,7 +166,7 @@ test('settings card: one "비율 경고 기준" card, two independent rows, owne
   const start=html.indexOf('<h3 style="margin:0 0 6px;">비율 경고 기준</h3>');assert.ok(start>0);
   const block=html.slice(html.lastIndexOf('if(state.role === "storeOwner"){',start),html.indexOf("알림</h3>'",start));
   assert.ok(block.includes('설정한 비율을 넘으면 관리 필요로 표시해요. 이 매장의 사장님·매니저 화면에 같은 기준이 적용돼요.'));
-  assert.ok(block.includes("'인건비율 경고 기준','labor'")&&block.includes("'식자재비율 경고 기준','food'"));
+  assert.ok(block.includes("'인건비율 경고 기준','labor'")&&block.includes("'식자재비율 경고 기준 (주류·음료 포함)','food'"));
   assert.ok(block.includes("kind+'-limit-input\"")&&block.includes("kind+'-limit-save-btn\"")&&block.includes("kind+'-limit-reset-btn\""));
   assert.ok(block.includes("if(typeof saved === \"number\")"));                                    // reset only when a user value exists
   assert.ok(html.includes('saveLaborLimit(state.store, (document.getElementById("labor-limit-input")||{}).value)')&&html.includes('saveLaborLimit(state.store, null)'));

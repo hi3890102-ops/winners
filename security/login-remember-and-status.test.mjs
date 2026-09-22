@@ -212,12 +212,20 @@ function statusCtx(){
   vm.runInContext(html.match(/  const OWNER_STATUS_TEXT[\s\S]*?\n  function ownerStatusChip/)[0].replace(/\n  function ownerStatusChip$/,'')+html.match(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/)[0]+fn('formatLimit')+fn('ownerStatusChip')+fn('ownerCostNote')+fn('ownerLaborLimit')+fn('ownerStoreStatus')+fn('ownerOverallKind')+fn('renderOwnerStatusSummary')+';this.ownerOverallKind=ownerOverallKind;',ctx);
   return ctx;
 }
-const store=(o)=>({store:'S',salesSum:0,salesReportCount:0,laborPay:0,laborRatio:null,expenseSum:0,expenseRatio:null,...o});
+// foodConfirmedRatio mirrors expenseRatio by default in these mocks (every mocked expense is confirmed 식자재, no
+// unclassified amount) - these tests are about the labor/food VERDICT logic, not the category split itself
+// (see expense-category-and-vat.test.mjs for that, and food-limit-display.test.mjs for the display consequences).
+const store=(o)=>{
+  const base={store:'S',salesSum:0,salesReportCount:0,laborPay:0,laborRatio:null,expenseSum:0,expenseRatio:null,...o};
+  if(base.foodConfirmedRatio===undefined) base.foodConfirmedRatio=base.expenseRatio;
+  if(base.hasUnclassifiedExpense===undefined) base.hasUnclassifiedExpense=false;
+  return base;
+};
 test('Thresholds (owner decision 2026-09-21): labor 22% and food 40% are only the DEFAULTS of per-store settings; the old 25% / 35% are gone',()=>{
   assert.match(html,/const DEFAULT_LABOR_RATIO_LIMIT = 22, DEFAULT_FOOD_RATIO_LIMIT = 40;/);
   const dash=fn('renderDashboard');
   assert.ok(dash.includes('const laborBad = d.laborRatio!==null && rowLaborLimit!==null && d.laborRatio>rowLaborLimit;'));
-  assert.ok(dash.includes('const foodBad = d.expenseRatio!==null && rowFoodLimit!==null && d.expenseRatio>rowFoodLimit;'));
+  assert.ok(dash.includes('const foodBad = d.foodConfirmedRatio!==null && rowFoodLimit!==null && d.foodConfirmedRatio>rowFoodLimit;'));
   assert.ok(dash.includes('const hasIssue = laborBad || foodBad;'));
   // no hard-coded ratio thresholds remain in any verdict / colour / label code
   const code=[fn('ownerStoreStatus'),fn('ownerOverallKind'),dash,fn('renderStaffHomeContent'),fn('renderManagerSummaryCard'),fn('renderMonthlyReport')].join('\n');
