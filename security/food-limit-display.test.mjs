@@ -41,13 +41,13 @@ function screens(limitState,{sales=1000000,expense=600000}={}){
 test('Same data (sales 1,000,000 / expenses 600,000 = 60%), limit READ as unset: every screen says "over" (default 40%) — no green',()=>{
   const s=screens(null);
   assert.match(s.owner,/관리 필요[\s\S]*식자재비율 40% 초과/);
-  assert.match(s.report,/data-state="over"[\s\S]*식자재 관리필요/);
+  assert.match(s.report,/food-verdict" data-state="over"[\s\S]*?관리 필요/);
   assert.match(s.manager,/color:var\(--danger\)[^>]*>60\.0%/);
 });
 test('Limit NOT READABLE: monthly report shows "기준 조회 실패 · 판정 불가", not "식자재 안정"; manager home is neutral with the same wording; owner home is "확인 필요"',()=>{
   const s=screens(false);
-  assert.match(s.report,/data-state="unknown"/);assert.match(s.report,/식자재 기준 조회 실패 · 판정 불가/);
-  assert.equal(/식자재 안정/.test(s.report),false,'no "식자재 안정"');assert.equal(/#7CE6A6/.test(s.report.match(/<span class="food-verdict"[\s\S]*?<\/span>/)[0]),false,'and no green colour on the chip');
+  assert.match(s.report,/food-verdict" data-state="unknown"/);assert.match(s.report,/food-verdict"[\s\S]*?기준 조회 실패 · 판정 불가/);
+  assert.equal(/식자재비율[\s\S]{0,40}안정/.test(s.report),false,'no "식자재비율 ... 안정"');assert.equal(/#7CE6A6/.test(s.report.match(/<div class="food-verdict"[\s\S]*?<\/div>/)[0]),false,'and no green colour on the chip');
   assert.match(s.manager,/기준 조회 실패 · 판정 불가/);
   assert.match(s.manager,/color:var\(--ink-soft\)[^>]*>60\.0%/,'the real ratio is still shown, in a neutral colour');
   assert.equal(/var\(--olive\)[^>]*>60\.0%/.test(s.manager),false,'never green');assert.equal(/var\(--danger\)[^>]*>60\.0%/.test(s.manager),false,'and not a red verdict either');
@@ -57,7 +57,7 @@ test('Limit read as a saved value: every screen uses it (38% -> over at 60%, and
   const over=screens(38);
   assert.match(over.owner,/식자재비율 38% 초과/);assert.match(over.report,/data-state="over"/);assert.match(over.manager,/var\(--danger\)[^>]*>60\.0%/);
   const equal=screens(38,{sales:1000000,expense:380000});
-  assert.match(equal.report,/data-state="ok"[\s\S]*식자재 안정/);assert.match(equal.manager,/var\(--olive\)[^>]*>38\.0%/);assert.equal(/식자재비율 38% 초과/.test(equal.owner),false);
+  assert.match(equal.report,/food-verdict" data-state="ok"[\s\S]*?안정/);assert.match(equal.manager,/var\(--olive\)[^>]*>38\.0%/);assert.equal(/식자재비율 38% 초과/.test(equal.owner),false);
 });
 test('Normally unset (NULL) and never-loaded limit both mean the 40% default; only an unreadable limit is "판정 불가"',()=>{
   for(const st of [null,undefined]){
