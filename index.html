@@ -710,6 +710,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     vatShowAllStores: false,
     vatData: null, // cache keyed by "mode:period:scope" - see loadVatData()
     vatLoading: false,
+    vatLoadScheduled: false,
     classifyVendor: null,
     crew: [],
     shifts: [],
@@ -8478,6 +8479,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   // it must never be used to decide what's VAT-deductible. So the input (매입) side is always shown as "분류 미확인" and
   // never subtracted; only the sales side (assumed VAT-inclusive taxable sales) is estimated.
   function vatOutputEstimate(salesSum){ return Math.round((Number(salesSum)||0)/11); }
+  // Cumulative total = sum of each month's own (already rounded) estimate, not a separate rounding of the whole
+  // period's sales - so the headline number always matches the last row of the monthly breakdown table exactly.
+  function vatCumulativeEstimate(byMonth, start, end){
+    let cumulative=0; const monthRows=[];
+    for(let mo=start; mo<=end; mo++){
+      const vatMo = vatOutputEstimate((byMonth&&byMonth[mo])||0);
+      cumulative += vatMo;
+      monthRows.push({mo, vat:vatMo, cumulative});
+    }
+    return { monthRows, total:cumulative };
+  }
   function vatPeriodMeta(mode, periodNum, year){
     const size = mode==='quarter' ? 3 : 6;
     const start = (periodNum-1)*size+1, end = periodNum*size;
@@ -8542,12 +8554,18 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const mode = state.vatMode, periodNum = vatCurrentPeriodNum(), year = vatYear(), meta = vatPeriodMeta(mode, periodNum, year);
     const d = state.vatData;
     const ready = d && d.mode===mode && d.periodNum===periodNum && d.year===year;
+    // Self-healing: whichever path landed on the report tab (subnav click, bottom-nav re-entry with the tab already
+    // active, a store switch, a page restore), if the card isn't ready and nothing is already in flight, schedule a
+    // load after this render finishes (setTimeout, not a synchronous call) so this never depends on a specific click handler.
+    if(!ready && !state.vatLoading && !state.vatLoadScheduled){
+      state.vatLoadScheduled = true;
+      setTimeout(()=>{ state.vatLoadScheduled = false; loadVatData(); }, 0);
+    }
     let bodyValue = '불러오는 중…';
     if(ready){
       if(!d.main.ok) bodyValue = '조회 실패';
       else{
-        let sum=0; for(let mo=meta.start; mo<=meta.end; mo++) sum += (d.main.byMonth[mo]||0);
-        const vat = vatOutputEstimate(sum);
+        const vat = vatCumulativeEstimate(d.main.byMonth, meta.start, meta.end).total;
         bodyValue = (vat<0?'':'약 ')+vat.toLocaleString()+'원';
       }
     }
@@ -8578,13 +8596,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!ready){ html += '<div class="empty-note">불러오는 중이에요…</div>'; return html; }
     if(!d.main.ok){ html += '<div class="empty-note">매출 자료를 조회하지 못했어요. <button type="button" class="owner-retry" id="vat-retry-btn">다시 시도</button></div>'; return html; }
 
-    let periodSales=0, cumulative=0; const monthRows=[];
-    for(let mo=meta.start; mo<=meta.end; mo++){
-      const s = d.main.byMonth[mo]||0; periodSales += s;
-      const vatMo = vatOutputEstimate(s); cumulative += vatMo;
-      monthRows.push({mo, vat:vatMo, cumulative});
-    }
-    const totalVat = vatOutputEstimate(periodSales);
+    let periodSales=0; for(let mo=meta.start; mo<=meta.end; mo++) periodSales += (d.main.byMonth[mo]||0);
+    const {monthRows, total:totalVat} = vatCumulativeEstimate(d.main.byMonth, meta.start, meta.end);
     const negative = totalVat<0;
     html += '<div class="pay-summary c-green" style="margin-bottom:14px;">';
     html += '<p class="label">'+(negative?'누적 계산 차액':'누적 예상액')+' · 단순 추정</p>';

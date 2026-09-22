@@ -24,9 +24,10 @@ function harness(){
     fnText('foodRatioLimit'),
     fnText('foodRatioVerdict'),
     fnText('vatOutputEstimate'),
+    fnText('vatCumulativeEstimate'),
     fnText('vatPeriodMeta'),
     fnText('vatDefaultPeriod'),
-    ';this.api={expenseCategoryLabel,splitExpenseByCategory,foodRatioVerdict,vatOutputEstimate,vatPeriodMeta,vatDefaultPeriod,setLimit:(s,v)=>{state.storeFoodLimitMap[s]=v;}};'
+    ';this.api={expenseCategoryLabel,splitExpenseByCategory,foodRatioVerdict,vatOutputEstimate,vatCumulativeEstimate,vatPeriodMeta,vatDefaultPeriod,setLimit:(s,v)=>{state.storeFoodLimitMap[s]=v;}};'
   ].join('\n'),ctx);
   return {state,api:ctx.api};
 }
@@ -101,6 +102,20 @@ test('vatPeriodMeta: quarter and half boundaries',()=>{
   assert.deepEqual(plain(r.api.vatPeriodMeta('quarter',3,2026)),{size:3,start:7,end:9,name:'3분기',title:'2026년 3분기 · 7~9월'});
   assert.deepEqual(plain(r.api.vatPeriodMeta('half',1,2026)),{size:6,start:1,end:6,name:'상반기',title:'2026년 상반기 · 1~6월'});
   assert.deepEqual(plain(r.api.vatPeriodMeta('half',2,2026)),{size:6,start:7,end:12,name:'하반기',title:'2026년 하반기 · 7~12월'});
+});
+test('vatCumulativeEstimate: the headline total always equals the sum of the monthly rows (no rounding drift between the card and the breakdown table)',()=>{
+  const r=harness();
+  // 9.3M / 10.1M / 6.5M sales -> each month rounded on its own, never a separately-rounded whole-period figure
+  const {monthRows,total}=r.api.vatCumulativeEstimate({7:9300000,8:10100000,9:6500000},7,9);
+  assert.deepEqual(plain(monthRows),[{mo:7,vat:845455,cumulative:845455},{mo:8,vat:918182,cumulative:1763637},{mo:9,vat:590909,cumulative:2354546}]);
+  assert.equal(total,2354546);
+  assert.equal(total,monthRows[monthRows.length-1].cumulative,'headline must match the last row exactly');
+});
+test('vatCumulativeEstimate: missing months in byMonth are treated as 0, never throw',()=>{
+  const r=harness();
+  const {monthRows,total}=r.api.vatCumulativeEstimate({},1,3);
+  assert.deepEqual(plain(monthRows.map(m=>m.vat)),[0,0,0]);
+  assert.equal(total,0);
 });
 test('vatDefaultPeriod: month -> quarter/half, including boundaries',()=>{
   const r=harness();
