@@ -8,7 +8,7 @@ import vm from 'node:vm';
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 function fnText(name){const a=html.indexOf('  function '+name+'(');const b=html.indexOf('  async function '+name+'(');const s=a>=0?a:b;if(s<0)return '';const e=html.indexOf('\n  }\n',s);return html.slice(s,e+5);}
 function optional(re){const m=html.match(re);return m?m[0]:'';}
-const NAMES=['monthKey','monthDateRange','rowToCrew','prevMonthKey','clearStaffAuthView','clearReportDataFailures','markReportDataFailed','loadDashboardData','loadDashboardReservations','loadCrewRaw','loadCrew','loadShifts','loadAttendance','loadFixed','loadSalesReports','loadExpenseEntries','loadVendors','loadFixedExpenses','loadTodayReservations','loadUpcomingReservations','loadAnnouncements','loadPayAdjustments','loadChecklist','loadChecklistLog','loadAllForStore',
+const NAMES=['monthKey','monthDateRange','rowToCrew','prevMonthKey','clearStaffAuthView','clearReportDataFailures','markReportDataFailed','clearReportDataFailed','loadDashboardData','loadDashboardReservations','loadCrewRaw','loadCrew','loadShifts','loadAttendance','loadFixed','loadSalesReports','loadExpenseEntries','loadVendors','loadFixedExpenses','loadTodayReservations','loadUpcomingReservations','loadAnnouncements','loadPayAdjustments','loadChecklist','loadChecklistLog','loadAllForStore',
   'formatLimit','foodRatioLimit','loadFoodLimit','loadLaborLimit','loadRatioLimits','ownerLaborLimit','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary','splitExpenseByCategory'];
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 // A fake Supabase query builder. `respond(table,{storeId,gte})` may return {data,error}, throw, or return a promise.
@@ -176,6 +176,28 @@ test('R3: with no failure the normal verdicts are unchanged',async()=>{
   const h=harness((table)=>({data:dataFor(table),error:null}));
   await h.api.loadDashboardData();
   assert.equal(h.api.ownerStoreStatus(h.state.dashboardData[0]).kind,'ok');
+});
+// ---------- 2026-09-22: crew load failure must degrade only labor-derived figures, never masquerade as "0 employees" ----------
+test('loadCrew: a failed lookup marks "직원" as a report data failure (never silently treated as "0 employees")',async()=>{
+  const h=harness((t)=>t==='crew'?{data:null,error:{code:'42501',message:'permission denied'}}:emptyOk);
+  await h.api.loadCrew('A');
+  assert.equal(h.state.crew.length,0,'failure still yields an empty roster for safety (never a stale one)');
+  assert.ok(h.state.reportDataFailed.has('직원'),'the failure must be recorded so the report can show 계산 불가, not 0 직원');
+});
+test('loadCrew: a successful retry after a prior failure clears the "직원" failure mark and restores the roster',async()=>{
+  const failedSet=new Set(['직원']);
+  const h=harness((t)=>t==='crew'?{data:crewA,error:null}:emptyOk,{reportDataFailed:failedSet});
+  await h.api.loadCrew('A');
+  assert.equal(h.state.crew.length,1);
+  assert.equal(h.state.reportDataFailed.has('직원'),false,'a successful retry must clear the prior failure mark');
+});
+test('loadCrew: a stale (superseded) failure does not mark the CURRENT store/account\'s report as failed',async()=>{
+  const gate=deferred();
+  const h=harness((t,{storeId})=>t==='crew'&&storeId==='sid-A'?gate.promise:emptyOk);
+  const pending=h.api.loadCrew('A');
+  h.api.clearStaffAuthView();Object.assign(h.state,{authProfile:{user_id:'user-B'},store:'B',myStores:['B']});
+  gate.resolve({data:null,error:{code:'X'}});await pending;
+  assert.equal(!!(h.state.reportDataFailed&&h.state.reportDataFailed.has('직원')),false,'A\'s stale failure must not taint B\'s freshly-shown screen');
 });
 test('R3: the combined view never shows a green all-clear while a store could not be read, and names the store',()=>{
   const c=harness(()=>emptyOk);const ok=(store,extra={})=>({store,salesSum:1e6,salesReportCount:1,laborPay:0,laborRatio:5,expenseSum:0,expenseRatio:5,loadFailures:[],...extra});

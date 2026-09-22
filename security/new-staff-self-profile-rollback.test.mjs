@@ -1,6 +1,7 @@
 import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,existsSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
 import {PGlite} from '@electric-sql/pglite';
 const db=new PGlite();
 const read=name=>readFileSync(new URL(name,import.meta.url),'utf8');
@@ -119,11 +120,40 @@ scenario('Catch-up is preview-only by default, fills only new-cohort blanks and 
   const legacy=(await db.query('select * from public.crew where id=$1',[legacyCrew])).rows[0];
   assert.equal(legacy.self_service_profile,false);assert.equal(legacy.wage,18000);assert.ok(!legacy.phone);assert.ok(!legacy.bank_account);
 });
-scenario('Emergency path: the snapshot file restores the original portal even when the rename swap is impossible',async()=>{
+// 2026-09-22: this scenario needs a captured "before" snapshot of private.manee_staff_portal (definition + grants)
+// to restore from once the normal rollback's backup function is gone. Two separate concerns were tangled into one
+// test here before: (a) does the EMERGENCY RESTORE MECHANISM actually work, and (b) does a real point-in-time
+// snapshot of the LIVE staging project exist. (a) is a pure regression and must be reproducible with synthetic
+// data with no real personal information or project secrets - so it now captures its own "before" snapshot from
+// this test's own synthetic fixtures, the same way a real backup would (pg_get_functiondef + grants), instead of
+// reading a file. (b) is a genuine, separate ops requirement - a real backup of the live staging project - which
+// must NEVER be committed to this repository, so it cannot be satisfied by test code at all; see the skip below.
+scenario('Emergency path (synthetic, reproducible): a captured pre-patch definition+grants snapshot restores the original portal even when the rename swap is impossible',async()=>{
+  const snapshotDef=await scalar("select pg_get_functiondef('private.manee_staff_portal(text,jsonb)'::regprocedure)");
+  const grantedTo=(await db.query("select rolname from pg_roles where rolname in ('anon','authenticated','service_role') and has_function_privilege(rolname,'private.manee_staff_portal(text,jsonb)','EXECUTE')")).rows.map(r=>r.rolname);
+  const snapshotSql=snapshotDef+';\nrevoke all on function private.manee_staff_portal(text,jsonb) from public;\n'
+    +grantedTo.map(r=>'grant execute on function private.manee_staff_portal(text,jsonb) to '+r+';').join('\n');
   await applyPatch();await db.exec('drop function private.manee_staff_portal_before_self_profile(text,jsonb)');
   await attempt(()=>rollBack(),/before_self_profile is missing/);
-  await db.exec(inTx(read('backups/staging-obpkzecgswnfuyhwvncd-2026-09-19-before-self-profile.sql')));
+  await db.exec(snapshotSql);
   await role(owner);assert.equal((await portal('session')).ok,true);
   await postgres();assert.equal(await scalar("select has_function_privilege('authenticated','private.manee_staff_portal(text,jsonb)','EXECUTE')"),true);
   assert.equal(await scalar("select has_function_privilege('anon','private.manee_staff_portal(text,jsonb)','EXECUTE')"),false);
 });
+{
+  const realBackupPath=fileURLToPath(new URL('backups/staging-obpkzecgswnfuyhwvncd-2026-09-19-before-self-profile.sql',import.meta.url));
+  const realBackupExists=existsSync(realBackupPath);
+  test('Emergency path (real ops verification): a genuine pre-migration snapshot of the LIVE staging project restores the portal',
+    {skip: realBackupExists ? false : 'No real backup file exists at security/backups/staging-obpkzecgswnfuyhwvncd-2026-09-19-before-self-profile.sql. By standing rule, a real production/staging backup must never be committed to this repository, so this check cannot be satisfied from inside the repo. This is a tracked, unresolved ops gap (see RESULT.md): capture pg_get_functiondef+grants for private.manee_staff_portal from the ACTUAL staging project into a file kept OUTSIDE version control at that path, then re-run to verify it restores cleanly. The regression logic for the restore mechanism itself is covered separately by the synthetic test above.'},
+    async()=>{
+      await db.exec('begin');
+      try{
+        await applyPatch();await db.exec('drop function private.manee_staff_portal_before_self_profile(text,jsonb)');
+        await attempt(()=>rollBack(),/before_self_profile is missing/);
+        await db.exec(inTx(readFileSync(realBackupPath,'utf8')));
+        await role(owner);assert.equal((await portal('session')).ok,true);
+        await postgres();assert.equal(await scalar("select has_function_privilege('authenticated','private.manee_staff_portal(text,jsonb)','EXECUTE')"),true);
+        assert.equal(await scalar("select has_function_privilege('anon','private.manee_staff_portal(text,jsonb)','EXECUTE')"),false);
+      }finally{await db.exec('rollback;reset role');}
+    });
+}
