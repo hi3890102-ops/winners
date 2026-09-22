@@ -9075,7 +9075,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }
     html += '<div class="row2" style="margin-top:10px;">';
     html += '<select class="field-input" id="payadj-type-select"><option value="반차">반차</option><option value="가불">가불</option><option value="무급휴가">무급휴가</option><option value="기타">기타</option></select>';
-    html += '<input class="field-input" type="number" id="payadj-amount-input" placeholder="금액 (가불은 -)">';
+    html += '<input class="field-input" type="text" inputmode="decimal" pattern="-?[0-9]*" id="payadj-amount-input" placeholder="금액 (가불은 -)">';
     html += '</div>';
     html += '<input class="field-input" type="text" id="payadj-note-input" placeholder="메모 (선택)" style="margin-top:8px;">';
     html += '<button class="crew-code-btn" id="add-payadj-btn" style="margin-top:8px;width:100%;">+ 조정 항목 추가</button>';
