@@ -3438,24 +3438,110 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const { data, error } = await db.from('vendors').select('*').eq('store_id', storeId).order('created_at');
       if(error) throw error;
       if(!alive()) return;
-      state.vendors = (data||[]).map(r=>({ id:r.id, name:r.name }));
+      state.vendors = (data||[]).map(r=>({ id:r.id, name:r.name, defaultCategory:r.default_category||null }));
     }catch(e){ if(alive()) state.vendors = []; }
   }
-  function addVendor(){
-    const input = document.getElementById("new-vendor-input");
-    const name = (input.value||"").trim();
-    if(!name){ showToast("거래처 이름을 입력해 주세요."); return; }
-    if(state.vendors.some(v=>v.name===name)){ showToast("이미 있는 거래처예요."); return; }
-    const storeId = currentStoreId();
-    (async ()=>{
+  // Vendor defaults are only input defaults: never rewrite historical expense categories.
+  const vendorMutationLocks = new Set();
+  function vendorCategoryValid(value){ return EXPENSE_CATEGORIES.some(c=>c.value===value); }
+  function vendorCategoryOptions(current, vendorMode){
+    return '<option value="">'+(vendorMode?'분류 미설정':'분류 선택')+'</option>'
+      +(vendorMode?'<option value="per_entry"'+(current==='per_entry'?' selected':'')+'>건별 분류 (카드지출 등)</option>':'')
+      +EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'"'+(current===c.value?' selected':'')+'>'+c.label+'</option>').join('');
+  }
+  function vendorMutationGuard(){
+    const store=currentStoreId(), epoch=maneeViewEpoch, uid=state.authProfile?.user_id, month=monthKey(), vendors=state.vendors, entries=state.expenseEntries;
+    return ()=>store===currentStoreId() && epoch===maneeViewEpoch && uid===state.authProfile?.user_id && month===monthKey() && vendors===state.vendors && entries===state.expenseEntries;
+  }
+  function bindVendorExpenseDefault(prefix){
+    const vendor=document.getElementById(prefix+'expense-vendor-select'), category=document.getElementById(prefix+'expense-category-select');
+    if(!vendor || !category) return;
+    const sync=()=>{ const v=state.vendors.find(v=>v.id===vendor.value); category.value=vendorCategoryValid(v?.defaultCategory)?v.defaultCategory:''; if(category.options?.[0])category.options[0].text=v?.defaultCategory==='per_entry'?'나중에 분류':'분류 선택'; };
+    vendor.onchange=sync; sync();
+  }
+  async function saveVendorCategory(id){
+    if(!canManageBusinessData()) return;
+    const vendor=state.vendors.find(v=>v.id===id), input=document.getElementById('vendor-category-'+id);
+    if(!vendor || !input) return;
+    const category=input.value;
+    if(category!=='' && category!=='per_entry' && !vendorCategoryValid(category)) return;
+    const store=currentStoreId(), key=store+':vendor:'+id;
+    if(vendorMutationLocks.has(key)) return;
+    const alive=vendorMutationGuard(); vendorMutationLocks.add(key);
+    try{
+      const row=await checkedBusinessMutation(db.from('vendors').update({default_category:category||null}).eq('store_id',store).eq('id',id).select('id,default_category'));
+      if(!alive()) return;
+      vendor.defaultCategory=row.default_category||null; render(); showToast('기본 분류를 저장했어요. 기존 지출은 바뀌지 않아요.');
+    }catch(e){ if(alive()){ input.value=vendor.defaultCategory||''; showToast('분류 저장에 실패했어요. 다시 시도해 주세요.'); } }
+    finally{vendorMutationLocks.delete(key);}
+  }
+  function vendorClassificationHtml(name, canEdit){
+    const vendor=(state.vendors||[]).find(v=>v.name===name), category=vendor?.defaultCategory;
+    if(category!=='per_entry') return '<p class="crew-code-hint" style="margin:0 0 12px;">'+(vendorCategoryValid(category)?'기본 분류 · '+escapeHtml(expenseCategoryLabel(category)):'거래처 관리에서 기본 분류를 설정해 주세요.')+'</p>';
+    const entries=(state.expenseEntries||[]).filter(e=>e.description===name && !e.category);
+    let html='<p class="crew-code-hint">건별 분류</p>';
+    if(!canEdit || !entries.length) return html;
+    const sum=entries.reduce((s,e)=>s+(Number(e.amount)||0),0), open=state.classifyVendor===name;
+    html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><small>미분류 '+entries.length+'건 · '+sum.toLocaleString()+'원</small><button type="button" class="switch-link" data-classifyvendor="'+escapeHtml(name)+'">'+(open?'닫기':'분류하기')+'</button></div>';
+    if(open) entries.forEach(e=>{
+      html+='<div class="add-row" style="flex-wrap:wrap;background:transparent;"><span>'+escapeHtml(e.date)+' · '+Number(e.amount).toLocaleString()+'원</span><select aria-label="지출 분류" id="entry-category-'+escapeHtml(e.id)+'" class="field-input" style="flex:1;min-width:110px;">'+vendorCategoryOptions('',false)+'</select><button type="button" data-saveentrycategory="'+escapeHtml(e.id)+'">저장</button></div>';
+    });
+    return html;
+  }
+  async function saveEntryCategory(id){
+    if(!canManageBusinessData()) return;
+    const entry=state.expenseEntries.find(e=>e.id===id), select=document.getElementById('entry-category-'+id);
+    const category=select?.value;
+    if(!entry || !vendorCategoryValid(category)){showToast('분류를 선택해 주세요.');return;}
+    const store=currentStoreId(),key=store+':entry:'+id,alive=vendorMutationGuard();
+    if(vendorMutationLocks.has(key))return;vendorMutationLocks.add(key);
+    try{
+      await checkedBusinessMutation(db.from('expense_entries').update({category}).eq('store_id',store).eq('id',id).is('category',null).select('id'));
+      if(!alive())return;entry.category=category;render();
+    }catch(e){if(alive())showToast('분류 저장에 실패했어요. 새로고침 후 확인해 주세요.');}
+    finally{vendorMutationLocks.delete(key);}
+  }
+  function confirmVendorBackfill(id){
+    if(!canManageBusinessData()) return;
+    const vendor=state.vendors.find(v=>v.id===id);
+    if(!vendor || !vendorCategoryValid(vendor.defaultCategory))return;
+    const month=monthKey(),{start,end}=monthDateRange(month);
+    const targets=state.expenseEntries.filter(e=>e.description===vendor.name&&!e.category&&e.date>=start&&e.date<=end);
+    if(!targets.length)return;
+    const store=currentStoreId(), category=vendor.defaultCategory, alive=vendorMutationGuard();
+    const total=targets.reduce((sum,e)=>sum+(Number(e.amount)||0),0), ids=targets.map(e=>e.id),key=store+':backfill:'+id;
+    askConfirm(month+' '+vendor.name+'의 미분류 '+targets.length+'건 · '+total.toLocaleString()+'원을 '+expenseCategoryLabel(category)+'로 분류할까요? 이미 분류한 내역은 유지돼요.',async()=>{
+      if(!alive()||vendorMutationLocks.has(key)||!canManageBusinessData())return;
+      vendorMutationLocks.add(key);
       try{
-        const { data, error } = await db.from('vendors').insert({ store_id: storeId, name }).select().single();
-        if(error) throw error;
-        state.vendors.push({ id:data.id, name });
-        input.value = "";
-        render();
-      }catch(e){ showToast("거래처 저장에 실패했어요."); }
-    })();
+        const {data,error}=await db.from('expense_entries').update({category}).eq('store_id',store).eq('description',vendor.name).gte('date',start).lte('date',end).in('id',ids).is('category',null).select('id');
+        if(error)throw error;if(!alive())return;
+        const saved=new Set((data||[]).map(r=>r.id));targets.forEach(e=>{if(saved.has(e.id))e.category=category;});
+        render();showToast(saved.size+'건 적용됐어요.'+(saved.size<ids.length?' 나머지는 권한 또는 최신 분류를 확인해 주세요.':''));
+      }catch(e){if(alive())showToast('분류 적용에 실패했어요. 기존 내역은 유지돼요.');}
+      finally{vendorMutationLocks.delete(key);}
+    });
+  }
+  function bindVendorClassificationEvents(){
+    app.querySelectorAll('[data-savevendorcategory]').forEach(b=>b.onclick=()=>saveVendorCategory(b.dataset.savevendorcategory));
+    app.querySelectorAll('[data-backfillvendor]').forEach(b=>b.onclick=()=>confirmVendorBackfill(b.dataset.backfillvendor));
+    app.querySelectorAll('[data-saveentrycategory]').forEach(b=>b.onclick=()=>saveEntryCategory(b.dataset.saveentrycategory));
+  }
+  async function addVendor(){
+    if(!canManageBusinessData())return;
+    const input=document.getElementById('new-vendor-input'), select=document.getElementById('new-vendor-category');
+    const name=(input?.value||'').trim(),category=select?.value||'';
+    if(!name){showToast('거래처 이름을 입력해 주세요.');return;}
+    if(!vendorCategoryValid(category)&&category!=='per_entry'){showToast('기본 분류 또는 건별 분류를 선택해 주세요.');return;}
+    if(state.vendors.some(v=>v.name===name)){showToast('이미 있는 거래처예요.');return;}
+    const store=currentStoreId(),key=store+':add-vendor',alive=vendorMutationGuard();
+    if(vendorMutationLocks.has(key))return;vendorMutationLocks.add(key);
+    try{
+      const {data,error}=await db.from('vendors').insert({store_id:store,name,default_category:category}).select().single();
+      if(error||!data)throw error||Error('No saved row');if(!alive())return;
+      state.vendors.push({id:data.id,name:data.name,defaultCategory:data.default_category||null});render();
+    }catch(e){if(alive())showToast('거래처 저장에 실패했어요. 다시 시도해 주세요.');}
+    finally{vendorMutationLocks.delete(key);}
   }
   function deleteVendor(id){
     if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('vendors',id,()=>{state.vendors=state.vendors.filter(v=>v.id!==id);});
@@ -3541,16 +3627,20 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const amount = sign * (parseInt(amtInp.value||"0",10));
     const category = catSel ? (catSel.value||null) : null;
     if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
-    if(catSel && !category){ showToast("지출 분류를 선택해 주세요."); return; }
+    if(!vendorCategoryValid(category) && !(category===null && state.vendors.find(v=>v.id===vendorId)?.defaultCategory==='per_entry')){ showToast("지출 분류를 선택해 주세요."); return; }
     const storeId = currentStoreId();
     const dateStr = state.salesEditDate || bizToday();
+    const key=storeId+':add-expense', alive=vendorMutationGuard();
+    if(vendorMutationLocks.has(key))return;vendorMutationLocks.add(key);
     try{
       const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount, category }).select().single();
-      if(error) throw error;
+      if(error || !data) throw error || Error('No saved row');
+      if(!alive())return;
       state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount, category:data.category||null });
       amtInp.value = ""; if(catSel) catSel.value = "";
       render();
-    }catch(e){ showToast("지출 저장에 실패했어요."); }
+    }catch(e){ if(alive())showToast("지출 저장에 실패했어요."); }
+    finally{vendorMutationLocks.delete(key);}
   }
   async function addQuickExpenseEntry(){
     const vendorSel = document.getElementById("quick-expense-vendor-select");
@@ -3564,17 +3654,21 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const amount = sign * (parseInt(amtInp.value||"0",10));
     const category = catSel ? (catSel.value||null) : null;
     if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
-    if(catSel && !category){ showToast("지출 분류를 선택해 주세요."); return; }
+    if(!vendorCategoryValid(category) && !(category===null && state.vendors.find(v=>v.id===vendorId)?.defaultCategory==='per_entry')){ showToast("지출 분류를 선택해 주세요."); return; }
     const storeId = currentStoreId();
     const dateStr = bizToday();
+    const key=storeId+':add-expense', alive=vendorMutationGuard();
+    if(vendorMutationLocks.has(key))return;vendorMutationLocks.add(key);
     try{
       const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount, category }).select().single();
-      if(error) throw error;
+      if(error || !data) throw error || Error('No saved row');
+      if(!alive())return;
       state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount, category:data.category||null });
       amtInp.value = ""; if(catSel) catSel.value = "";
       render();
       showToast("지출을 등록했어요. 오늘 매출보고에 자동으로 반영돼요.");
-    }catch(e){ showToast("지출 저장에 실패했어요."); }
+    }catch(e){ if(alive())showToast("지출 저장에 실패했어요."); }
+    finally{vendorMutationLocks.delete(key);}
   }
   async function loadTodayReservations(store){
     const storeId = state.storeIdMap[store];
@@ -8458,18 +8552,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       vendorBreakdown.forEach(v=>{
         const pct = totalExpense>0 ? (v.amount/totalExpense*100) : 0;
         html += '<div class="pay-list-item"><span class="d">'+escapeHtml(v.name)+'</span><span>'+v.amount.toLocaleString()+'원 · '+pct.toFixed(1)+'%</span></div>';
-        if(canClassifyHere){
-          const vendorEntries = (state.expenseEntries||[]).filter(e=>e.description===v.name);
-          const unclassified = vendorEntries.filter(e=>!e.category);
-          if(unclassified.length>0){
-            const unclassifiedSum = unclassified.reduce((s,e)=>s+(Number(e.amount)||0),0);
-            const open = state.classifyVendor===v.name;
-            html += '<div style="padding:0 0 8px 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><small style="color:var(--ink-soft);">미분류 '+unclassified.length+'건 · '+unclassifiedSum.toLocaleString()+'원</small><button type="button" class="switch-link" data-classifyvendor="'+escapeHtml(v.name)+'">'+(open?'닫기':'분류하기')+'</button></div>';
-            if(open){
-              html += '<div class="add-row" style="padding:0 0 12px 4px;background:transparent;flex-wrap:wrap;"><select id="bulk-classify-category-select" class="field-input" style="flex:1;min-width:100px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select><button type="button" id="bulk-classify-confirm-btn" data-classifyconfirm="'+escapeHtml(v.name)+'">'+unclassified.length+'건 '+unclassifiedSum.toLocaleString()+'원 적용</button></div>';
-            }
-          }
-        }
+        if(typeof vendorClassificationHtml==='function') html += vendorClassificationHtml(v.name,canClassifyHere);
       });
       html += '<div class="pay-list-item" style="font-weight:800;border-top:1px dashed var(--line);margin-top:4px;padding-top:8px;"><span class="d">합계</span><span>'+totalExpense.toLocaleString()+'원'+(expenseRatio!==null?' (지출비율 '+expenseRatio.toFixed(1)+'%)':'')+'</span></div>';
       html += '<p class="crew-code-hint" style="margin-top:6px;">분류는 지출 내역 정리용이에요. 지출비율·경고 판정에는 분류 여부와 관계없이 전체 지출 금액이 반영돼요.</p>';
@@ -8676,18 +8759,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
   function renderVendorManage(){
     if(MANEE_STAFF_AUTH_ENABLED && !canManageBusinessData()) return '<p>거래처 관리는 사장님·매니저가 할 수 있어요.</p>';
-    let html = '<div class="day-panel">';
-    html += '<h3>거래처 관리</h3>';
-    html += '<p class="crew-code-hint" style="margin-bottom:10px;">여기서 등록한 거래처가 매니저의 매출보고 지출 입력 화면에 목록으로 떠요.</p>';
-    if(state.vendors.length===0){
-      html += '<div class="empty-note" style="padding:8px 0;">등록된 거래처가 없어요.</div>';
-    }else{
-      state.vendors.forEach(v=>{
-        html += '<div class="fixed-pattern-row"><div class="fp-info"><div class="fp-name">'+escapeHtml(v.name)+'</div></div><button class="crew-del" data-delvendor="'+v.id+'">삭제</button></div>';
-      });
-    }
-    html += '<div class="add-row" style="padding:12px 0 0; background:transparent;"><input id="new-vendor-input" type="text" placeholder="거래처 이름"><button id="add-vendor-btn">추가</button></div>';
-    html += '</div>';
+    let html='<div class="day-panel"><h3>거래처 관리</h3><p class="crew-code-hint">거래처별 기본 분류는 새 지출에 자동으로 선택돼요. 카드지출처럼 품목이 섞이면 건별 분류를 선택하세요.</p>';
+    state.vendors.forEach(v=>{
+      html+='<div style="padding:14px 0;border-bottom:1px solid var(--line);"><div style="display:flex;justify-content:space-between;"><strong>'+escapeHtml(v.name)+'</strong><button class="crew-del" data-delvendor="'+escapeHtml(v.id)+'">삭제</button></div><div class="add-row" style="padding:8px 0;background:transparent;flex-wrap:wrap;"><select aria-label="'+escapeHtml(v.name)+' 기본 지출분류" id="vendor-category-'+escapeHtml(v.id)+'" class="field-input" style="flex:1;min-width:140px;">'+vendorCategoryOptions(v.defaultCategory,true)+'</select><button type="button" data-savevendorcategory="'+escapeHtml(v.id)+'">저장</button></div>';
+      const pending=state.expenseEntries.filter(e=>e.description===v.name&&!e.category);
+      if(vendorCategoryValid(v.defaultCategory)&&pending.length)html+='<button type="button" class="switch-link" data-backfillvendor="'+escapeHtml(v.id)+'">이번 달 미분류 '+pending.length+'건 · '+pending.reduce((a,e)=>a+(Number(e.amount)||0),0).toLocaleString()+'원에 적용</button>';
+      html+='</div>';
+    });
+    html+='<div class="add-row" style="padding:12px 0 0;background:transparent;flex-wrap:wrap;"><input id="new-vendor-input" type="text" placeholder="거래처 이름" style="min-width:130px;"><select id="new-vendor-category" aria-label="새 거래처 기본 지출분류" class="field-input" style="flex:1;min-width:140px;">'+vendorCategoryOptions('',true)+'</select><button id="add-vendor-btn">추가</button></div></div>';
     return html;
   }
 
@@ -8762,24 +8841,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       vendorBreakdown.forEach(v=>{
         const pct = totalExpenseMonth>0 ? (v.amount/totalExpenseMonth*100) : 0;
         html += '<div class="pay-list-item"><span class="d">'+escapeHtml(v.name)+'</span><span>'+v.amount.toLocaleString()+'원 · '+pct.toFixed(1)+'%</span></div>';
-        if(canClassify){
-          const vendorEntries = (state.expenseEntries||[]).filter(e=>e.description===v.name);
-          const unclassified = vendorEntries.filter(e=>!e.category);
-          if(unclassified.length>0){
-            const unclassifiedSum = unclassified.reduce((s,e)=>s+(Number(e.amount)||0),0);
-            const open = state.classifyVendor===v.name;
-            html += '<div style="padding:0 0 8px 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
-            html += '<small style="color:var(--ink-soft);">미분류 '+unclassified.length+'건 · '+unclassifiedSum.toLocaleString()+'원</small>';
-            html += '<button type="button" class="switch-link" data-classifyvendor="'+escapeHtml(v.name)+'">'+(open?'닫기':'분류하기')+'</button>';
-            html += '</div>';
-            if(open){
-              html += '<div class="add-row" style="padding:0 0 12px 4px;background:transparent;flex-wrap:wrap;">';
-              html += '<select id="bulk-classify-category-select" class="field-input" style="flex:1;min-width:100px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select>';
-              html += '<button type="button" id="bulk-classify-confirm-btn" data-classifyconfirm="'+escapeHtml(v.name)+'">'+unclassified.length+'건 '+unclassifiedSum.toLocaleString()+'원 적용</button>';
-              html += '</div>';
-            }
-          }
-        }
+        if(typeof vendorClassificationHtml==='function') html += vendorClassificationHtml(v.name,canClassify);
       });
     }
     html += '</div>';
@@ -9584,6 +9646,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(clockInBtn) clockInBtn.addEventListener("click", clockIn);
     const clockOutBtn = document.getElementById("clock-out-btn");
     if(clockOutBtn) clockOutBtn.addEventListener("click", clockOut);
+    bindVendorExpenseDefault('quick-');
     const addQuickExpenseBtn = document.getElementById("add-quick-expense-btn");
     if(addQuickExpenseBtn) addQuickExpenseBtn.addEventListener("click", addQuickExpenseEntry);
     const quickExpenseSignBtn = document.getElementById("quick-expense-sign-btn");
@@ -9648,6 +9711,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function bindSalesReportEvents(){
+    bindVendorExpenseDefault('');
+    bindVendorClassificationEvents();
     const addExpenseBtnForm = document.getElementById("add-expense-btn");
     if(addExpenseBtnForm) addExpenseBtnForm.addEventListener("click", addExpenseEntry);
     const expenseSignBtn = document.getElementById("expense-sign-btn");
@@ -10098,6 +10163,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     app.querySelectorAll("[data-fixedexpense-amount]").forEach(inp=>{
       inp.addEventListener("change", ()=> updateFixedExpenseAmount(inp.getAttribute("data-fixedexpense-amount"), inp.value));
     });
+    bindVendorClassificationEvents();
     const addVendorBtn = document.getElementById("add-vendor-btn");
     if(addVendorBtn) addVendorBtn.addEventListener("click", addVendor);
     app.querySelectorAll("[data-delvendor]").forEach(btn=>{
