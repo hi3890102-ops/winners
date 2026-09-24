@@ -293,10 +293,10 @@
 .owner-ui .owner-topline{margin-bottom:0}
 .owner-ui .owner-header-right{display:flex;align-items:center;gap:10px}
 .owner-ui .owner-header .owner-bell{position:relative;width:44px;height:44px;min-height:44px;padding:0;display:grid;place-items:center;border-radius:12px}
-.owner-ui .owner-picker{display:flex;align-items:center;gap:9px;margin-top:9px;padding:0 12px;min-height:44px;border-radius:12px;background:#F6F8F5;color:var(--ink)}
-.owner-ui .owner-picker>svg{flex:none;width:17px;height:17px}
-.owner-ui .owner-picker select{appearance:none;-webkit-appearance:none;flex:1;min-width:0;width:auto;height:44px;padding:0;border:0;border-radius:0;background:transparent;color:inherit;font-size:14px;font-weight:650;text-overflow:ellipsis}
-.owner-ui .owner-picker select:focus-visible{outline:2px solid var(--brick);outline-offset:3px;border-radius:8px}
+.owner-ui .owner-picker{position:relative;display:flex;align-items:center;justify-content:space-between;gap:9px;margin-top:9px;padding:0 12px;min-height:44px;border-radius:12px;background:#F6F8F5;color:var(--ink)}
+.owner-ui .owner-picker>svg{flex:none;width:17px;height:17px;pointer-events:none}
+.owner-ui .owner-picker select{appearance:none;-webkit-appearance:none;position:absolute;inset:0;box-sizing:border-box;min-width:0;width:100%;height:100%;padding:0 38px;border:0;border-radius:12px;cursor:pointer;background:transparent;color:inherit;font-size:14px;font-weight:650;text-overflow:ellipsis}
+.owner-ui .owner-picker select:focus-visible{outline:2px solid var(--brick);outline-offset:2px;border-radius:12px}
 @media (prefers-color-scheme: dark){.owner-ui .owner-picker{background:#22362B;color:#EAF4ED}.owner-ui .owner-picker select option{background:#22362B;color:#EAF4ED}}
 @media(max-width:359px){.owner-ui .owner-picker{padding:0 10px}}
 .owner-ui .oh-of{margin-left:4px;font-weight:600;color:var(--ink-soft);font-size:11px}
