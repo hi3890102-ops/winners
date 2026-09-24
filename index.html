@@ -5969,7 +5969,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html+='<div class="day-panel"><h3>지출 내역</h3>';
       [...state.expenseEntries].sort((a,b)=>b.date.localeCompare(a.date)).forEach(e=>{html+='<p class="crew-code-hint">'+escapeHtml(e.date)+'</p>'+renderExpenseEntryLine(e);});
       if(!state.expenseEntries.length)html+='<p class="empty-note">이 달에 등록한 지출이 없어요.</p>';
-      return html+'</div><p class="owner-note">새 지출은 매출보고 작성 화면에서 거래처를 선택해 등록할 수 있어요.</p>'+ownerRouteButton('매출보고로 이동','sales','sales',false);
+      return html+'</div>';
     }
     return html+(state.salesSectionTab==='report'?renderMonthlyReport():renderSalesReportsOwnerTab());
   }
@@ -5990,7 +5990,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(state.section==='settings') return ownerSubHeader('매장 설정')+renderCrewManage('settings');
     if(state.section==='alerts') return ownerSubHeader('알림 모아보기')+renderNotifDetails();
     let html='<h2>더보기</h2>';
-    return html+'<div class="owner-menu">'+ownerRouteButton(navIcon('store')+'매장 설정<span>›</span>','settings',null,false)+ownerRouteButton(navIcon('bell')+'알림 모아보기<span>›</span>','alerts',null,false)+'<button id="open-ai-chat-btn">✨ AI 물어보기<span>›</span></button><button id="add-store-request-btn">'+navIcon('store')+'매장 추가 신청<span>›</span></button><button id="switch-user-btn">다른 사용자로 전환<span>›</span></button></div>';
+    return html+'<div class="owner-menu">'+ownerRouteButton(navIcon('store')+'매장 설정<span>›</span>','settings',null,false)+ownerRouteButton(navIcon('bell')+'알림 모아보기<span>›</span>','alerts',null,false)+'<button id="open-ai-chat-btn">✨ AI 물어보기<span>›</span></button>'+(!MANEE_STAFF_AUTH_ENABLED?'<button id="add-store-request-btn">'+navIcon('store')+'매장 추가 신청<span>›</span></button>':'')+'<button id="switch-user-btn">다른 사용자로 전환<span>›</span></button></div>';
   }
   function renderOwnerShell(){
     const group=ownerRouteGroup();
@@ -6123,7 +6123,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       }else{
         html += '<span class="store-tab active" style="cursor:default;">내 매장 전체 보는 중</span>';
       }
-      html += '<button class="store-tab" id="add-store-request-btn">+ 매장 추가</button>';
+      if(!MANEE_STAFF_AUTH_ENABLED) html += '<button class="store-tab" id="add-store-request-btn">+ 매장 추가</button>';
       html += '</div>';
     }
     html += '</header>';
@@ -9129,7 +9129,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const activeCrewForFixed = state.crew.filter(isCrewActive);
     if(activeCrewForFixed.length===0){
       html += '<div class="empty-note" style="padding:8px 0;">먼저 "스텝 관리"에서 재직 중인 스텝을 등록해 주세요.</div>';
-      html += '<button class="switch-link" id="close-fixed-btn">닫기</button></div>';
+      html += '</div>';
       return html;
     }
     html += '<div class="shift-form">';
