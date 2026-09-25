@@ -35,3 +35,22 @@ test('calendar keyboard activation is single, labelled, and space does not scrol
 test('all inline scripts parse after interaction changes',()=>{
  for(const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g))if(match[1].trim())new vm.Script(match[1]);
 });
+
+test('store changes synchronize home and work context, including same-store selections',async()=>{
+ const state={myStores:['A','B'],store:'A',homeStore:'__all__'};const loaded=[];
+ const start=html.indexOf('  async function switchOwnerStore('),end=html.indexOf('  function adminEntryLandingMode(',start);
+ const context={state,loadAllForStore:async name=>loaded.push(name),render(){},loadVatData(){}};
+ vm.createContext(context);vm.runInContext(html.slice(start,end),context);
+ await context.switchOwnerStore('B');assert.equal(state.store,'B');assert.equal(state.homeStore,'B');assert.deepEqual(loaded,['B']);
+ state.homeStore='__all__';await context.switchOwnerStore('B');assert.equal(state.homeStore,'B');assert.equal(loaded.length,1);
+ await context.switchOwnerStore('unknown');assert.equal(state.store,'B');assert.equal(state.homeStore,'B');
+});
+test('all-store overview requires explicit work-store confirmation and cancel leaves context intact',()=>{
+ const state={homeStore:'__all__',store:'B'};let pending,message,navigated=0;
+ const context={state,askConfirm:(text,go)=>{message=text;pending=go;}};vm.createContext(context);
+ vm.runInContext(section('ownerNavigateFromOverview','bindOwnerUIEvents'),context);
+ context.ownerNavigateFromOverview('sales',()=>navigated++);assert.equal(navigated,0);assert.match(message,/B/);assert.equal(state.homeStore,'__all__');
+ pending();assert.equal(navigated,1);assert.equal(state.homeStore,'B');
+ context.ownerNavigateFromOverview('schedule',()=>navigated++);assert.equal(navigated,2);
+ state.homeStore='__all__';context.ownerNavigateFromOverview('dashboard',()=>navigated++);assert.equal(navigated,3);assert.equal(state.homeStore,'__all__');
+});

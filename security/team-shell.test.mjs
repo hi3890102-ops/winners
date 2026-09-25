@@ -186,12 +186,12 @@ test('owner home: one merged per-store card, no duplicate notification strip, re
   const card=slice('  function renderOwnerWork(){','  function ownerWorkPaint(){');
   assert.ok(card.includes('월 누적 매출')&&card.includes('스케줄 미등록')&&card.includes('data-ow-sales'));
 });
-test('owner home: the header selection only filters the home cards, numbers and bars', ()=>{
+test('owner home: selected store scopes home cards, numbers and bars', ()=>{
   const scopeSrc=slice('  function ownerHomeScope(){','  // "매장별 오늘 현황"');
   const st={myStores:['A','B','C'],homeStore:'__all__'};
   const scope=new Function('state',scopeSrc+';return ownerHomeScope;')(st);
   assert.deepEqual(scope(),['A','B','C']);st.homeStore='B';assert.deepEqual(scope(),['B']);st.homeStore='Z';assert.deepEqual(scope(),['A','B','C']);   // unknown value falls back to all
-  assert.ok(html.includes("if(ownerRouteGroup()==='home'){ state.homeStore=target; render(); return; }"));
+  assert.ok(html.includes("state.homeStore = storeName;"));
   const ov=slice('  function renderOwnerOverview(){','  function renderOwnerHome(){');
   assert.ok(ov.includes('scope.includes(d.store)')&&ov.includes('renderOwnerTrend(scope)'));
   assert.ok(ov.includes('집계 전')&&ov.includes('조회 실패'));   // "not yet entered" and "lookup failed" are separate from 0 won
@@ -281,7 +281,7 @@ test('owner header follows the mockup and AI / store-request are independent det
   assert.ok(slice('  function renderAddStoreForm(){','  function getExpiringHealthCerts(){').includes("ownerDetailHeader('매장 추가 신청'"));
   // leaving through a menu, the store selector or the bell closes the request form; opening it never saves anything
   assert.ok(html.includes("state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.showAddStoreForm=false;"));
-  assert.ok(html.includes("state.showAddStoreForm=false;\n      if(ownerRouteGroup()==='home')"));
+  assert.ok(html.includes("state.showAddStoreForm=false;\n      if(target==='__all__')"));
   const open=slice('    const addStoreRequestBtn = document.getElementById("add-store-request-btn");','    const closeAddStoreBtn');
   assert.ok(!/insert|update|submitAdditionalStoreRequest/.test(open));
 });

@@ -2281,6 +2281,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     render();
   }
   async function switchOwnerStore(storeName){
+    if(!(state.myStores||[]).includes(storeName)) return;
+    state.homeStore = storeName;
     if(storeName === state.store) return;
     state.store = storeName;
     state.showAddStoreForm = false;
@@ -5821,6 +5823,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   async function ownerWorkOpenSales(store){
     if(!(state.myStores||[]).includes(store)) return;
+    state.homeStore=store;
     const alive=maneeLoadGuard("ownerWorkOpen");
     state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;
     state.section="sales";state.salesSectionTab="report";
@@ -5831,6 +5834,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   async function ownerWorkOpenAttendance(store){
     const v=state.ownerWork.stores[store],date=v&&v.bizDate;
     if(!date||!(state.myStores||[]).includes(store)) return;
+    state.homeStore=store;
     const [y,m]=date.split("-").map(Number),alive=maneeLoadGuard("ownerWorkOpen");
     state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.expandedCrewIds={};
     const monthChanged=y!==state.monthYear||m!==state.monthNum;
@@ -6023,6 +6027,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};
     });
   }
+  function ownerNavigateFromOverview(section,go){
+    const needsStore=!['dashboard','more','alerts'].includes(section);
+    if(needsStore&&state.homeStore==='__all__'){
+      askConfirm('내 매장 전체를 조회 중이에요. '+state.store+' 매장으로 이동할까요?',()=>{state.homeStore=state.store;go();});
+      return;
+    }
+    go();
+  }
   function bindOwnerUIEvents(){
     bindAccessibleActions();
     app.querySelectorAll('[data-owner-route]').forEach(button=>button.addEventListener('click',()=>{
@@ -6039,15 +6051,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         if(state.section==='sales')state.salesSectionTab=button.dataset.ownerTab||'sales';
         render();window.scrollTo(0,0);
       };
-      if(state.showOwnerSalesForm) askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else go();
+      if(state.showOwnerSalesForm) askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else ownerNavigateFromOverview(button.dataset.ownerRoute,go);
     }));
     const selector=document.getElementById('owner-store-select');
     if(selector)selector.addEventListener('change',()=>{
       const target=selector.value,previous=state.store;
       state.showAddStoreForm=false;
-      if(ownerRouteGroup()==='home'){ state.homeStore=target; render(); return; }   // on the home the selection only filters the home cards
-      if(target==='__all__')return;
-      const go=()=>{state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.salesDraft=freshSalesDraft();state.selectedDate=null;state.selectedSalesDate=null;state.expandedCrewIds={};if(state.section==='dashboard'){state.section='sales';state.salesSectionTab='report';}switchOwnerStore(target).catch(()=>showToast('매장을 불러오지 못했어요. 다시 시도해 주세요.'));render();};
+      if(target==='__all__'){state.homeStore='__all__';render();return;}
+      if(!(state.myStores||[]).includes(target))return;
+      const go=()=>{state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.salesDraft=freshSalesDraft();state.selectedDate=null;state.selectedSalesDate=null;state.expandedCrewIds={};switchOwnerStore(target).catch(()=>showToast('매장을 불러오지 못했어요. 다시 시도해 주세요.'));render();};
       if(state.showOwnerSalesForm){selector.value=previous;askConfirm('매장을 바꾸면 작성 중인 보고를 닫습니다. 계속할까요?',go);}else go();
     });
     const day=document.getElementById('owner-attendance-date');if(day)day.addEventListener('change',async()=>{
