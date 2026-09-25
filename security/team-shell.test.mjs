@@ -44,7 +44,7 @@ test('T4: manager summary verdicts (22 / saved food limit, equal is not over, un
   const build=(limit,llim=22)=>new Function('state','DEFAULT_LABOR_RATIO_LIMIT','DEFAULT_FOOD_RATIO_LIMIT','laborRatioVerdict','laborRatioLimit','foodRatioVerdict','foodRatioLimit','formatLimit',src+';return renderTeamSummaryCard;')(
     {store:'A',monthNum:9},22,40,(s,r)=>r==null?{state:'none',limit:null}:(llim===null?{state:'unknown',limit:null}:{state:r>llim?'over':'ok',limit:llim}),()=>llim,(s,r)=>r==null?{state:'none',limit:null}:(limit===null?{state:'unknown',limit:null}:{state:r>limit?'over':'ok',limit}),()=>limit,n=>String(Math.round(Number(n)*10)/10));
   const card=(labor,food,limit,sales=1000000)=>build(limit)({salesSum:sales,deliverySum:0,laborRatio:labor,expenseRatio:food});
-  let h=card(25.6,51.6,40); assert.ok(h.includes('관리 필요')&&h.includes('22% 이하 기준 이내')&&h.includes('40% 이하 기준 이내')&&!/team-ratio ok/.test(h));
+  let h=card(25.6,51.6,40); assert.ok(h.includes('관리 필요')&&h.includes('22% 이하가 기준')&&h.includes('40% 이하가 기준')&&!/team-ratio ok/.test(h));
   h=card(22,40,40); assert.equal((h.match(/team-ratio ok/g)||[]).length,2);           // equal to the limit is not over
   h=card(22.1,40.1,40); assert.equal((h.match(/team-ratio over/g)||[]).length,2);
   h=card(null,null,40,0); assert.equal((h.match(/집계 전/g)||[]).length>=2,true);

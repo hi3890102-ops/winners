@@ -6016,12 +6016,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     app.innerHTML=html;
     bindOwnerEvents();bindOwnerUIEvents();bindConfirmOverlay();bindLightbox();bindInfoModal();
   }
-  function bindOwnerUIEvents(){
-    app.querySelectorAll('.cal-day[data-date],.cal-day[data-salesdate],[data-storetoggle],.crew-toggle-row').forEach(el=>{
+  function bindAccessibleActions(){
+    app.querySelectorAll('.cal-day[data-date],.cal-day[data-salesdate],.cal-day[data-salesformdate],[data-trenddate],[data-storetoggle],.crew-toggle-row').forEach(el=>{
       el.setAttribute('role','button');el.tabIndex=0;
-      if(el.dataset.date||el.dataset.salesdate)el.setAttribute('aria-label',(el.dataset.date||el.dataset.salesdate)+' 선택');
-      el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}});
+      if(el.dataset.date||el.dataset.salesdate||el.dataset.salesformdate)el.setAttribute('aria-label',(el.dataset.date||el.dataset.salesdate||el.dataset.salesformdate)+' 선택');
+      el.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();el.click();}};
     });
+  }
+  function bindOwnerUIEvents(){
+    bindAccessibleActions();
     app.querySelectorAll('[data-owner-route]').forEach(button=>button.addEventListener('click',()=>{
       const go=async()=>{
         state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.showAddStoreForm=false;
@@ -6987,10 +6990,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function renderTeamSummaryCard(sum){
     const lv = laborRatioVerdict(state.store, sum.laborRatio);
     const laborKind = lv.state;
-    const laborLimitText = lv.state==='unknown' ? '기준을 조회하지 못했어요' : formatLimit(laborRatioLimit(state.store)===null?DEFAULT_LABOR_RATIO_LIMIT:laborRatioLimit(state.store))+'% 이하 기준 이내';
+    const laborLimitText = lv.state==='unknown' ? '기준을 조회하지 못했어요' : formatLimit(laborRatioLimit(state.store)===null?DEFAULT_LABOR_RATIO_LIMIT:laborRatioLimit(state.store))+'% 이하가 기준';
     const fv = foodRatioVerdict(state.store, sum.expenseRatio);
     const foodKind = fv.state;
-    const foodLimit = fv.state==='unknown' ? '기준을 조회하지 못했어요' : (fv.limit!==null ? formatLimit(fv.limit)+'% 이하 기준 이내' : formatLimit(foodRatioLimit(state.store)===null?DEFAULT_FOOD_RATIO_LIMIT:foodRatioLimit(state.store))+'% 이하 기준 이내');
+    const foodLimit = fv.state==='unknown' ? '기준을 조회하지 못했어요' : (fv.limit!==null ? formatLimit(fv.limit)+'% 이하가 기준' : formatLimit(foodRatioLimit(state.store)===null?DEFAULT_FOOD_RATIO_LIMIT:foodRatioLimit(state.store))+'% 이하가 기준');
     return '<section class="category team-card" aria-label="이번 달 매장 요약"><div class="team-card-head"><span class="team-card-title team-title-lg">이번 달 매장 요약</span><span class="team-sub team-mo">'+state.monthNum+'월 누적</span></div>'+
       '<p class="team-sub" style="margin-top:10px">누적 매출</p><p class="team-big">'+sum.salesSum.toLocaleString()+'원</p><p class="team-sub">배달매출 '+sum.deliverySum.toLocaleString()+'원 (별도 집계)</p>'+
       '<div class="team-ratios">'+teamRatioCard('인건비율',sum.laborRatio,laborKind,laborLimitText)+teamRatioCard('지출비율',sum.expenseRatio,foodKind,foodLimit)+'</div>'+
@@ -7436,6 +7439,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return html+'</nav>';
   }
   function bindTeamEvents(){
+    bindAccessibleActions();
     app.querySelectorAll("[data-team-go]").forEach(btn=>btn.addEventListener("click",()=>{
       const [view,tab]=btn.getAttribute("data-team-go").split(":");
       if(tab==="pay") state.teamScroll="team-pay"; else if(tab) state.teamTab=tab;
@@ -8428,7 +8432,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function renderSchedule(){
     let html = '<div class="subnav">';
     html += '<button class="'+(state.scheduleTab==="calendar"?"active":"")+'" data-stab="calendar">스케줄</button>';
-    html += '<button class="'+(state.scheduleTab==="crew"?"active":"")+'" data-stab="crew">스텝 관리</button>';
+    html += '<button class="'+(state.scheduleTab==="crew"?"active":"")+'" data-stab="crew">직원 관리</button>';
     html += '</div>';
     if(state.scheduleTab === "crew") html += renderCrewManage();
     else html += renderCalendar();
@@ -8439,7 +8443,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     let html = '<div class="subnav">';
     html += '<button class="'+(state.salesSectionTab==="pay"?"active":"")+'" data-salestab="pay">급여</button>';
     html += '<button class="'+(state.salesSectionTab==="sales"?"active":"")+'" data-salestab="sales">매출보고</button>';
-    html += '<button class="'+(state.salesSectionTab==="report"?"active":"")+'" data-salestab="report">월말리포트</button>';
+    html += '<button class="'+(state.salesSectionTab==="report"?"active":"")+'" data-salestab="report">월간 리포트</button>';
     html += '</div>';
     if(state.salesSectionTab === "sales") html += renderSalesReportsOwnerTab();
     else if(state.salesSectionTab === "report") html += renderMonthlyReport();
@@ -9076,7 +9080,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += renderShiftsGrouped(state.selectedDate, true);
       const activeCrewForShift = state.crew.filter(isCrewActive);
       if(activeCrewForShift.length===0){
-        html += '<div class="empty-note" style="padding:12px 0 0;">먼저 "스텝 관리"에서 재직 중인 스텝을 등록해 주세요.</div>';
+        html += '<div class="empty-note" style="padding:12px 0 0;">먼저 "직원 관리"에서 재직 중인 스텝을 등록해 주세요.</div>';
       }else{
         html += '<div class="shift-form">';
         html += '<label>스텝</label><select id="shift-crew-select">';
@@ -9128,7 +9132,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<h3>고정 근무 설정</h3>';
     const activeCrewForFixed = state.crew.filter(isCrewActive);
     if(activeCrewForFixed.length===0){
-      html += '<div class="empty-note" style="padding:8px 0;">먼저 "스텝 관리"에서 재직 중인 스텝을 등록해 주세요.</div>';
+      html += '<div class="empty-note" style="padding:8px 0;">먼저 "직원 관리"에서 재직 중인 스텝을 등록해 주세요.</div>';
       html += '</div>';
       return html;
     }
@@ -9369,7 +9373,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
               html += '<div style="margin-top:12px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
               if(!MANEE_STAFF_AUTH_ENABLED) html += '<div class="crew-code-row"><span class="crew-code">'+(c.joinCode||"------")+'</span><button class="crew-code-btn" data-copycode="'+c.joinCode+'">복사</button><button class="crew-code-btn" data-regencode="'+c.id+'">재발급</button></div>';
               html += '<div class="mgr-toggle-row" style="margin-top:10px;"><input type="checkbox" data-toggle-manager="'+c.id+'"'+(c.isManager?' checked':'')+' id="mgr-toggle-'+c.id+'"><label for="mgr-toggle-'+c.id+'">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
-              html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" data-toggle-salesaccess="'+c.id+'"'+(c.salesAccess?' checked':'')+' id="sales-toggle-'+c.id+'"><label for="sales-toggle-'+c.id+'">매출 탭 조회 권한 (급여·매출보고·월말리포트 열람)</label></div>';
+              html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" data-toggle-salesaccess="'+c.id+'"'+(c.salesAccess?' checked':'')+' id="sales-toggle-'+c.id+'"><label for="sales-toggle-'+c.id+'">매출 탭 조회 권한 (급여·매출보고·월간 리포트 열람)</label></div>';
               html += '<div style="margin-top:10px;">'+renderHireDates(c)+'</div>';
               html += '<div style="margin-top:10px;">'+renderProbationToggle(c)+'</div>';
               html += '<div style="margin-top:10px;">'+renderPayrollFlags(c)+'</div>';
@@ -9410,7 +9414,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '<div><label class="field-label">근무 파트</label><select id="crew-position-select"><option value="홀">홀</option><option value="주방">주방</option><option value="그 외">그 외</option></select></div>';
       html += renderHireDates(null);
       html += '<div class="mgr-toggle-row"><input type="checkbox" id="crew-manager-checkbox"><label for="crew-manager-checkbox">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
-      html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" id="crew-salesaccess-checkbox"><label for="crew-salesaccess-checkbox">매출 탭 조회 권한 (급여·매출보고·월말리포트 열람)</label></div>';
+      html += '<div class="mgr-toggle-row" style="margin-top:8px;"><input type="checkbox" id="crew-salesaccess-checkbox"><label for="crew-salesaccess-checkbox">매출 탭 조회 권한 (급여·매출보고·월간 리포트 열람)</label></div>';
       html += renderProbationToggle(null);
       html += renderPayrollFlags(null);
       html += renderExtraCrewFields(null);
@@ -9429,7 +9433,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const pendingSetup=state.crew.filter(c=>c.employmentSetupRequired);
     if(pendingSetup.length) html+='<p class="owner-warning">근무조건을 설정하지 않은 직원 '+pendingSetup.length+'명이 있어요. 표시된 급여 합계는 확정 금액이 아니에요.</p>';
     if(state.crew.length===0){
-      html += '<div class="empty-note">먼저 "스텝 관리"에서 스텝을 등록해 주세요.</div>';
+      html += '<div class="empty-note">먼저 "직원 관리"에서 스텝을 등록해 주세요.</div>';
       return html;
     }
     // total across all crew, this month (confirmed attendance only)
@@ -9636,7 +9640,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function bindStaffEvents(){
     bindTeamEvents();
     bindSalesSectionEvents();
-    if(state.showOwnerSalesForm) bindSalesReportEvents();
     app.querySelectorAll("[data-ackedit]").forEach(btn=>{
       btn.addEventListener("click", ()=> ackEditedAttendance(btn.getAttribute("data-ackedit")));
     });
@@ -9722,22 +9725,22 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       expenseSignBtn.textContent = negative?"지출":"반품(-)";
     });
     app.querySelectorAll("[data-delexpense]").forEach(btn=>{
-      btn.addEventListener("click", ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense")));
+      btn.onclick = ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense"));
     });
     app.querySelectorAll("[data-editexpense]").forEach(btn=>{
-      btn.addEventListener("click", ()=> startEditExpenseEntry(btn.getAttribute("data-editexpense")));
+      btn.onclick = ()=> startEditExpenseEntry(btn.getAttribute("data-editexpense"));
     });
     app.querySelectorAll("[data-saveexpense]").forEach(btn=>{
-      btn.addEventListener("click", ()=> saveExpenseEntry(btn.getAttribute("data-saveexpense")));
+      btn.onclick = ()=> saveExpenseEntry(btn.getAttribute("data-saveexpense"));
     });
     app.querySelectorAll("[data-cancelexpense]").forEach(btn=>{
-      btn.addEventListener("click", cancelEditExpenseEntry);
+      btn.onclick = cancelEditExpenseEntry;
     });
     app.querySelectorAll("[data-classifyvendor]").forEach(btn=>{
-      btn.addEventListener("click", ()=> toggleClassifyVendor(btn.getAttribute("data-classifyvendor")));
+      btn.onclick = ()=> toggleClassifyVendor(btn.getAttribute("data-classifyvendor"));
     });
     app.querySelectorAll("[data-classifyconfirm]").forEach(btn=>{
-      btn.addEventListener("click", ()=> bulkClassifyVendorExpenses(btn.getAttribute("data-classifyconfirm")));
+      btn.onclick = ()=> bulkClassifyVendorExpenses(btn.getAttribute("data-classifyconfirm"));
     });
     app.querySelectorAll("[data-confirmatt]").forEach(btn=>{
       btn.addEventListener("click", ()=> toggleAttendanceConfirm(btn.getAttribute("data-confirmatt")));
@@ -10117,22 +10120,22 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const toggleLaborBtn = document.getElementById("toggle-labor-section-btn");
     if(toggleLaborBtn) toggleLaborBtn.addEventListener("click", ()=>{ state.showLaborSection = !state.showLaborSection; render(); });
     app.querySelectorAll("[data-delexpense]").forEach(btn=>{
-      btn.addEventListener("click", ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense")));
+      btn.onclick = ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense"));
     });
     app.querySelectorAll("[data-editexpense]").forEach(btn=>{
-      btn.addEventListener("click", ()=> startEditExpenseEntry(btn.getAttribute("data-editexpense")));
+      btn.onclick = ()=> startEditExpenseEntry(btn.getAttribute("data-editexpense"));
     });
     app.querySelectorAll("[data-saveexpense]").forEach(btn=>{
-      btn.addEventListener("click", ()=> saveExpenseEntry(btn.getAttribute("data-saveexpense")));
+      btn.onclick = ()=> saveExpenseEntry(btn.getAttribute("data-saveexpense"));
     });
     app.querySelectorAll("[data-cancelexpense]").forEach(btn=>{
-      btn.addEventListener("click", cancelEditExpenseEntry);
+      btn.onclick = cancelEditExpenseEntry;
     });
     app.querySelectorAll("[data-classifyvendor]").forEach(btn=>{
-      btn.addEventListener("click", ()=> toggleClassifyVendor(btn.getAttribute("data-classifyvendor")));
+      btn.onclick = ()=> toggleClassifyVendor(btn.getAttribute("data-classifyvendor"));
     });
     app.querySelectorAll("[data-classifyconfirm]").forEach(btn=>{
-      btn.addEventListener("click", ()=> bulkClassifyVendorExpenses(btn.getAttribute("data-classifyconfirm")));
+      btn.onclick = ()=> bulkClassifyVendorExpenses(btn.getAttribute("data-classifyconfirm"));
     });
     const toggleVendorManageBtn = document.getElementById("toggle-vendor-manage-btn");
     if(toggleVendorManageBtn) toggleVendorManageBtn.addEventListener("click", ()=>{ state.showVendorManage = !state.showVendorManage; render(); });

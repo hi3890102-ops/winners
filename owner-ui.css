@@ -300,3 +300,8 @@
 @media (prefers-color-scheme: dark){.owner-ui .owner-picker{background:#22362B;color:#EAF4ED}.owner-ui .owner-picker select option{background:#22362B;color:#EAF4ED}}
 @media(max-width:359px){.owner-ui .owner-picker{padding:0 10px}}
 .owner-ui .oh-of{margin-left:4px;font-weight:600;color:var(--ink-soft);font-size:11px}
+
+/* Reachable actions on small touch screens and keyboard navigation. */
+.owner-ui .crew-code-btn,.owner-ui .shift-del,.owner-ui .crew-del,.owner-ui .switch-link{min-height:44px;min-width:44px}
+.owner-ui [data-trenddate]{min-height:44px}
+.owner-ui [role="button"]:focus-visible{outline:2px solid var(--brick);outline-offset:2px}
