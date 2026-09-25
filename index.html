@@ -1454,7 +1454,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   };
   function clearStaffAuthView(){
     maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
-    state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__";
+    state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__"; state.ownerStoreChoice=null;
     state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
     maneeRestoreSeq++;  // ...and so is an unfinished login/identity restore
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
@@ -6016,9 +6016,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     else html+=renderOwnerMore();
     html+='</main><nav class="bottom-nav" aria-label="주 메뉴">';
     [['홈','chart','dashboard',null,'home'],['직원','people','schedule',state.scheduleTab||'attendance','people'],['매출','chart','sales','sales','sales'],['운영','check','checklist',null,'operations'],['더보기','store','more',null,'more']].forEach(([label,icon,section,tab,key])=>{html+=ownerRouteButton(navIcon(icon)+'<span>'+label+'</span>',section,tab,group===key);});
-    html+='</nav>'+renderConfirmOverlay()+renderLightbox()+renderInfoModal();
+    html+='</nav>'+renderOwnerStoreChoice()+renderConfirmOverlay()+renderLightbox()+renderInfoModal();
     app.innerHTML=html;
-    bindOwnerEvents();bindOwnerUIEvents();bindConfirmOverlay();bindLightbox();bindInfoModal();
+    bindOwnerEvents();bindOwnerUIEvents();bindOwnerStoreChoice();bindConfirmOverlay();bindLightbox();bindInfoModal();
   }
   function bindAccessibleActions(){
     app.querySelectorAll('.cal-day[data-date],.cal-day[data-salesdate],.cal-day[data-salesformdate],[data-trenddate],[data-storetoggle],.crew-toggle-row').forEach(el=>{
@@ -6030,10 +6030,37 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function ownerNavigateFromOverview(section,go){
     const needsStore=!['dashboard','more','alerts'].includes(section);
     if(needsStore&&state.homeStore==='__all__'){
-      askConfirm('내 매장 전체를 조회 중이에요. '+state.store+' 매장으로 이동할까요?',()=>{state.homeStore=state.store;go();});
+      state.ownerStoreChoice={section,go};render();
       return;
     }
     go();
+  }
+  function renderOwnerStoreChoice(){
+    if(!state.ownerStoreChoice)return '';
+    const label={schedule:'직원',sales:'매출',checklist:'운영',settings:'매장 설정'}[state.ownerStoreChoice.section]||'메뉴';
+    return '<div class="confirm-overlay" id="owner-store-choice"><div class="confirm-box owner-store-choice" role="dialog" aria-modal="true" aria-labelledby="owner-store-choice-title"><h2 id="owner-store-choice-title">'+label+' · 매장 선택</h2><p>어느 매장을 볼까요?</p><div class="owner-store-choice-list">'+(state.myStores||[]).map((name,i)=>'<button type="button" data-owner-choose-store="'+i+'">'+escapeHtml(name)+'</button>').join('')+'</div><button type="button" id="owner-store-choice-close">취소</button></div></div>';
+  }
+  async function chooseOwnerWorkStore(name){
+    const pending=state.ownerStoreChoice;
+    if(!pending||!(state.myStores||[]).includes(name))return;
+    state.ownerStoreChoice=null;
+    const alive=maneeLoadGuard('ownerStoreChoice');
+    state.salesDraft=freshSalesDraft();state.salesEditingId=null;state.salesEditDate=null;
+    state.selectedDate=null;state.selectedSalesDate=null;state.expandedCrewIds={};
+    try{await switchOwnerStore(name);if(alive())await pending.go();}
+    catch(e){if(alive()){showToast('매장을 불러오지 못했어요. 다시 시도해 주세요.');render();}}
+  }
+  function bindOwnerStoreChoice(){
+    const overlay=document.getElementById('owner-store-choice');if(!overlay)return;
+    const close=()=>{state.ownerStoreChoice=null;render();document.getElementById('owner-store-select')?.focus();};
+    document.getElementById('owner-store-choice-close').onclick=close;
+    overlay.onclick=e=>{if(e.target===overlay)close();};
+    overlay.querySelectorAll('[data-owner-choose-store]').forEach(btn=>{btn.onclick=()=>chooseOwnerWorkStore(state.myStores[Number(btn.dataset.ownerChooseStore)]);});
+    const buttons=Array.from(overlay.querySelectorAll('button'));buttons[0]?.focus();
+    overlay.onkeydown=e=>{
+      if(e.key==='Escape'){e.preventDefault();close();}
+      if(e.key==='Tab'&&buttons.length){const first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
+    };
   }
   function bindOwnerUIEvents(){
     bindAccessibleActions();

@@ -45,12 +45,31 @@ test('store changes synchronize home and work context, including same-store sele
  state.homeStore='__all__';await context.switchOwnerStore('B');assert.equal(state.homeStore,'B');assert.equal(loaded.length,1);
  await context.switchOwnerStore('unknown');assert.equal(state.store,'B');assert.equal(state.homeStore,'B');
 });
-test('all-store overview requires explicit work-store confirmation and cancel leaves context intact',()=>{
- const state={homeStore:'__all__',store:'B'};let pending,message,navigated=0;
- const context={state,askConfirm:(text,go)=>{message=text;pending=go;}};vm.createContext(context);
+test('overview opens store choices without preselecting a store; direct routes do not prompt',()=>{
+ const state={homeStore:'__all__',store:'A',myStores:['A','B']};let navigated=0;
+ const context={state,render(){}};vm.createContext(context);
  vm.runInContext(section('ownerNavigateFromOverview','bindOwnerUIEvents'),context);
- context.ownerNavigateFromOverview('sales',()=>navigated++);assert.equal(navigated,0);assert.match(message,/B/);assert.equal(state.homeStore,'__all__');
- pending();assert.equal(navigated,1);assert.equal(state.homeStore,'B');
- context.ownerNavigateFromOverview('schedule',()=>navigated++);assert.equal(navigated,2);
- state.homeStore='__all__';context.ownerNavigateFromOverview('dashboard',()=>navigated++);assert.equal(navigated,3);assert.equal(state.homeStore,'__all__');
+ context.ownerNavigateFromOverview('sales',()=>navigated++);assert.equal(navigated,0);assert.equal(state.store,'A');assert.equal(state.homeStore,'__all__');assert.equal(state.ownerStoreChoice.section,'sales');
+ state.ownerStoreChoice=null;assert.equal(state.homeStore,'__all__');
+ state.homeStore='B';context.ownerNavigateFromOverview('schedule',()=>navigated++);assert.equal(navigated,1);assert.equal(state.ownerStoreChoice,null);
+ state.homeStore='__all__';context.ownerNavigateFromOverview('dashboard',()=>navigated++);assert.equal(navigated,2);assert.equal(state.ownerStoreChoice,null);
+});
+test('choosing a store loads that store before the requested route and ignores double taps',async()=>{
+ const state={homeStore:'__all__',store:'A',myStores:['A','B']};const events=[];let finish;
+ const context={state,render(){},maneeLoadGuard:()=>()=>true,freshSalesDraft:()=>({}),showToast(){},switchOwnerStore:async name=>{events.push('load '+name);await new Promise(resolve=>finish=resolve);state.store=name;state.homeStore=name;}};
+ vm.createContext(context);vm.runInContext(section('ownerNavigateFromOverview','bindOwnerUIEvents'),context);
+ for(const route of ['schedule','sales','checklist']){
+  state.homeStore='__all__';context.ownerNavigateFromOverview(route,()=>events.push(route+' '+state.store));
+  await context.chooseOwnerWorkStore('unknown');assert.ok(state.ownerStoreChoice);
+  const pending=context.chooseOwnerWorkStore('B');assert.equal(state.ownerStoreChoice,null);
+  await context.chooseOwnerWorkStore('A');assert.equal(events.at(-1),'load B');finish();await pending;
+  assert.equal(events.at(-1),route+' B');assert.equal(state.homeStore,'B');
+ }
+ assert.equal(events.length,6);
+});
+test('store choice renders escaped store names as direct actions, without yes/no confirmation',()=>{
+ const state={ownerStoreChoice:{section:'sales'},myStores:['A','<B>']};
+ const context={state,escapeHtml:s=>s.replaceAll('<','&lt;').replaceAll('>','&gt;')};vm.createContext(context);
+ vm.runInContext(section('ownerNavigateFromOverview','bindOwnerUIEvents'),context);
+ const output=context.renderOwnerStoreChoice();assert.match(output,/매출 · 매장 선택/);assert.match(output,/&lt;B&gt;/);assert.match(output,/data-owner-choose-store="1"/);assert.doesNotMatch(output,/이동할까요|confirm-ok/);
 });

@@ -305,3 +305,11 @@
 .owner-ui .crew-code-btn,.owner-ui .shift-del,.owner-ui .crew-del,.owner-ui .switch-link{min-height:44px;min-width:44px}
 .owner-ui [data-trenddate]{min-height:44px}
 .owner-ui [role="button"]:focus-visible{outline:2px solid var(--brick);outline-offset:2px}
+
+/* Choose a work store directly from the all-store overview. */
+.owner-ui .owner-store-choice{max-height:80dvh;overflow:auto;text-align:left}
+.owner-ui .owner-store-choice h2{font-size:20px;margin:0 0 10px}
+.owner-ui .owner-store-choice-list{display:grid;gap:10px;margin-bottom:16px}
+.owner-ui .owner-store-choice button{width:100%;min-height:48px;border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:var(--cream);color:var(--ink);font:inherit;cursor:pointer;overflow-wrap:anywhere}
+.owner-ui .owner-store-choice-list button{text-align:left;font-weight:700}
+.owner-ui .owner-store-choice button:focus-visible{outline:2px solid var(--brick);outline-offset:2px}
