@@ -313,3 +313,29 @@
 .owner-ui .owner-store-choice button{width:100%;min-height:48px;border:1px solid var(--line);border-radius:12px;padding:12px 16px;background:var(--cream);color:var(--ink);font:inherit;cursor:pointer;overflow-wrap:anywhere}
 .owner-ui .owner-store-choice-list button{text-align:left;font-weight:700}
 .owner-ui .owner-store-choice button:focus-visible{outline:2px solid var(--brick);outline-offset:2px}
+
+/* Expense browsing and editing share the same stored rows and totals. */
+.expense-view-switch{display:flex;gap:4px;padding:4px;background:var(--cream);border:1px solid var(--line);border-radius:16px;margin:14px 0}
+.expense-view-switch button{flex:1;min-height:44px;border:0;border-radius:12px;background:transparent;color:var(--ink);font:inherit;font-weight:700}
+.expense-view-switch button[aria-pressed="true"]{background:var(--brick);color:#fff}
+.expense-group{border:1px solid var(--line);border-radius:18px;background:var(--card);margin:14px 0;overflow:hidden}
+.expense-group-heading{display:flex;align-items:center;gap:10px;justify-content:space-between;width:100%;margin:0;padding:16px;border:0;background:transparent;color:var(--ink);font:inherit;font-weight:700;text-align:left;min-height:56px}
+.expense-group-heading>span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}
+.expense-group-heading small{display:block;text-align:right;font-size:12px;color:var(--ink-soft);font-weight:400}
+.expense-view-row{display:flex;align-items:center;gap:10px;padding:14px 16px;border-top:1px solid var(--line);flex-wrap:wrap}
+.expense-view-detail{flex:1;min-width:95px;overflow-wrap:anywhere}
+.expense-view-detail small{display:block;color:var(--ink-soft);font-size:12px;white-space:pre-wrap}
+.expense-view-row>b{white-space:nowrap;font-variant-numeric:tabular-nums}
+.expense-view-row button{min-width:48px;min-height:44px}
+.expense-editor-overlay{position:fixed;inset:0;z-index:90;background:#0006;display:flex;align-items:flex-end;justify-content:center;padding:12px}
+.expense-editor{box-sizing:border-box;background:var(--card);color:var(--ink);width:100%;max-width:480px;max-height:90dvh;overflow-y:auto;overscroll-behavior:contain;border-radius:22px 22px 12px 12px;padding:20px;padding-bottom:max(20px,env(safe-area-inset-bottom))}
+.expense-editor-title{display:flex;align-items:center;justify-content:space-between}
+.expense-editor-title h2{margin:0;font-size:20px}.expense-editor-title button{background:none;border:0;color:inherit;font-size:28px;min-width:44px;min-height:44px}
+.expense-editor fieldset{border:0;padding:0;margin:0;min-width:0}.expense-editor label{display:block;font-weight:700;font-size:14px;margin:14px 0}
+.expense-editor input,.expense-editor select,.expense-editor textarea{box-sizing:border-box;display:block;margin-top:6px;width:100%;max-width:100%;min-height:46px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font:inherit;font-size:16px}
+.expense-editor-actions{display:flex;gap:10px;margin-top:16px}.expense-editor-actions button{flex:1;min-height:48px;border:1px solid var(--line);border-radius:12px;font:inherit;margin:0;background:var(--cream);color:var(--ink)}
+.expense-editor-actions .owner-primary{background:var(--brick);color:#fff}.expense-editor-delete{min-height:44px;display:block;margin:14px auto 0;border:0;background:none;color:var(--danger);font:inherit}
+.expense-editor button:disabled{opacity:.6;cursor:wait}body:has(.expense-editor-overlay){overflow:hidden}
+.expense-editor button:focus-visible,.expense-view-switch button:focus-visible,.expense-group-heading:focus-visible{outline:2px solid var(--brick);outline-offset:-3px}
+
+body:has(.expense-editor-overlay) .toast{z-index:110}

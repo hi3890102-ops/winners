@@ -840,14 +840,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     render();
   }
   function renderConfirmOverlay(){
-    if(!state.pendingConfirm) return "";
-    let html = '<div class="confirm-overlay" id="confirm-overlay">';
+    if(!state.pendingConfirm) return renderExpenseEditor();
+    let html = renderExpenseEditor()+'<div class="confirm-overlay" id="confirm-overlay">';
     html += '<div class="confirm-box"><p>'+state.pendingConfirm.message+'</p>';
     html += '<div class="confirm-row"><button class="cancel" id="confirm-cancel">아니오</button><button class="ok" id="confirm-ok">확인</button></div>';
     html += '</div></div>';
     return html;
   }
   function bindConfirmOverlay(){
+    bindExpenseUI();
     const overlay = document.getElementById("confirm-overlay");
     if(!overlay) return;
     document.getElementById("confirm-cancel").addEventListener("click", ()=>{ state.pendingConfirm = null; render(); });
@@ -1454,7 +1455,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   };
   function clearStaffAuthView(){
     maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
-    state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__"; state.ownerStoreChoice=null;
+    state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__"; state.ownerStoreChoice=null; state.expenseEditDraft=null; state.editingExpenseEntryId=null; state.expenseOpenGroups=[];
     state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
     maneeRestoreSeq++;  // ...and so is an unfinished login/identity restore
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
@@ -2285,6 +2286,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.homeStore = storeName;
     if(storeName === state.store) return;
     state.store = storeName;
+    state.expenseEditDraft=null;state.editingExpenseEntryId=null;state.expenseOpenGroups=[];
     state.showAddStoreForm = false;
     state.showVatDetail = false;
     state.vatData = null;
@@ -3073,6 +3075,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(tab === state.staffView) return;
     state.teamPage = null; tpCancelEdit(); state.teamProfile = null;
     state.showOwnerSalesForm = false;
+    state.showVatDetail = false;
     state.loading = true; render();
     if(tab === "checklist"){
       await Promise.all([ loadChecklist(state.store, bizToday()), loadChecklistLog(state.store, monthKey()) ]);
@@ -3427,7 +3430,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const { data, error } = await db.from('expense_entries').select('*').eq('store_id', storeId).gte('date', start).lte('date', end).order('created_at');
       if(error) throw error;
       if(!alive()) return;
-      state.expenseEntries = (data||[]).map(r=>({ id:r.id, date:r.date, description:r.description, amount:r.amount||0, category:r.category||null }));
+      state.expenseEntries = (data||[]).map(r=>({ id:r.id, date:r.date, description:r.description, amount:r.amount||0, category:r.category||null, memo:r.memo||'' }));
       clearReportDataFailed("지출");
     }catch(e){ if(alive()){ state.expenseEntries = []; markReportDataFailed("지출"); } }
   }
@@ -3767,21 +3770,64 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '</select>';
     return html;
   }
-  function renderExpenseEntryLine(e){
-    const canEdit = !MANEE_STAFF_AUTH_ENABLED || canDeleteFinancialData();
-    if(state.editingExpenseEntryId === e.id){
-      return '<div class="pay-list-item" style="flex-wrap:wrap;gap:6px;">'
-        +'<input type="text" data-editexpensedesc="'+e.id+'" value="'+escapeHtml(e.description)+'" style="flex:1;min-width:80px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;">'
-        +'<input type="number" min="0" inputmode="numeric" data-editexpenseamount="'+e.id+'" value="'+e.amount+'" style="width:90px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;">'
-        +expenseCategorySelectHtml('editexpensecategory', e.id, e.category)
-        +'<button class="crew-code-btn" data-saveexpense="'+e.id+'">저장</button>'
-        +'<button class="switch-link" data-cancelexpense="1">취소</button>'
-        +'</div>';
+  function expenseViewGroups(entries,mode){
+    const groups=new Map();
+    for(const e of entries){const key=mode==='date'?e.date:(e.description||'거래처 미지정');if(!groups.has(key))groups.set(key,{key,total:0,entries:[]});const g=groups.get(key);g.total+=Number(e.amount)||0;g.entries.push(e);}
+    return [...groups.values()].sort((a,b)=>mode==='date'?b.key.localeCompare(a.key):b.total-a.total||a.key.localeCompare(b.key,'ko')).map(g=>({...g,entries:g.entries.slice().sort((a,b)=>b.date.localeCompare(a.date))}));
+  }
+  function renderExpenseWorkspace(){
+    const entries=state.expenseEntries||[],mode=state.expenseViewMode||'vendor';
+    let html='<div class="expense-view-switch" role="group" aria-label="지출 보기 방식"><button type="button" data-expense-view="vendor" aria-pressed="'+(mode==='vendor')+'">거래처별</button><button type="button" data-expense-view="date" aria-pressed="'+(mode==='date')+'">날짜별</button></div>';
+    if(!entries.length)return html+'<div class="day-panel empty-note">이번 달 등록된 지출이 없어요.</div>';
+    if(mode==='vendor')html+='<p class="owner-note">거래처를 누르면 날짜별 내역이 펼쳐져요.</p>';
+    for(const g of expenseViewGroups(entries,mode)){
+      const key=mode+':'+g.key,open=mode==='date'||(state.expenseOpenGroups||[]).includes(key);
+      html+='<section class="expense-group">';
+      const title='<span>'+escapeHtml(g.key)+'</span><span><b>'+g.total.toLocaleString()+'원</b><small>'+g.entries.length+'건</small></span>';
+      html+=mode==='vendor'?'<button type="button" class="expense-group-heading" data-expense-group="'+escapeHtml(key)+'" aria-expanded="'+open+'">'+title+'<span aria-hidden="true">'+(open?'⌄':'›')+'</span></button>':'<h3 class="expense-group-heading">'+title+'</h3>';
+      if(open){
+        if(mode==='vendor')html+=vendorClassificationHtml(g.key,!MANEE_STAFF_AUTH_ENABLED||canManageBusinessData());
+        html+=g.entries.map(e=>'<div class="expense-view-row"><div class="expense-view-detail"><strong>'+escapeHtml(mode==='vendor'?e.date:e.description)+'</strong><small>'+escapeHtml(expenseCategoryLabel(e.category))+'</small>'+(e.memo?'<small>'+escapeHtml(e.memo)+'</small>':'')+'</div><b>'+Number(e.amount).toLocaleString()+'원</b>'+((!MANEE_STAFF_AUTH_ENABLED||canManageBusinessData())?'<button type="button" class="crew-code-btn" data-editexpense="'+e.id+'" aria-label="'+escapeHtml(e.date+' '+e.description+' 지출 수정')+'">수정</button>':'')+'</div>').join('');
+      }
+      html+='</section>';
     }
-    const catBadge = '<small style="color:var(--ink-soft);margin-left:6px;">'+escapeHtml(expenseCategoryLabel(e.category))+'</small>';
-    return '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+catBadge+'</span><span>'+Number(e.amount).toLocaleString()+'원'
-      +(canEdit ? ' <button class="crew-code-btn" data-editexpense="'+e.id+'" style="margin-left:6px;padding:2px 8px;font-size:11.5px;">수정</button><button class="shift-del" data-delexpense="'+e.id+'" style="margin-left:6px;">삭제</button>' : '')
-      +'</span></div>';
+    return html;
+  }
+  function renderExpenseEditor(){
+    const draft=state.expenseEditDraft;if(!draft||!state.editingExpenseEntryId)return '';
+    const disabled=state.expenseSaving?' disabled':'';
+    const vendors=[...new Set([draft.description,...(state.vendors||[]).map(v=>v.name)].filter(Boolean))];
+    return '<div class="expense-editor-overlay" id="expense-editor-overlay"><section class="expense-editor" role="dialog" aria-modal="true" aria-labelledby="expense-editor-title"><div class="expense-editor-title"><h2 id="expense-editor-title">지출 수정</h2><button type="button" data-expense-close aria-label="지출 수정 닫기"'+disabled+'>×</button></div><p class="owner-note">'+escapeHtml(state.store)+'</p><form id="expense-edit-form"><fieldset'+disabled+'><label>지출일<input type="date" name="date" required value="'+escapeHtml(draft.date)+'"></label><label>거래처<select name="description" required>'+vendors.map(v=>'<option'+(v===draft.description?' selected':'')+'>'+escapeHtml(v)+'</option>').join('')+'</select></label><label>금액 (원)<input type="number" inputmode="numeric" name="amount" min="0" max="2147483647" step="1" required value="'+escapeHtml(String(draft.amount))+'"></label><label>지출 분류<select name="category"><option value="">미분류</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'"'+(c.value===draft.category?' selected':'')+'>'+c.label+'</option>').join('')+'</select></label><label>메모 (선택)<textarea name="memo" maxlength="1000" rows="2">'+escapeHtml(draft.memo||'')+'</textarea></label></fieldset><p class="owner-note">분류는 이 지출 건에만 적용돼요. 날짜를 다른 달로 바꾸면 해당 월로 이동해요.</p><div class="expense-editor-actions"><button type="button" data-expense-close'+disabled+'>취소</button><button type="submit" class="owner-primary"'+disabled+'>'+(state.expenseSaving?'저장 중…':'저장하기')+'</button></div></form><button type="button" class="expense-editor-delete" id="expense-editor-delete"'+disabled+'>이 지출 삭제</button></section></div>';
+  }
+  function bindExpenseUI(){
+    const retry=document.getElementById('expense-retry');if(retry)retry.onclick=async()=>{retry.disabled=true;await loadExpenseEntries(state.store,monthKey());render();};
+    app.querySelectorAll('[data-expense-view]').forEach(b=>b.onclick=()=>{state.expenseViewMode=b.dataset.expenseView;render();});
+    app.querySelectorAll('[data-expense-group]').forEach(b=>b.onclick=()=>{const key=b.dataset.expenseGroup,open=state.expenseOpenGroups||[];state.expenseOpenGroups=open.includes(key)?open.filter(x=>x!==key):[...open,key];render();});
+    const overlay=document.getElementById('expense-editor-overlay');if(!overlay)return;
+    const form=document.getElementById('expense-edit-form');
+    form.oninput=()=>{if(!state.expenseEditDraft)return;for(const key of ['date','description','amount','category','memo'])state.expenseEditDraft[key]=form.elements.namedItem(key).value;};
+    form.onchange=form.oninput;
+    form.onsubmit=e=>{e.preventDefault();form.oninput();saveExpenseEntry(state.editingExpenseEntryId);};
+    overlay.querySelectorAll('[data-expense-close]').forEach(b=>b.onclick=cancelEditExpenseEntry);
+    overlay.onclick=e=>{if(e.target===overlay)cancelEditExpenseEntry();};
+    document.getElementById('expense-editor-delete').onclick=()=>{if(state.expenseSaving)return;const id=state.editingExpenseEntryId;askConfirm('이 지출을 삭제할까요?',()=>{state.expenseEditDraft=null;state.editingExpenseEntryId=null;deleteExpenseEntry(id);});};
+    const controls=Array.from(overlay.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)'));
+    if(!state.pendingConfirm)controls[0]?.focus();
+    overlay.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();cancelEditExpenseEntry();}if(e.key==='Tab'&&controls.length){const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}};
+  }
+  function expenseEditValid(draft){
+    if(!draft.description?.trim())return '거래처를 선택해 주세요.';
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)||Number.isNaN(Date.parse(draft.date))||new Date(draft.date).toISOString().slice(0,10)!==draft.date)return '올바른 지출일을 선택해 주세요.';
+    const amount=Number(draft.amount);if(String(draft.amount).trim()===''||!Number.isInteger(amount)||amount<0||amount>2147483647)return '금액을 0 이상의 정수로 입력해 주세요.';
+    if(draft.category&&!EXPENSE_CATEGORIES.some(c=>c.value===draft.category))return '지출 분류를 다시 선택해 주세요.';
+    if(String(draft.memo||'').length>1000)return '메모는 1,000자 이내로 입력해 주세요.';
+    return '';
+  }
+  function renderExpenseEntryLine(e){
+    const canEdit=!MANEE_STAFF_AUTH_ENABLED||canManageBusinessData(),canDelete=!MANEE_STAFF_AUTH_ENABLED||canDeleteFinancialData();
+    return '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'<small style="color:var(--ink-soft);margin-left:6px;">'+escapeHtml(expenseCategoryLabel(e.category))+'</small></span><span>'+Number(e.amount).toLocaleString()+'원'
+      +(canEdit?' <button class="crew-code-btn" data-editexpense="'+e.id+'">수정</button>':'')
+      +(canDelete?' <button class="shift-del" data-delexpense="'+e.id+'">삭제</button>':'')+'</span></div>';
   }
   function notifyOwnerOfExpenseChange(entry, actionLabel, actionTag){
     const storeId = currentStoreId();
@@ -3806,39 +3852,32 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     render();
     (async ()=>{ try{ await db.from('expense_entries').delete().eq('id', id); if(entry) notifyOwnerOfExpenseChange(entry,"삭제했","deleted"); }catch(e){} })();
   }
-  function startEditExpenseEntry(id){ state.editingExpenseEntryId = id; render(); }
-  function cancelEditExpenseEntry(){ state.editingExpenseEntryId = null; render(); }
+  function startEditExpenseEntry(id){
+    if(MANEE_STAFF_AUTH_ENABLED&&!canManageBusinessData())return;
+    const entry=(state.expenseEntries||[]).find(e=>e.id===id);if(!entry)return;
+    state.editingExpenseEntryId=id;state.expenseEditDraft={date:entry.date,description:entry.description,amount:String(entry.amount),category:entry.category||'',memo:entry.memo||''};render();
+  }
+  function cancelEditExpenseEntry(){ if(state.expenseSaving)return;state.editingExpenseEntryId=null;state.expenseEditDraft=null;render(); }
   async function saveExpenseEntry(id){
-    const entry = (state.expenseEntries||[]).find(e=>e.id===id);
-    if(!entry) return;
-    const descInp = app.querySelector('[data-editexpensedesc="'+id+'"]');
-    const amountInp = app.querySelector('[data-editexpenseamount="'+id+'"]');
-    const catInp = app.querySelector('[data-editexpensecategory="'+id+'"]');
-    const description = String(descInp ? descInp.value : entry.description).trim();
-    const amount = Math.max(0, Number(amountInp ? amountInp.value : entry.amount) || 0);
-    const category = catInp ? (catInp.value||null) : (entry.category||null);
-    if(!description){ showToast("내용을 입력해주세요."); return; }
-    if(MANEE_STAFF_AUTH_ENABLED){
-      try{
-        const r = await checkedBusinessMutation(db.from('expense_entries').update({ description, amount, category }).eq('id', id).select('id,description,amount,category'));
-        entry.description = r.description; entry.amount = r.amount; entry.category = r.category||null;
-        state.editingExpenseEntryId = null;
-        render();
-        showToast("지출 내역을 수정했어요.");
-        notifyOwnerOfExpenseChange(entry,"수정했","edited");
-      }catch(e){ businessError(e); }
-      return;
-    }
+    if(state.expenseSaving||(MANEE_STAFF_AUTH_ENABLED&&!canManageBusinessData()))return;
+    const entry=(state.expenseEntries||[]).find(e=>e.id===id),draft=state.expenseEditDraft;
+    if(!entry||!draft||state.editingExpenseEntryId!==id)return;
+    const invalid=expenseEditValid(draft);if(invalid){showToast(invalid);return;}
+    const storeId=currentStoreId();if(!storeId)return;
+    const alive=vendorMutationGuard(),month=monthKey();
+    const patch={date:draft.date,description:draft.description.trim(),amount:Number(draft.amount),category:draft.category||null,memo:String(draft.memo||'').trim()};
+    state.expenseSaving=true;render();
     try{
-      const { data, error } = await db.from('expense_entries').update({ description, amount, category }).eq('id', id).select('id');
-      if(error) throw error;
-      if(!data || data.length===0){ showToast("저장 권한이 없어서 반영되지 않았어요."); return; }
-    }catch(e){ showToast("저장에 실패했어요."); return; }
-    entry.description = description; entry.amount = amount; entry.category = category;
-    state.editingExpenseEntryId = null;
-    render();
-    showToast("지출 내역을 수정했어요.");
-    notifyOwnerOfExpenseChange(entry,"수정했","edited");
+      const saved=await checkedBusinessMutation(db.from('expense_entries').update(patch).eq('store_id',storeId).eq('id',id).select('id,date,description,amount,category,memo'));
+      if(!alive())return;
+      Object.assign(entry,saved);
+      if(!saved.date.startsWith(month))state.expenseEntries=state.expenseEntries.filter(e=>e.id!==id);
+      state.expenseEditDraft=null;state.editingExpenseEntryId=null;state.dashboardData=null;state.vatData=null;
+      if(state.ownerWork){state.ownerWork.loadedOnce=false;state.ownerWork.lastStartAt=0;}
+      showToast(saved.date.startsWith(month)?'지출 내역과 합계를 수정했어요.':saved.date.slice(0,7)+'월로 지출을 이동했어요.');
+      notifyOwnerOfExpenseChange(entry,'수정했','edited');
+    }catch(e){if(alive())businessError(e);}
+    finally{state.expenseSaving=false;render();}
   }
 
   async function loadAnnouncements(store){
@@ -5970,10 +6009,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     let html='<h2>매출</h2><div class="owner-tabs">'+ownerRouteButton('매출보고','sales','sales',state.salesSectionTab==='sales')+ownerRouteButton('지출','sales','expenses',state.salesSectionTab==='expenses')+ownerRouteButton('월간 리포트','sales','report',state.salesSectionTab==='report')+'</div>';
     if(state.salesSectionTab==='expenses'){
       html+='<div class="month-nav"><button id="prev-month" aria-label="이전 달">‹</button><span class="month-label">'+state.monthYear+'년 '+state.monthNum+'월</span><button id="next-month" aria-label="다음 달">›</button></div>'+renderOwnerExpenseSummary();
-      html+='<div class="day-panel"><h3>지출 내역</h3>';
-      [...state.expenseEntries].sort((a,b)=>b.date.localeCompare(a.date)).forEach(e=>{html+='<p class="crew-code-hint">'+escapeHtml(e.date)+'</p>'+renderExpenseEntryLine(e);});
-      if(!state.expenseEntries.length)html+='<p class="empty-note">이 달에 등록한 지출이 없어요.</p>';
-      return html+'</div>';
+      return html;
     }
     return html+(state.salesSectionTab==='report'?renderMonthlyReport():renderSalesReportsOwnerTab());
   }
@@ -6076,6 +6112,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
           }
         }
         if(state.section==='sales')state.salesSectionTab=button.dataset.ownerTab||'sales';
+        if(state.section!=='sales'||state.salesSectionTab!=='report')state.showVatDetail=false;
         render();window.scrollTo(0,0);
       };
       if(state.showOwnerSalesForm) askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else ownerNavigateFromOverview(button.dataset.ownerRoute,go);
@@ -8855,6 +8892,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function renderOwnerExpenseSummary(){
+    if(state.reportDataFailed?.has('지출'))return '<div class="day-panel" role="alert"><h3>지출을 불러오지 못했어요</h3><p>합계를 확인하려면 다시 불러와 주세요.</p><button type="button" class="crew-code-btn" id="expense-retry">다시 불러오기</button></div>';
     const y=state.monthYear,m=state.monthNum;
     let totalExpenseMonth = 0;
     state.expenseEntries.forEach(e=> totalExpenseMonth += Number(e.amount)||0);
@@ -8869,26 +8907,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<p class="meta">매출 대비 '+(expenseRatio!==null ? expenseRatio.toFixed(1) : "0.0")+'%</p>';
     html += '</div>';
 
-    const vendorBreakdown = computeVendorBreakdown();
     html += '<div class="day-panel" style="margin-bottom:14px;">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h3 style="margin:0;">거래처별 지출 (이번 달 누적)</h3></div>';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h3 style="margin:0;">지출 내역 (이번 달 누적)</h3></div>';
     html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
     html += '<button class="crew-code-btn" id="toggle-vendor-manage-btn" style="flex:1;background:var(--brick);color:#fff;border-color:var(--brick);">'+(state.showVendorManage?'거래처 관리 닫기':'📋 거래처 관리')+'</button>';
     html += '<button class="crew-code-btn" id="export-expense-excel-btn" style="flex:1;">엑셀로 내보내기</button>';
     html += '</div>';
     if(state.showVendorManage) html += renderVendorManage();
-    const canClassify = !MANEE_STAFF_AUTH_ENABLED || canManageBusinessData();
-    if(vendorBreakdown.length===0){
-      html += '<div class="empty-note" style="padding:8px 0;">이번 달 등록된 지출이 없어요.</div>';
-    }else{
-      vendorBreakdown.forEach(v=>{
-        const pct = totalExpenseMonth>0 ? (v.amount/totalExpenseMonth*100) : 0;
-        html += '<div class="pay-list-item"><span class="d">'+escapeHtml(v.name)+'</span><span>'+v.amount.toLocaleString()+'원 · '+pct.toFixed(1)+'%</span></div>';
-        if(typeof vendorClassificationHtml==='function') html += vendorClassificationHtml(v.name,canClassify);
-      });
-    }
-    html += '</div>';
-
+    html += '</div>'+renderExpenseWorkspace();
     return html;
   }
   function toggleClassifyVendor(name){ state.classifyVendor = state.classifyVendor===name ? null : name; render(); }
