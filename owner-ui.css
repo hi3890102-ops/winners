@@ -339,3 +339,11 @@
 .expense-editor button:focus-visible,.expense-view-switch button:focus-visible,.expense-group-heading:focus-visible{outline:2px solid var(--brick);outline-offset:-3px}
 
 body:has(.expense-editor-overlay) .toast{z-index:110}
+
+.expense-amount-control{display:flex;align-items:center;gap:6px;flex:1 1 155px;min-width:155px}
+.expense-amount-control input{width:100%;min-width:0!important;font-size:16px!important;flex:1}
+.expense-minus{flex:0 0 44px!important;min-height:44px;font-size:24px!important;border:1px solid #bdcfc4!important;border-radius:10px;background:#f4f7f4!important;color:#173e31!important}
+.expense-minus[aria-pressed="true"]{background:#173e31!important;color:white!important}
+.expense-memo-input{flex:1 1 100%!important;min-width:0!important;font-size:16px!important}
+.add-row:has(.expense-amount-control){flex-wrap:wrap}
+.expense-entry-memo{display:block;font-size:12px;color:var(--ink-soft);overflow-wrap:anywhere}

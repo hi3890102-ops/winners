@@ -17,10 +17,11 @@ test('vendor totals and daily totals derive from the same rows after edits',()=>
  assert.equal(c.expenseViewGroups([], 'date').length,0);
  assert.equal(c.expenseViewGroups([{...rows[0],description:'__proto__'}],'vendor')[0].total,100);
 });
-test('expense input rejects invalid dates, blank/negative/fractional/overflow amounts and invalid category',()=>{
+test('expense input rejects invalid dates, blank/fractional/overflow amounts and invalid category',()=>{
  const c=context();vm.runInContext(fn('expenseEditValid'),c);const good={date:'2026-09-24',description:'A',amount:'100',category:'food',memo:''};
  assert.equal(c.expenseEditValid(good),'');
- for(const change of [{date:'2026-02-30'},{date:''},{amount:''},{amount:'-1'},{amount:'1.5'},{amount:'Infinity'},{amount:'2147483648'},{category:'unknown'},{memo:'a'.repeat(1001)}])assert.ok(c.expenseEditValid({...good,...change}));
+ assert.equal(c.expenseEditValid({...good,amount:'-20000'}),'');
+ for(const change of [{date:'2026-02-30'},{date:''},{amount:''},{amount:'1.5'},{amount:'Infinity'},{amount:'2147483648'},{category:'unknown'},{memo:'a'.repeat(1001)}])assert.ok(c.expenseEditValid({...good,...change}));
 });
 function saveContext(){
  const entry={...rows[0],category:null,memo:''},state={expenseEntries:[entry],editingExpenseEntryId:'1',expenseEditDraft:{date:'2026-10-02',description:'B',amount:'120',category:'food',memo:'배송'},ownerWork:{loadedOnce:true}};
@@ -47,4 +48,22 @@ test('memo migration is additive and preserves preexisting amounts and descripti
  const db=new PGlite();await db.exec("create table expense_entries(id integer,date date,description text,amount integer); insert into expense_entries values(1,'2026-09-24','A',100);");
  const sql=fs.readFileSync(new URL('../supabase/migrations/20260926071849_expense_entry_memo.sql',import.meta.url),'utf8');await db.exec(sql);await db.exec(sql);
  const r=await db.query('select description,amount,memo from expense_entries');assert.deepEqual(r.rows,[{description:'A',amount:100,memo:null}]);await db.close();
+});
+
+test('bottle returns subtract from both vendor and date totals',()=>{
+ const c=context();vm.runInContext(fn('expenseViewGroups'),c);
+ const list=[{date:'2026-09-28',description:'주류',amount:300000},{date:'2026-09-28',description:'주류',amount:-20000}];
+ for(const mode of ['vendor','date'])assert.equal(c.expenseViewGroups(list,mode)[0].total,280000);
+});
+for(const [name,prefix] of [['addExpenseEntry',''],['addQuickExpenseEntry','quick-']])test(name+' preserves signed amount and memo on registration',async()=>{
+ const state={expenseEntries:[],vendors:[]},elements={};
+ elements[prefix+'expense-vendor-select']={value:'v1',selectedIndex:0,options:[{text:'주류'}]};
+ elements[prefix+'expense-amount-input']={value:'-20000'};
+ elements[prefix+'expense-category-select']={value:'beverage'};
+ elements[prefix+'expense-memo-input']={value:'공병 반환'};
+ let sent;const q={insert(p){sent=p;return this},select(){return this},async single(){return {data:{id:'entry1',...sent}}}};
+ const c=context({state,document:{getElementById:id=>elements[id]},vendorCategoryValid:()=>true,currentStoreId:()=> 'storeA',bizToday:()=> '2026-09-28',vendorMutationGuard:()=>()=>true,vendorMutationLocks:new Set(),db:{from:()=>q}});
+ vm.runInContext(fn(name),c);await c[name]();
+ assert.equal(sent.amount,-20000);assert.equal(sent.memo,'공병 반환');assert.equal(state.expenseEntries[0].memo,'공병 반환');
+ elements[prefix+'expense-amount-input'].value='-';sent=null;await c[name]();assert.equal(sent,null);
 });

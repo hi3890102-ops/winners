@@ -3623,13 +3623,13 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   async function addExpenseEntry(){
     const vendorSel = document.getElementById("expense-vendor-select");
     const amtInp = document.getElementById("expense-amount-input");
-    const signBtn = document.getElementById("expense-sign-btn");
+    const memo = (document.getElementById("expense-memo-input")?.value||" ").trim();
     const catSel = document.getElementById("expense-category-select");
     if(!vendorSel || !amtInp) return;
     const vendorId = vendorSel.value;
     const vendorName = vendorSel.options[vendorSel.selectedIndex] ? vendorSel.options[vendorSel.selectedIndex].text : "";
-    const sign = signBtn && signBtn.getAttribute("data-sign")==="-1" ? -1 : 1;
-    const amount = sign * (parseInt(amtInp.value||"0",10));
+    const amount = Number(amtInp.value);
+    if(!Number.isInteger(amount)||Math.abs(amount)>2147483647||memo.length>1000){showToast("금액은 정수로, 비고는 1,000자 이내로 입력해 주세요.");return;}
     const category = catSel ? (catSel.value||null) : null;
     if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
     if(!vendorCategoryValid(category) && !(category===null && state.vendors.find(v=>v.id===vendorId)?.defaultCategory==='per_entry')){ showToast("지출 분류를 선택해 주세요."); return; }
@@ -3638,10 +3638,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const key=storeId+':add-expense', alive=vendorMutationGuard();
     if(vendorMutationLocks.has(key))return;vendorMutationLocks.add(key);
     try{
-      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount, category }).select().single();
+      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount, category, memo }).select().single();
       if(error || !data) throw error || Error('No saved row');
       if(!alive())return;
-      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount, category:data.category||null });
+      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount, category:data.category||null, memo:data.memo||'' });
       amtInp.value = ""; if(catSel) catSel.value = "";
       render();
     }catch(e){ if(alive())showToast("지출 저장에 실패했어요."); }
@@ -3650,13 +3650,13 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   async function addQuickExpenseEntry(){
     const vendorSel = document.getElementById("quick-expense-vendor-select");
     const amtInp = document.getElementById("quick-expense-amount-input");
-    const signBtn = document.getElementById("quick-expense-sign-btn");
+    const memo = (document.getElementById("quick-expense-memo-input")?.value||" ").trim();
     const catSel = document.getElementById("quick-expense-category-select");
     if(!vendorSel || !amtInp) return;
     const vendorId = vendorSel.value;
     const vendorName = vendorSel.options[vendorSel.selectedIndex] ? vendorSel.options[vendorSel.selectedIndex].text : "";
-    const sign = signBtn && signBtn.getAttribute("data-sign")==="-1" ? -1 : 1;
-    const amount = sign * (parseInt(amtInp.value||"0",10));
+    const amount = Number(amtInp.value);
+    if(!Number.isInteger(amount)||Math.abs(amount)>2147483647||memo.length>1000){showToast("금액은 정수로, 비고는 1,000자 이내로 입력해 주세요.");return;}
     const category = catSel ? (catSel.value||null) : null;
     if(!vendorId || !amount){ showToast("거래처와 금액을 입력해 주세요."); return; }
     if(!vendorCategoryValid(category) && !(category===null && state.vendors.find(v=>v.id===vendorId)?.defaultCategory==='per_entry')){ showToast("지출 분류를 선택해 주세요."); return; }
@@ -3665,10 +3665,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const key=storeId+':add-expense', alive=vendorMutationGuard();
     if(vendorMutationLocks.has(key))return;vendorMutationLocks.add(key);
     try{
-      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount, category }).select().single();
+      const { data, error } = await db.from('expense_entries').insert({ store_id: storeId, date: dateStr, description: vendorName, amount, category, memo }).select().single();
       if(error || !data) throw error || Error('No saved row');
       if(!alive())return;
-      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount, category:data.category||null });
+      state.expenseEntries.push({ id:data.id, date:data.date, description: vendorName, amount, category:data.category||null, memo:data.memo||'' });
       amtInp.value = ""; if(catSel) catSel.value = "";
       render();
       showToast("지출을 등록했어요. 오늘 매출보고에 자동으로 반영돼요.");
@@ -3770,6 +3770,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '</select>';
     return html;
   }
+  function expenseAmountInputHtml(id,value){
+    return '<span class="expense-amount-control"><button type="button" class="expense-minus" data-expense-minus="'+id+'" aria-label="마이너스 금액 전환" aria-pressed="'+String(value).startsWith('-')+'">−</button><input id="'+id+'" name="amount" type="text" inputmode="numeric" autocomplete="off" aria-label="금액 (원)" placeholder="금액" value="'+escapeHtml(String(value))+'"></span>';
+  }
   function expenseViewGroups(entries,mode){
     const groups=new Map();
     for(const e of entries){const key=mode==='date'?e.date:(e.description||'거래처 미지정');if(!groups.has(key))groups.set(key,{key,total:0,entries:[]});const g=groups.get(key);g.total+=Number(e.amount)||0;g.entries.push(e);}
@@ -3797,9 +3800,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const draft=state.expenseEditDraft;if(!draft||!state.editingExpenseEntryId)return '';
     const disabled=state.expenseSaving?' disabled':'';
     const vendors=[...new Set([draft.description,...(state.vendors||[]).map(v=>v.name)].filter(Boolean))];
-    return '<div class="expense-editor-overlay" id="expense-editor-overlay"><section class="expense-editor" role="dialog" aria-modal="true" aria-labelledby="expense-editor-title"><div class="expense-editor-title"><h2 id="expense-editor-title">지출 수정</h2><button type="button" data-expense-close aria-label="지출 수정 닫기"'+disabled+'>×</button></div><p class="owner-note">'+escapeHtml(state.store)+'</p><form id="expense-edit-form"><fieldset'+disabled+'><label>지출일<input type="date" name="date" required value="'+escapeHtml(draft.date)+'"></label><label>거래처<select name="description" required>'+vendors.map(v=>'<option'+(v===draft.description?' selected':'')+'>'+escapeHtml(v)+'</option>').join('')+'</select></label><label>금액 (원)<input type="number" inputmode="numeric" name="amount" min="0" max="2147483647" step="1" required value="'+escapeHtml(String(draft.amount))+'"></label><label>지출 분류<select name="category"><option value="">미분류</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'"'+(c.value===draft.category?' selected':'')+'>'+c.label+'</option>').join('')+'</select></label><label>메모 (선택)<textarea name="memo" maxlength="1000" rows="2">'+escapeHtml(draft.memo||'')+'</textarea></label></fieldset><p class="owner-note">분류는 이 지출 건에만 적용돼요. 날짜를 다른 달로 바꾸면 해당 월로 이동해요.</p><div class="expense-editor-actions"><button type="button" data-expense-close'+disabled+'>취소</button><button type="submit" class="owner-primary"'+disabled+'>'+(state.expenseSaving?'저장 중…':'저장하기')+'</button></div></form><button type="button" class="expense-editor-delete" id="expense-editor-delete"'+disabled+'>이 지출 삭제</button></section></div>';
+    return '<div class="expense-editor-overlay" id="expense-editor-overlay"><section class="expense-editor" role="dialog" aria-modal="true" aria-labelledby="expense-editor-title"><div class="expense-editor-title"><h2 id="expense-editor-title">지출 수정</h2><button type="button" data-expense-close aria-label="지출 수정 닫기"'+disabled+'>×</button></div><p class="owner-note">'+escapeHtml(state.store)+'</p><form id="expense-edit-form"><fieldset'+disabled+'><label>지출일<input type="date" name="date" required value="'+escapeHtml(draft.date)+'"></label><label>거래처<select name="description" required>'+vendors.map(v=>'<option'+(v===draft.description?' selected':'')+'>'+escapeHtml(v)+'</option>').join('')+'</select></label><label>금액 (원)'+expenseAmountInputHtml('edit-expense-amount',draft.amount)+'</label><label>지출 분류<select name="category"><option value="">미분류</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'"'+(c.value===draft.category?' selected':'')+'>'+c.label+'</option>').join('')+'</select></label><label>비고 (선택)<textarea name="memo" maxlength="1000" rows="2">'+escapeHtml(draft.memo||'')+'</textarea></label></fieldset><p class="owner-note">분류는 이 지출 건에만 적용돼요. 날짜를 다른 달로 바꾸면 해당 월로 이동해요.</p><div class="expense-editor-actions"><button type="button" data-expense-close'+disabled+'>취소</button><button type="submit" class="owner-primary"'+disabled+'>'+(state.expenseSaving?'저장 중…':'저장하기')+'</button></div></form><button type="button" class="expense-editor-delete" id="expense-editor-delete"'+disabled+'>이 지출 삭제</button></section></div>';
   }
   function bindExpenseUI(){
+    app.querySelectorAll('[data-expense-minus]').forEach(button=>{
+      const input=document.getElementById(button.dataset.expenseMinus);if(!input)return;
+      const sync=()=>button.setAttribute('aria-pressed',String(input.value.startsWith('-')));
+      input.addEventListener('input',sync);
+      button.onclick=()=>{if(state.expenseSaving)return;input.value=input.value.startsWith('-')?input.value.slice(1):'-'+input.value;sync();input.dispatchEvent(new Event('input',{bubbles:true}));};
+    });
     const retry=document.getElementById('expense-retry');if(retry)retry.onclick=async()=>{retry.disabled=true;await loadExpenseEntries(state.store,monthKey());render();};
     app.querySelectorAll('[data-expense-view]').forEach(b=>b.onclick=()=>{state.expenseViewMode=b.dataset.expenseView;render();});
     app.querySelectorAll('[data-expense-group]').forEach(b=>b.onclick=()=>{const key=b.dataset.expenseGroup,open=state.expenseOpenGroups||[];state.expenseOpenGroups=open.includes(key)?open.filter(x=>x!==key):[...open,key];render();});
@@ -3818,14 +3827,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function expenseEditValid(draft){
     if(!draft.description?.trim())return '거래처를 선택해 주세요.';
     if(!/^\d{4}-\d{2}-\d{2}$/.test(draft.date)||Number.isNaN(Date.parse(draft.date))||new Date(draft.date).toISOString().slice(0,10)!==draft.date)return '올바른 지출일을 선택해 주세요.';
-    const amount=Number(draft.amount);if(String(draft.amount).trim()===''||!Number.isInteger(amount)||amount<0||amount>2147483647)return '금액을 0 이상의 정수로 입력해 주세요.';
+    const amount=Number(draft.amount);if(String(draft.amount).trim()===''||!Number.isInteger(amount)||Math.abs(amount)>2147483647)return '금액을 정수로 입력해 주세요. 마이너스 금액도 가능해요.';
     if(draft.category&&!EXPENSE_CATEGORIES.some(c=>c.value===draft.category))return '지출 분류를 다시 선택해 주세요.';
     if(String(draft.memo||'').length>1000)return '메모는 1,000자 이내로 입력해 주세요.';
     return '';
   }
   function renderExpenseEntryLine(e){
     const canEdit=!MANEE_STAFF_AUTH_ENABLED||canManageBusinessData(),canDelete=!MANEE_STAFF_AUTH_ENABLED||canDeleteFinancialData();
-    return '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'<small style="color:var(--ink-soft);margin-left:6px;">'+escapeHtml(expenseCategoryLabel(e.category))+'</small></span><span>'+Number(e.amount).toLocaleString()+'원'
+    return '<div class="pay-list-item"><span class="d">'+escapeHtml(e.description)+'<small style="color:var(--ink-soft);margin-left:6px;">'+escapeHtml(expenseCategoryLabel(e.category))+'</small>'+(e.memo?'<small class="expense-entry-memo">'+escapeHtml(e.memo)+'</small>':'')+'</span><span>'+Number(e.amount).toLocaleString()+'원'
       +(canEdit?' <button class="crew-code-btn" data-editexpense="'+e.id+'">수정</button>':'')
       +(canDelete?' <button class="shift-del" data-delexpense="'+e.id+'">삭제</button>':'')+'</span></div>';
   }
@@ -6930,8 +6939,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       state.vendors.forEach(v=> html += '<option value="'+v.id+'">'+escapeHtml(v.name)+'</option>');
       html += '</select>';
       html += '<select id="quick-expense-category-select" class="field-input" style="flex:0 0 92px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select>';
-      html += '<input id="quick-expense-amount-input" type="number" min="0" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
-      html += '<button type="button" id="quick-expense-sign-btn" class="crew-code-btn" data-sign="1" style="flex:0 0 auto;">지출</button>';
+      html += expenseAmountInputHtml("quick-expense-amount-input", "");
+      html += '<input id="quick-expense-memo-input" class="expense-memo-input" type="text" maxlength="1000" aria-label="비고 (선택)" placeholder="비고 (선택 · 예: 공병 반환)">';
       html += '<button id="add-quick-expense-btn">등록</button>';
       html += '</div>';
       html += '<p class="crew-code-hint" style="margin-top:6px;">오늘 등록한 지출은 매출보고에 자동으로 반영돼요.</p>';
@@ -7876,8 +7885,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       state.vendors.forEach(v=> html += '<option value="'+v.id+'">'+escapeHtml(v.name)+'</option>');
       html += '</select>';
       html += '<select id="expense-category-select" class="field-input" style="flex:0 0 92px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select>';
-      html += '<input id="expense-amount-input" type="number" min="0" placeholder="금액" style="max-width:100px;flex:0 0 100px;">';
-      html += '<button type="button" id="expense-sign-btn" class="crew-code-btn" data-sign="1" style="flex:0 0 auto;">지출</button>';
+      html += expenseAmountInputHtml("expense-amount-input", "");
+      html += '<input id="expense-memo-input" class="expense-memo-input" type="text" maxlength="1000" aria-label="비고 (선택)" placeholder="비고 (선택 · 예: 공병 반환)">';
       html += '<button id="add-expense-btn">추가</button>';
       html += '</div>';
     }
@@ -9717,12 +9726,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     bindVendorExpenseDefault('quick-');
     const addQuickExpenseBtn = document.getElementById("add-quick-expense-btn");
     if(addQuickExpenseBtn) addQuickExpenseBtn.addEventListener("click", addQuickExpenseEntry);
-    const quickExpenseSignBtn = document.getElementById("quick-expense-sign-btn");
-    if(quickExpenseSignBtn) quickExpenseSignBtn.addEventListener("click", ()=>{
-      const negative = quickExpenseSignBtn.getAttribute("data-sign")==="-1";
-      quickExpenseSignBtn.setAttribute("data-sign", negative?"1":"-1");
-      quickExpenseSignBtn.textContent = negative?"지출":"반품(-)";
-    });
     const addReservationBtn = document.getElementById("add-reservation-btn");
     if(addReservationBtn) addReservationBtn.addEventListener("click", addReservation);
     const showReservationFormBtn = document.getElementById("show-reservation-form-btn");
@@ -9783,12 +9786,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     bindVendorClassificationEvents();
     const addExpenseBtnForm = document.getElementById("add-expense-btn");
     if(addExpenseBtnForm) addExpenseBtnForm.addEventListener("click", addExpenseEntry);
-    const expenseSignBtn = document.getElementById("expense-sign-btn");
-    if(expenseSignBtn) expenseSignBtn.addEventListener("click", ()=>{
-      const negative = expenseSignBtn.getAttribute("data-sign")==="-1";
-      expenseSignBtn.setAttribute("data-sign", negative?"1":"-1");
-      expenseSignBtn.textContent = negative?"지출":"반품(-)";
-    });
     app.querySelectorAll("[data-delexpense]").forEach(btn=>{
       btn.onclick = ()=> deleteExpenseEntry(btn.getAttribute("data-delexpense"));
     });
