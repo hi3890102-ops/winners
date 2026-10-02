@@ -1466,7 +1466,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
     state.staffSignupUsernameCheck=null;state.ownerRequestUsernameCheck=null;
     state.items={};state.checks={};state.checklistLog={};state.homeChecklistItems={};state.homeChecklistChecks={};
-    state.fixedExpenses=[];state.monthlyPayrolls=[];state.payAdjustments=[];state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
+    state.fixedExpenses=[];state.monthlyPayrolls=[];state.payAdjustments=[];state.businessCalendar=null;state.calendarDraft=null;state.ownerHqNotices=[];state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
     state.staffPersonalProfile=null;
     state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
     state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
@@ -1566,7 +1566,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(!alive()) return;
       state.crew=crewRows;
       const me=state.crew.find(c=>c.id===state.myCrewId);
-      const tasks=[loadMonthlyNetPayroll(store,monthKey()),loadPayAdjustments(store,monthKey()),loadRatioLimits(store),loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
+      const tasks=[loadMonthlyNetPayroll(store,monthKey()),loadPayAdjustments(store,monthKey()),loadRatioLimits(store),loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadBusinessCalendar(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
       if(me && (me.salesAccess || me.isManager)) tasks.push(loadSalesReports(store,monthKey()),loadExpenseEntries(store,monthKey()),loadVendors(store));
       else { state.salesReports=[]; state.expenseEntries=[]; state.vendors=[]; }
       await Promise.all(tasks);
@@ -3940,6 +3940,62 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     finally{state.expenseSaving=false;render();}
   }
 
+  function storeClosedOn(date,calendar){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date)))return false;
+    if((calendar?.open_dates||[]).includes(date))return false;
+    return (calendar?.closed_dates||[]).includes(date)||(calendar?.closed_weekdays||[]).includes(new Date(date+'T12:00:00Z').getUTCDay());
+  }
+  async function loadBusinessCalendar(store){
+    const alive=maneeLoadGuard('businessCalendar'),sid=state.storeIdMap[store];
+    state.businessCalendar=null;state.calendarDraft=null;state.calendarFailed=false;
+    if(!sid)return;
+    try{const r=await db.from('store_business_calendar').select('closed_weekdays,closed_dates,open_dates').eq('store_id',sid).maybeSingle();
+      if(r.error)throw r.error;if(!alive())return;state.businessCalendar=r.data||{closed_weekdays:[],closed_dates:[],open_dates:[]};
+    }catch(e){if(alive())state.calendarFailed=true;}
+  }
+  function calendarDraft(){
+    if(!state.calendarDraft)state.calendarDraft=JSON.parse(JSON.stringify(state.businessCalendar||{closed_weekdays:[],closed_dates:[],open_dates:[]}));
+    return state.calendarDraft;
+  }
+  function renderBusinessCalendar(){
+    let html='<div class="day-panel"><h3>매장 휴무일</h3><p class="crew-code-hint">직원 휴무·무급휴무와 별개예요. 휴무일에도 매출보고가 있으면 실제 영업일로 집계해요.</p>';
+    if(state.calendarFailed)return html+'<p role="alert">휴무일 조회 실패</p><button id="calendar-retry-btn">다시 불러오기</button></div>';
+    if(!state.businessCalendar)return html+'<p>매장 휴무일을 불러오는 중이에요.</p></div>';
+    const d=calendarDraft();
+    ['일','월','화','수','목','금','토'].forEach((label,i)=>html+='<label style="display:inline-block;margin:6px;"><input type="checkbox" data-calendar-weekday="'+i+'"'+(d.closed_weekdays.includes(i)?' checked':'')+'> '+label+'</label>');
+    for(const [key,label] of [['closed_dates','특별 휴무'],['open_dates','휴무일 영업 예외']]){
+      html+='<h4>'+label+'</h4><input type="date" id="calendar-'+key+'"><button type="button" data-calendar-add="'+key+'">추가</button>';
+      d[key].forEach(date=>html+='<button type="button" data-calendar-remove="'+key+'" data-calendar-date="'+date+'">'+date+' ×</button>');
+    }
+    return html+'<button type="button" id="calendar-save-btn">휴무일 저장</button></div>';
+  }
+  async function saveBusinessCalendar(){
+    if(!canManageBusinessData()||state.calendarFailed||!state.businessCalendar||state.calendarSaving)return;
+    const sid=currentStoreId(),uid=state.authProfile?.user_id,epoch=maneeViewEpoch,d=JSON.parse(JSON.stringify(calendarDraft()));
+    const alive=()=>sid===currentStoreId()&&uid===state.authProfile?.user_id&&epoch===maneeViewEpoch;
+    state.calendarSaving=true;
+    try{const row=await checkedBusinessMutation(db.from('store_business_calendar').upsert({...d,store_id:sid,updated_at:new Date().toISOString()},{onConflict:'store_id'}).select('closed_weekdays,closed_dates,open_dates'));
+      if(!alive())return;state.businessCalendar=row;state.calendarDraft=null;render();showToast('매장 휴무일을 저장했어요.');
+    }catch(e){if(alive())showToast('휴무일 저장에 실패했어요. 입력 내용은 유지돼요.');}
+    finally{state.calendarSaving=false;}
+  }
+  async function loadHqNotices(store){
+    const alive=maneeLoadGuard('hqNotices'),sid=state.storeIdMap[store];state.ownerHqNotices=[];state.hqNoticesFailed=false;
+    if(!sid)return;
+    try{const [r,storeRow]=await Promise.all([db.from('hq_announcements').select('id,title,body,target_type,target_id,created_at').order('created_at',{ascending:false}).limit(100),db.from('stores').select('franchise_id').eq('id',sid).maybeSingle()]);
+      if(storeRow.error)throw storeRow.error;
+      if(r.error)throw r.error;if(!alive())return;
+      state.ownerHqNotices=(r.data||[]).filter(a=>a.target_type==='all'||a.target_type==='store'&&a.target_id===sid||a.target_type==='franchise'&&a.target_id===storeRow.data?.franchise_id);
+    }catch(e){if(alive())state.hqNoticesFailed=true;}
+  }
+  function renderHqNotices(){
+    let html='<div class="day-panel"><h3>매니 본사 공지</h3>';
+    if(state.hqNoticesFailed)return html+'<p role="alert">본사 공지 조회 실패</p><button id="hq-notice-retry-btn">다시 불러오기</button></div>';
+    const rows=state.ownerHqNotices||[];
+    if(!rows.length)html+='<p class="crew-code-hint">현재 매장에 전달된 본사 공지가 없어요.</p>';
+    rows.forEach(a=>html+='<details><summary>'+escapeHtml(a.title)+' · '+escapeHtml(String(a.created_at).slice(0,10))+'</summary><p style="white-space:pre-wrap;">'+escapeHtml(a.body||'')+'</p></details>');
+    return html+'</div>';
+  }
   async function loadAnnouncements(store){
     const storeId = state.storeIdMap[store];
     const alive = maneeLoadGuard("announcements");
@@ -4376,6 +4432,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       loadFixedExpenses(store, monthKey()),
       loadChecklistLog(store, monthKey()),
       loadAnnouncements(store),
+      loadBusinessCalendar(store),
+      loadHqNotices(store),
       loadTodayReservations(store),
       loadUpcomingReservations(store),
       loadPayAdjustments(store, monthKey()),
@@ -4416,6 +4474,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       loadShifts(store, monthKey()),
       loadAttendance(store, monthKey()),
       loadAnnouncements(store),
+      loadBusinessCalendar(store),
+      loadHqNotices(store),
       loadHomeChecklistPreview(store),
       loadSalesReports(store, monthKey()),
       loadExpenseEntries(store, monthKey()),
@@ -6373,7 +6433,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   function renderOwnerMore(){
     if(state.section==='settings') return ownerSubHeader('매장 설정')+renderCrewManage('settings');
-    if(state.section==='alerts') return ownerSubHeader('알림 모아보기')+renderNotifDetails();
+    if(state.section==='alerts') return ownerSubHeader('알림 모아보기')+renderHqNotices()+renderNotifDetails();
     let html='<h2>더보기</h2>';
     return html+'<div class="owner-menu"><button data-owner-setup-resume>매장 준비 가이드<span>›</span></button>'+ownerRouteButton(navIcon('store')+'매장 설정<span>›</span>','settings',null,false)+ownerRouteButton(navIcon('bell')+'알림 모아보기<span>›</span>','alerts',null,false)+'<button id="open-ai-chat-btn">✨ AI 물어보기<span>›</span></button>'+(!MANEE_STAFF_AUTH_ENABLED?'<button id="add-store-request-btn">'+navIcon('store')+'매장 추가 신청<span>›</span></button>':'')+'<button id="switch-user-btn">다른 사용자로 전환<span>›</span></button></div>';
   }
@@ -6642,7 +6702,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const yKey = yesterdayKey();
     const dObj = new Date(yKey);
     const dow = dObj.getDay();
-    const yStoreOpenYesterday = true; // 향후 매장별 정기휴무 반영 가능
+    const yStoreOpenYesterday = state.calendarFailed || !storeClosedOn(yKey,state.businessCalendar);
     if(!yStoreOpenYesterday) return "";
     const hasReport = state.salesReports.some(r=> r.date===yKey);
     if(hasReport) return "";
@@ -8705,7 +8765,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function renderAnnouncementsOwnerTab(){
-    let html = '<button class="landing-btn secondary" id="toggle-ann-form-btn" style="margin-bottom:14px;">'+(state.showAnnounceForm?'취소':'+ 새 공지 작성')+'</button>';
+    let html = renderHqNotices()+'<h3>매장 공지</h3><button class="landing-btn secondary" id="toggle-ann-form-btn" style="margin-bottom:14px;">'+(state.showAnnounceForm?'취소':'+ 새 공지 작성')+'</button>';
     if(state.showAnnounceForm) html += renderAnnounceForm();
     if(state.announcements.length===0){
       html += '<div class="empty-note">등록된 공지사항이 없어요.</div>';
@@ -9716,6 +9776,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<span class="crew-code-hint">까지는 전날 영업일</span>';
     html += '</div>';
     html += '</div>';
+    html+=renderBusinessCalendar();
     if(state.role==='storeOwner' && mode==='settings') return html;
     if(state.role==='staff' && mode==='settings') return html;   // manager 더보기 > 매장 설정: only the settings the manager already had
     if(state.role==='staff' && mode==='crew') html='';            // manager 직원 > 직원 관리: the list only (settings moved to 더보기 > 매장 설정)
@@ -10148,6 +10209,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(ownerPushToggleBtn) ownerPushToggleBtn.addEventListener("click", ()=>{
       if(state.pushSubscribed) unsubscribeFromPush(); else subscribeToPush();
     });
+    app.querySelectorAll('[data-calendar-weekday]').forEach(el=>el.addEventListener('change',()=>{const d=calendarDraft(),n=Number(el.dataset.calendarWeekday);d.closed_weekdays=d.closed_weekdays.filter(v=>v!==n);if(el.checked)d.closed_weekdays.push(n);}));
+    app.querySelectorAll('[data-calendar-add]').forEach(el=>el.addEventListener('click',()=>{const key=el.dataset.calendarAdd,date=document.getElementById('calendar-'+key)?.value;if(!date)return;const d=calendarDraft();if(!d[key].includes(date))d[key].push(date);d[key].sort();render();}));
+    app.querySelectorAll('[data-calendar-remove]').forEach(el=>el.addEventListener('click',()=>{const d=calendarDraft(),key=el.dataset.calendarRemove;d[key]=d[key].filter(v=>v!==el.dataset.calendarDate);render();}));
+    const calendarSave=document.getElementById('calendar-save-btn');if(calendarSave)calendarSave.onclick=saveBusinessCalendar;
+    const calendarRetry=document.getElementById('calendar-retry-btn');if(calendarRetry)calendarRetry.onclick=async()=>{await loadBusinessCalendar(state.store);render();};
+    const noticeRetry=document.getElementById('hq-notice-retry-btn');if(noticeRetry)noticeRetry.onclick=async()=>{await loadHqNotices(state.store);render();};
     const storeCutoffSelect = document.getElementById("store-cutoff-select");
     if(storeCutoffSelect) storeCutoffSelect.addEventListener("change", ()=>{
       setStoreCutoffHour(state.store, storeCutoffSelect.value);
