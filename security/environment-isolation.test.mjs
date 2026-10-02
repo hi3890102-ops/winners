@@ -76,7 +76,7 @@ test('Staging legacy identity storage neither reads nor overwrites production en
 
 function sandbox(){
   const temp=mkdtempSync(resolve(tmpdir(),'manee-build-'));
-  for(const path of ['scripts','config','index.html','owner-ui.css','manifest.json','sw.js']) cpSync(resolve(root,path),resolve(temp,path),{recursive:true});
+  for(const path of ['scripts','config','index.html','owner-ui.css','report-assets','manifest.json','sw.js']) cpSync(resolve(root,path),resolve(temp,path),{recursive:true});
   mkdirSync(resolve(temp,'netlify/functions/lib'),{recursive:true});
   return temp;
 }

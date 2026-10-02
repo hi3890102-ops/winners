@@ -18,9 +18,11 @@ create policy adjustments_manager on public.crew_pay_adjustments for all to auth
 alter table public.vendors add column default_category text;
 alter table public.expense_entries add column category text;`);
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002062518_net_payroll_and_unpaid_leave.sql',import.meta.url),'utf8'));
-await db.exec(`alter table public.crew add column if not exists employment_setup_required boolean default false not null;alter table public.sales_reports add column if not exists emoney_sales integer default 0;create table public.store_business_calendar(store_id uuid primary key,closed_weekdays integer[] default '{}',closed_dates date[] default '{}',open_dates date[] default '{}');`);
+await db.exec(`alter table public.crew add column if not exists employment_setup_required boolean default false not null;alter table public.sales_reports add column if not exists emoney_sales integer default 0;alter table public.expense_entries add column if not exists memo text;create table public.store_business_calendar(store_id uuid primary key,closed_weekdays integer[] default '{}',closed_dates date[] default '{}',open_dates date[] default '{}');`);
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002105522_financial_reports_and_franchise_privacy.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002110504_franchise_personal_data_boundary.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002112742_monthly_report_closing_revisions.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002132537_financial_report_safe_labels.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),worker=id(2),stranger=id(3),store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202);
 await db.exec(`insert into auth.users(id) values('${owner}'),('${worker}'),('${stranger}');
@@ -35,14 +37,15 @@ after(()=>db.close());
 
 test('financial report nets discounts/refunds, net wage, expenses and fixed costs exactly once',async()=>{
  await db.exec('reset role');await db.query("insert into public.sales_reports(store_id,date,total_sales,discount,refund) values($1,'2026-09-01',1000000,100000,50000)",[store]);
- await db.query("insert into public.expense_entries(store_id,date,description,amount,category) values($1,'2026-09-01','Private memo excluded',100000,'insurance')",[store]);
+ await db.query("insert into public.expense_entries(store_id,date,description,amount,category,memo) values($1,'2026-09-01','보험료',100000,'insurance','Private memo excluded')",[store]);
  await db.query("insert into public.fixed_expenses(store_id,month_key,name,amount) values($1,'2026-09','임대료',200000)",[store]);
  await role(owner);await db.query("insert into public.monthly_net_payroll(store_id,crew_id,month_key,net_pay) values($1,$2,'2026-09',300000)",[store,crew]);
  const r=(await db.query("select public.manee_financial_report($1,'2026-09') as r",[store])).rows[0].r;
  assert.equal(r.gross_sales,1000000);assert.equal(r.net_sales,850000);assert.equal(r.net_payroll,300000);assert.equal(r.profit,250000);assert.equal(r.labor_ratio,30);
  await db.exec('reset role');await db.query("insert into public.crew(id,store_id,name,join_code,wage,wage_type,hire_date) values($1,$2,'Second hourly worker','SECOND01',10000,'hourly','2026-01-01')",[id(203),store]);await role(owner);
  assert.equal((await db.query("select public.manee_financial_report($1,'2026-09') as r",[store])).rows[0].r.payroll_status.estimated_count,1);
- assert.equal(JSON.stringify(r).includes('Synthetic staff'),false);assert.equal(JSON.stringify(r).includes('Private memo'),false);
+ assert.equal(JSON.stringify(r).includes('Synthetic staff'),false);assert.equal(JSON.stringify(r).includes('Private memo'),false);assert.equal(r.expenses[0].description,'보험료');
+ await db.exec('reset role');assert.equal((await db.query("select private.financial_label($1,'Synthetic staff 급여') as label",[store])).rows[0].label,'[개인정보 포함 항목]');await role(owner);
  await role(stranger);await assert.rejects(()=>db.query("select public.manee_financial_report($1,'2026-09')",[store]));
 });
 test('franchise RPC is brand scoped and never returns employee/owner fields',async()=>{
@@ -57,4 +60,21 @@ test('franchise RPC is brand scoped and never returns employee/owner fields',asy
  assert.equal((await db.query('select * from public.sales_reports where store_id=$1',[store])).rows.length,0);
  for(const key of ['owner_username','ownerDisplayName','phone','bank_account','crew_id','resident_number'])assert.equal(JSON.stringify(r).includes(key),false,key);
  await assert.rejects(()=>db.query("select public.manee_franchise_financials($1,'2026-09')",[foreign]));
+});
+
+test('closing requires confirmed actual payroll and full open-day reports; revisions are immutable and retry idempotent',async()=>{
+ await role(owner);const request=id(401);
+ await assert.rejects(()=>db.query("select public.manee_close_month($1,'2026-09',$2,null)",[store,request]));
+ await db.query("insert into public.monthly_net_payroll(store_id,crew_id,month_key,net_pay) values($1,$2,'2026-09',0)",[store,id(203)]);
+ await assert.rejects(()=>db.query("select public.manee_close_month($1,'2026-09',$2,null)",[store,request]));
+ await db.exec('reset role');await db.query("insert into public.store_business_calendar(store_id,closed_weekdays) values($1,array[0,1,2,3,4,5,6])",[store]);await role(owner);
+ const first=(await db.query("select public.manee_close_month($1,'2026-09',$2,null) as r",[store,request])).rows[0].r;assert.equal(first.revision,1);assert.equal(first.snapshot.profit,250000);
+ await db.query("insert into public.expense_entries(store_id,date,description,amount,category) values($1,'2026-09-02','insurance',100000,'insurance')",[store]);
+ const retry=(await db.query("select public.manee_close_month($1,'2026-09',$2,null) as r",[store,request])).rows[0].r;assert.equal(retry.id,first.id);assert.equal(retry.snapshot.profit,250000);
+ await assert.rejects(()=>db.query("select public.manee_close_month($1,'2026-09',$2,null)",[store,id(402)]));
+ const amended=(await db.query("select public.manee_close_month($1,'2026-09',$2,'보험료 누락 정정') as r",[store,id(403)])).rows[0].r;assert.equal(amended.revision,2);assert.equal(amended.snapshot.profit,150000);
+ await assert.rejects(()=>db.query('update public.monthly_report_closings set snapshot=$1',[{}]));await assert.rejects(()=>db.query('delete from public.monthly_report_closings'));
+ const restored=(await db.query('select public.manee_closed_report($1) as r',[first.id])).rows[0].r;assert.equal(restored.snapshot.profit,250000);assert.equal(Object.hasOwn(restored,'closed_by'),false);
+ assert.equal((await db.query('select public.manee_report_history($1) as r',[store])).rows[0].r.length,2);
+ await role(worker);await assert.rejects(()=>db.query("select public.manee_close_month($1,'2026-09',$2,'staff denied')",[store,id(404)]));
 });

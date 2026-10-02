@@ -25,7 +25,7 @@ if(ref){
   var sourceLabel='git '+ref+' ('+spawnSync('git',['-C',repo,'rev-parse','--short',ref],{encoding:'utf8'}).stdout.trim()+')';
 }else if(process.argv.includes('--worktree')){
   source=mkdtempSync(join(tmpdir(),'manee-src-'));
-  for(const p of ['index.html','owner-ui.css','manifest.json','sw.js','icons','config','scripts','netlify','netlify.toml','package.json'])if(existsSync(join(repo,p)))cpSync(join(repo,p),join(source,p),{recursive:true});
+  for(const p of ['index.html','owner-ui.css','report-assets','manifest.json','sw.js','icons','config','scripts','netlify','netlify.toml','package.json'])if(existsSync(join(repo,p)))cpSync(join(repo,p),join(source,p),{recursive:true});
   var sourceLabel='working tree of '+spawnSync('git',['-C',repo,'rev-parse','--short','HEAD'],{encoding:'utf8'}).stdout.trim()+' + uncommitted changes';
 }else{console.error('use --ref <git ref> or --worktree');process.exit(2);}
 // the build always runs with an explicit STAGING context: no fallback to production exists in the build script

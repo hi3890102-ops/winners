@@ -29,6 +29,7 @@ if (html.split(staffAuthAnchor).length !== 2) throw new Error('Review staff Auth
 if (environment === 'production') html = html.replace(staffAuthAnchor,'const MANEE_STAFF_AUTH_ENABLED = true; // security-v2 production cutover');
 writeFileSync(resolve(output,'index.html'),html);
 cpSync(resolve(root,'owner-ui.css'),resolve(output,'owner-ui.css'));
+cpSync(resolve(root,'report-assets'),resolve(output,'report-assets'),{recursive:true});
 writeFileSync(resolve(output,'app-config.js'),'window.MANEE_CONFIG = Object.freeze('+JSON.stringify(config)+');\n');
 const manifest = JSON.parse(readFileSync(resolve(root,'manifest.json'),'utf8'));
 if (environment === 'staging') { manifest.name = '매니 테스트'; manifest.short_name = '매니 테스트'; }

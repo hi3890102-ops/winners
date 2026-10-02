@@ -1466,7 +1466,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
     state.staffSignupUsernameCheck=null;state.ownerRequestUsernameCheck=null;
     state.items={};state.checks={};state.checklistLog={};state.homeChecklistItems={};state.homeChecklistChecks={};
-    state.fixedExpenses=[];state.monthlyPayrolls=[];state.payAdjustments=[];state.businessCalendar=null;state.calendarDraft=null;state.ownerHqNotices=[];state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
+    state.fixedExpenses=[];state.monthlyPayrolls=[];state.payAdjustments=[];state.businessCalendar=null;state.calendarDraft=null;state.ownerHqNotices=[];state.reportHistory=[];state.closeRequest=null;state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
     state.staffPersonalProfile=null;
     state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
     state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
@@ -3077,7 +3077,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
   // The existing lookups + reset that every entry into the sales screens performs (same calls as before, now shared).
   async function loadSalesEntryData(){
-    await Promise.all([ loadSalesReports(state.store, monthKey()), loadCrew(state.store), loadAttendance(state.store, monthKey()), loadPayAdjustments(state.store, monthKey()), loadMonthlyNetPayroll(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadVendors(state.store), loadFixedExpenses(state.store, monthKey()) ]);
+    await Promise.all([ loadSalesReports(state.store, monthKey()), loadCrew(state.store), loadAttendance(state.store, monthKey()), loadPayAdjustments(state.store, monthKey()), loadMonthlyNetPayroll(state.store, monthKey()), loadReportHistory(state.store), loadExpenseEntries(state.store, monthKey()), loadVendors(state.store), loadFixedExpenses(state.store, monthKey()) ]);
     state.selectedSalesDate = null;
     state.salesSectionTab = "sales";
   }
@@ -4438,6 +4438,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       loadUpcomingReservations(store),
       loadPayAdjustments(store, monthKey()),
       loadMonthlyNetPayroll(store, monthKey()),
+      loadReportHistory(store),
       loadRatioLimits(store)
     ]);
     if(!alive()) return;
@@ -8901,6 +8902,61 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return html;
   }
 
+  async function loadReportHistory(store){
+    const sid=state.storeIdMap[store],alive=maneeLoadGuard('reportHistory');state.reportHistory=[];state.reportHistoryFailed=false;state.reportHistoryLoading=true;
+    try{if(!sid)return;const r=await db.rpc('manee_report_history',{p_store_id:sid});if(r.error||!Array.isArray(r.data))throw Error('History unavailable');if(!alive())return;state.reportHistory=r.data;
+    }catch(e){if(alive())state.reportHistoryFailed=true;}
+    finally{if(alive())state.reportHistoryLoading=false;}
+  }
+  function renderClosingControls(){
+    const key=state.monthYear+'-'+String(state.monthNum).padStart(2,'0'),rows=state.reportHistory||[],current=rows.filter(r=>r.month_key===key);
+    let html='<div class="day-panel"><h3>매니 월말 리포트 · PDF·엑셀</h3><p class="crew-code-hint">실제 세후급여와 영업일 매출보고를 확인한 뒤 월말에 마감하세요. PDF와 엑셀은 같은 마감 버전을 사용해요. 실제 통장 잔액이 아닌 예상 순수익 보고서예요.</p>';
+    if(canManageBusinessData())html+='<label><input type="checkbox" id="month-close-confirm"> 이번 달 매출·급여·보험료·원천세·지출·고정비를 확인했고 같은 비용을 중복 입력하지 않았어요.</label>'+(current.length?'<label class="field-label">정정 이유 (5자 이상)<input type="text" class="field-input" id="month-close-reason" maxlength="1000"></label>':'')+'<button type="button" id="month-close-btn">'+(current.length?'정정 마감 · 새 버전 만들기':'이번 달 마감 · PDF 만들기')+'</button>';
+    html+='<p class="crew-code-hint">급여가 추정치이거나 영업 예정일의 매출보고가 빠지면 마감할 수 없어요. 직원 입사일·실제 세후급여, 매장 휴무일을 확인하세요.</p><h4>과거 마감 보고서</h4>';
+    if(state.reportHistoryFailed)html+='<p role="alert">마감 기록 조회 실패</p>';
+    else if(state.reportHistoryLoading)html+='<p>마감 기록을 불러오는 중이에요.</p>';
+    else if(!rows.length)html+='<p>아직 마감한 보고서가 없어요.</p>';
+    rows.slice(0,state.reportHistoryLimit||12).forEach(r=>html+='<div class="setup-row" style="flex-wrap:wrap;"><span>'+r.month_key+' · 버전 '+r.revision+'</span><button type="button" data-closing-pdf="'+r.id+'">PDF</button><button type="button" data-closing-excel="'+r.id+'">엑셀</button></div>');
+    if(rows.length>(state.reportHistoryLimit||12))html+='<button id="report-history-more">이전 보고서 더 보기</button>';
+    return html+'<button id="report-history-retry">마감 기록 새로고침</button></div>';
+  }
+  function reportActionGuard(){
+    const sid=currentStoreId(),uid=state.authProfile?.user_id,epoch=maneeViewEpoch,key=monthKey();return ()=>sid===currentStoreId()&&uid===state.authProfile?.user_id&&epoch===maneeViewEpoch&&key===monthKey();
+  }
+  async function closeCurrentMonth(){
+    if(!canManageBusinessData()||state.monthClosing)return;
+    if(!document.getElementById('month-close-confirm')?.checked){showToast('매출·급여·납부 지출·고정비 확인을 체크해 주세요.');return;}
+    const sid=currentStoreId(),key=monthKey(),alive=reportActionGuard(),scope=sid+':'+key;
+    if(state.closeRequest?.scope!==scope)state.closeRequest={scope,id:crypto.randomUUID()};
+    const request=state.closeRequest.id,reason=document.getElementById('month-close-reason')?.value.trim()||null;
+    if((state.reportHistory||[]).some(r=>r.month_key===key)&&(!reason||reason.length<5)){showToast('정정 이유를 5자 이상 입력해 주세요.');return;}
+    state.monthClosing=true;
+    try{const r=await db.rpc('manee_close_month',{p_store_id:sid,p_month_key:key,p_request_id:request,p_amendment_reason:reason});
+      if(!alive())return;if(r.error||!r.data?.id)throw Error(r.error?.message||'Closing failed');
+      state.closeRequest=null;await loadReportHistory(state.store);if(!alive())return;render();showToast('마감 버전을 저장했어요. PDF를 만들고 있어요.');await downloadClosingReport(r.data.id,'pdf');
+    }catch(e){if(alive())showToast('마감하지 못했어요. 영업일 보고 누락·실제 세후급여·월말 날짜를 확인해 주세요.');}
+    finally{state.monthClosing=false;}
+  }
+  let maneeReportAssetsPromise=null;
+  function loadReportScript(src){
+    return new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.onload=resolve;script.onerror=()=>{script.remove();reject(Error('Report asset unavailable'));};document.head.appendChild(script);});
+  }
+  async function loadReportAssets(){
+    if(!maneeReportAssetsPromise)maneeReportAssetsPromise=(async()=>{await loadReportScript('/report-assets/pdf-lib.min.js');await loadReportScript('/report-assets/fontkit.umd.min.js');await loadReportScript('/report-assets/monthly-report.js');const r=await fetch('/report-assets/NanumGothic-Regular.ttf');if(!r.ok)throw Error('Report font unavailable');return {PDFLib:window.PDFLib,fontkit:window.fontkit,fontBytes:await r.arrayBuffer()};})().catch(e=>{maneeReportAssetsPromise=null;throw e;});
+    return maneeReportAssetsPromise;
+  }
+  function reportDownloadName(closing,extension){
+    const safe=String(closing.snapshot.store_name).replace(/[\\/:*?"<>|\u0000-\u001f]/g,'_');return '매니_'+safe+'_'+closing.month_key+'_v'+closing.revision+'.'+extension;
+  }
+  async function downloadClosingReport(id,type){
+    if(state.reportDownloading)return;const alive=reportActionGuard();state.reportDownloading=true;
+    try{const r=await db.rpc('manee_closed_report',{p_closing_id:id});if(r.error||!r.data?.snapshot)throw Error('Report unavailable');if(!alive())return;
+      const closing=r.data,assets=await loadReportAssets();if(!alive())return;
+      if(type==='pdf'){const bytes=await window.MANEE_REPORTS.pdfBytes(closing,assets);if(!alive())return;const url=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'})),a=document.createElement('a');a.href=url;a.download=reportDownloadName(closing,'pdf');document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+      else{if(typeof XLSX==='undefined')throw Error('Excel unavailable');const sheets=window.MANEE_REPORTS.excelRows(closing),wb=XLSX.utils.book_new();for(const [key,name] of [['summary','월말 요약'],['sales','일별 매출'],['expenses','지출 상세'],['fixed','고정비']]){const ws=XLSX.utils.aoa_to_sheet(sheets[key]);styleWorksheet(ws,sheets[key]);XLSX.utils.book_append_sheet(wb,ws,name);}if(!alive())return;XLSX.writeFile(wb,reportDownloadName(closing,'xlsx'));}
+    }catch(e){if(alive())showToast('다운로드하지 못했어요. 저장된 마감 기록은 유지돼요. 다시 시도해 주세요.');}
+    finally{state.reportDownloading=false;}
+  }
   function renderMonthlyReport(){
     if(state.showVatDetail) return renderVatDetail();
     const y = state.monthYear, m = state.monthNum;
@@ -9040,6 +9096,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '</div></details>';
 
     html += '<button class="crew-code-btn" id="export-monthly-report-excel-btn">이번 달 리포트 엑셀로 내보내기</button>';
+    html+=renderClosingControls();
     return html;
   }
   // ---------- 부가세 예상액 (단순 추정) ----------
@@ -10540,6 +10597,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(toggleVendorManageBtn) toggleVendorManageBtn.addEventListener("click", ()=>{ state.showVendorManage = !state.showVendorManage; render(); });
     const exportExpenseExcelBtn = document.getElementById("export-expense-excel-btn");
     if(exportExpenseExcelBtn) exportExpenseExcelBtn.addEventListener("click", exportExcelExpenses);
+    const closeMonth=document.getElementById('month-close-btn');if(closeMonth)closeMonth.onclick=closeCurrentMonth;
+    app.querySelectorAll('[data-closing-pdf]').forEach(el=>el.onclick=()=>downloadClosingReport(el.dataset.closingPdf,'pdf'));
+    app.querySelectorAll('[data-closing-excel]').forEach(el=>el.onclick=()=>downloadClosingReport(el.dataset.closingExcel,'excel'));
+    const historyRetry=document.getElementById('report-history-retry');if(historyRetry)historyRetry.onclick=async()=>{await loadReportHistory(state.store);render();};
+    const historyMore=document.getElementById('report-history-more');if(historyMore)historyMore.onclick=()=>{state.reportHistoryLimit=(state.reportHistoryLimit||12)+12;render();};
     const exportMonthlyReportBtn = document.getElementById("export-monthly-report-excel-btn");
     if(exportMonthlyReportBtn) exportMonthlyReportBtn.addEventListener("click", exportExcelMonthlyReport);
     const toggleFixedExpenseBtn = document.getElementById("toggle-fixedexpense-manage-btn");
