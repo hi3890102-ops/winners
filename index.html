@@ -1465,7 +1465,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
     state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
     state.crew=[]; state.attendance=[]; state.shifts=[]; state.salesReports=[]; state.expenseEntries=[];
-    state.ownerSignupDraft=null; state.ownerSetupDraft=null;
+    state.ownerSignupDraft=null; state.ownerSetupDraft=null;state.sharedScheduleView=false;state.editShiftId=null;
     state.attConfirmPrompt=null; state.onboardingStep=null; state.announcements=[]; state.todayReservations=[]; state.vendors=[];
     // The owner home caches per-account data; without this the next account briefly sees the previous one's.
     state.dashboardData=null; state.dashboardLoading=false; state.expandedStoreRows={}; state.expandedCrewIds={}; state.storeFoodLimitMap={}; state.storeLaborLimitMap={};
@@ -4624,7 +4624,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '<div class="crew-group-label" style="margin-top:10px;">'+g+'</div>';
       inGroup.slice().sort((a,b)=> a.start.localeCompare(b.start)).forEach(s=>{
         html += '<div class="shift-row"><span class="shift-name">'+escapeHtml(crewName(s.crewId))+'</span><span class="shift-time">'+s.start+'–'+s.end+'</span>';
-        if(withDelete) html += '<button class="shift-del" data-delshift="'+s.id+'">삭제</button>';
+        if(withDelete) html += '<button class="crew-code-btn" data-editshift="'+s.id+'">수정</button><button class="shift-del" data-delshift="'+s.id+'">삭제</button>';
         html += '</div>';
       });
     });
@@ -5436,24 +5436,44 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }
   }
 
+  function canEditStoreSchedule(){
+    return !!currentStoreId() && (canManageBusinessData() || (state.role==='staff' && state.crew.some(c=>c.id===state.myCrewId && isCrewActive(c))));
+  }
+  function scheduleMutationGuard(){
+    const sid=currentStoreId(),epoch=maneeViewEpoch,uid=state.authProfile?.user_id,rows=state.shifts;
+    return ()=>sid===currentStoreId() && epoch===maneeViewEpoch && uid===state.authProfile?.user_id && rows===state.shifts;
+  }
   async function addShift(){
-    const crewSel = document.getElementById("shift-crew-select");
-    const crewId = crewSel.value;
-    const start = readTimeSelect("shift-start");
-    const end = readTimeSelect("shift-end");
-    if(!crewId || !start || !end){ showToast("스텝과 시간을 모두 입력해 주세요."); return; }
-    const storeId = currentStoreId();
+    if(!canEditStoreSchedule() || state.scheduleSaving)return;
+    const crewId=document.getElementById('shift-crew-select')?.value;
+    const start=readTimeSelect('shift-start'),end=readTimeSelect('shift-end'),date=state.selectedDate;
+    const original=state.editShiftId?(state.shifts||[]).find(r=>r.id===state.editShiftId):null;
+    if(!crewId || !state.crew.some(c=>c.id===crewId && isCrewActive(c)) || !/^\d{4}-\d{2}-\d{2}$/.test(date||'') || Number.isNaN(Date.parse(date+'T12:00:00Z')) || new Date(date+'T12:00:00Z').toISOString().slice(0,10)!==date || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(start) || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(end) || start===end){showToast('직원, 근무일과 시작·종료 시간을 확인해 주세요.');return;}
+    if(state.editShiftId && (!original || original.crewId!==crewId)){showToast('수정할 근무를 다시 선택해 주세요.');return;}
+    const sid=currentStoreId(),alive=scheduleMutationGuard();state.scheduleSaving=true;
     try{
-      const { data, error } = await db.from('shifts').insert({ store_id: storeId, crew_id: crewId, date: state.selectedDate, start_time: start, end_time: end }).select().single();
-      if(error) throw error;
-      state.shifts.push({ id:data.id, date:data.date, crewId, start, end });
-      render();
-    }catch(e){ showToast("저장에 실패했어요."); }
+      const query=original?db.from('shifts').update({date,start_time:start,end_time:end}).eq('store_id',sid).eq('id',original.id):db.from('shifts').insert({store_id:sid,crew_id:crewId,date,start_time:start,end_time:end});
+      const row=await checkedBusinessMutation(query.select('id,date,crew_id,start_time,end_time'));
+      if(!alive())return;
+      const saved={id:row.id,date:row.date,crewId:row.crew_id,start:row.start_time.slice(0,5),end:row.end_time.slice(0,5)};
+      if(original)Object.assign(original,saved);else state.shifts.push(saved);
+      state.editShiftId=null;render();showToast(original?'근무를 수정했어요.':'근무를 등록했어요.');
+    }catch(e){if(alive())showToast('저장하지 못했어요. 입력 내용을 확인하고 다시 시도해 주세요.');}
+    finally{state.scheduleSaving=false;}
   }
   function deleteShift(id){
-    state.shifts = state.shifts.filter(s=>s.id!==id);
-    render();
-    (async ()=>{ try{ await db.from('shifts').delete().eq('id', id); }catch(e){} })();
+    if(!canEditStoreSchedule() || state.scheduleSaving)return;
+    const sid=currentStoreId(),alive=scheduleMutationGuard();
+    askConfirm('이 근무 일정을 삭제할까요?',async()=>{
+      if(!alive() || state.scheduleSaving)return;
+      state.scheduleSaving=true;
+      try{
+        await checkedBusinessMutation(db.from('shifts').delete().eq('store_id',sid).eq('id',id).select('id'));
+        if(!alive())return;
+        state.shifts=state.shifts.filter(s=>s.id!==id);state.editShiftId=null;render();
+      }catch(e){if(alive())showToast('삭제하지 못했어요. 기존 근무는 유지돼요.');}
+      finally{state.scheduleSaving=false;}
+    });
   }
 
   // Owner signup keeps its draft in memory only; passwords never enter browser storage.
@@ -8129,12 +8149,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function renderStaffSchedule(person, noPay){
+    const switcher='<button type="button" class="crew-code-btn" id="toggle-shared-schedule-btn" style="margin-bottom:12px;">'+(state.sharedScheduleView?'내 스케줄 보기':'우리 매장 전체 스케줄 · 등록/수정')+'</button>';
+    if(state.sharedScheduleView)return switcher+renderCalendar('shared');
     const y=state.monthYear, m=state.monthNum;
     const totalDays = daysInMonth(y,m);
     const leadEmpty = firstWeekdayMon0(y,m);
     const myId = state.myCrewId;
     const myShiftsOnDate = dateStr => shiftsOnDate(dateStr).filter(s=>s.crewId===myId);
-    let html = '<h3 style="margin:0 0 14px;font-size:16px;font-weight:800;">내 스케줄</h3>';
+    let html = switcher+'<h3 style="margin:0 0 14px;font-size:16px;font-weight:800;">내 스케줄</h3>';
     html += '<div class="month-nav"><button id="prev-month">‹</button><span class="month-label">'+y+'년 '+m+'월</span><button id="next-month">›</button></div>';
     html += '<div class="cal-grid">';
     DOW_LABELS.forEach(dl=> html += '<div class="cal-dow">'+dl+'</div>');
@@ -9336,8 +9358,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }
     html += '</div>';
 
-    html += '<div style="display:flex;justify-content:flex-end;margin:-8px 0 16px;"><button class="crew-code-btn" id="open-fixed-btn">고정 근무 설정</button></div>';
-    if(state.showFixedPanel) html += renderFixedPanel();
+    if(canManageBusinessData())html += '<div style="display:flex;justify-content:flex-end;margin:-8px 0 16px;"><button class="crew-code-btn" id="open-fixed-btn">고정 근무 설정</button></div>';
+    if(state.showFixedPanel && canManageBusinessData()) html += renderFixedPanel();
 
     }
     if(state.selectedDate){
@@ -9348,22 +9370,24 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '<div class="day-panel">';
       html += '<h3>'+(dObj.getMonth()+1)+'월 '+dObj.getDate()+'일 ('+dows2[dObj.getDay()]+') 근무</h3>';
       html += renderShiftsGrouped(state.selectedDate, true);
+      const editingShift=(state.shifts||[]).find(r=>r.id===state.editShiftId);
       const activeCrewForShift = state.crew.filter(isCrewActive);
       if(activeCrewForShift.length===0){
         html += '<div class="empty-note" style="padding:12px 0 0;">먼저 "직원 관리"에서 재직 중인 스텝을 등록해 주세요.</div>';
       }else{
         html += '<div class="shift-form">';
-        html += '<label>스텝</label><select id="shift-crew-select">';
-        activeCrewForShift.forEach(c=> html += '<option value="'+c.id+'">'+c.name+'</option>');
+        html += '<label>직원</label><select id="shift-crew-select"'+(editingShift?' disabled':'')+'>';
+        activeCrewForShift.forEach(c=> html += '<option value="'+c.id+'"'+(editingShift?.crewId===c.id?' selected':'')+'>'+escapeHtml(c.name)+'</option>');
         html += '</select>';
-        html += '<div class="row2"><div><label>시작</label>'+timeSelectHtml('shift-start','10:00')+'</div><div><label>종료</label>'+timeSelectHtml('shift-end','18:00')+'</div></div>';
-        html += '<button id="add-shift-btn">근무 추가</button>';
+        html += '<div class="row2"><div><label>시작</label>'+timeSelectHtml('shift-start',editingShift?.start||'10:00')+'</div><div><label>종료</label>'+timeSelectHtml('shift-end',editingShift?.end||'18:00')+'</div></div>';
+        html += '<button id="add-shift-btn">'+(editingShift?'근무 수정 저장':'근무 추가')+'</button>';if(editingShift)html+='<button type="button" id="cancel-edit-shift-btn">수정 취소</button>';
         html += '</div>';
       }
       html += '</div>';
 
       }
       html += '<div class="day-panel">';
+      if(!canManageBusinessData())return html+'</div>';
       html += '<h3>출퇴근 기록</h3>';
       const dayAtt = state.attendance.filter(a=>a.date===state.selectedDate);
       if(dayAtt.length===0){
@@ -10242,6 +10266,13 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function bindScheduleEditEvents(){
+    const shared=document.getElementById('toggle-shared-schedule-btn');if(shared)shared.onclick=()=>{state.sharedScheduleView=!state.sharedScheduleView;state.editShiftId=null;render();};
+    const cancel=document.getElementById('cancel-edit-shift-btn');if(cancel)cancel.onclick=()=>{state.editShiftId=null;render();};
+    app.querySelectorAll('[data-editshift]').forEach(btn=>btn.onclick=()=>{
+      if(!canEditStoreSchedule())return;
+      const row=state.shifts.find(s=>s.id===btn.dataset.editshift);if(!row)return;
+      state.editShiftId=row.id;state.selectedDate=row.date;render();
+    });
     app.querySelectorAll(".cal-day[data-date]").forEach(el=>{
       el.addEventListener("click", ()=>{
         const dt = el.getAttribute("data-date");
