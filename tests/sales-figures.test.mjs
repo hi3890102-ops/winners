@@ -47,6 +47,7 @@ function report(salesReports,{fixed=0,expense=0,failed=[]}={}){
     renderFixedExpenseManage:()=>'',labelWithIcon:(i,l)=>l,renderSalesReportRows:()=>'',renderVatSummaryCard:()=>'',
     canManageBusinessData:()=>true,MANEE_STAFF_AUTH_ENABLED:false,formatLimit:n=>String(n)});
   vm.runInContext([line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/),line(/  const FOOD_LIMIT_UNKNOWN_TEXT[^\n]*\n/),
+    ...['getTaxRate', 'getTaxLabel', 'computeNetPay', 'payrollAdjustmentSnapshot', 'settleNetPayroll', 'crewSettlementFrom', 'summarizeNetPayroll'].map(fnText),
     ...['summarizeSalesFigures','foodRatioLimit','laborRatioLimit','foodRatioVerdict','laborRatioVerdict','foodRatioColor','foodRatioNote','renderMonthlyReport'].map(fnText),
     ';this.render=renderMonthlyReport;'].join('\n'),ctx);
   return ctx.render();
@@ -81,7 +82,7 @@ function excel(reports,failed=[]){
   const ctx=vm.createContext({state:{salesReports:reports,monthYear:2026,monthNum:10,crew:[],fixedExpenses:[{amount:100}],store:'A',reportDataFailed:new Set(failed)},
     XLSX:{utils:{book_new:()=>({}),aoa_to_sheet:rows=>rows,book_append_sheet:(wb,sheet,name)=>wb[name]=sheet},writeFile:wb=>workbook=wb},
     computeVendorBreakdown:()=>[{name:'식자재',amount:200}],styleWorksheet(){},monthKey:()=> '2026-10',showToast:m=>toast=m});
-  vm.runInContext(fnText('summarizeSalesFigures')+line(/  function salesCostRatio\([^\n]*\n/)+fnText('exportExcelMonthlyReport'),ctx);ctx.exportExcelMonthlyReport();
+  vm.runInContext(fnText('summarizeSalesFigures')+line(/  function salesCostRatio\([^\n]*\n/)+['getTaxRate', 'getTaxLabel', 'computeNetPay', 'payrollAdjustmentSnapshot', 'settleNetPayroll', 'crewSettlementFrom', 'summarizeNetPayroll'].map(fnText).join('\n')+fnText('exportExcelMonthlyReport'),ctx);ctx.exportExcelMonthlyReport();
   return {workbook,toast};
 }
 test('Excel actual output shares gross denominator and net profit formula',()=>{

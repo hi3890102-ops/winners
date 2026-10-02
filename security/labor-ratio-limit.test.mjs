@@ -177,7 +177,7 @@ test('settings card: one "비율 경고 기준" card, two independent rows, owne
 test('sales validation preserves gross-sales ratio denominator and original wage functions',()=>{
   for(const n of ['calcCrewPayFrom','calcCrewPay','computeMyStoreSummary']) assert.ok(html.includes('function '+n+'('),n);
   assert.ok(html.includes('const laborRatio = (laborReadable && salesSum>0) ? (laborPay/salesSum*100) : null;'));
-  assert.ok(html.includes('const laborRatio = !salesInvalid && salesSum>0 ? (laborPay/salesSum*100) : null;'));
+  assert.ok(html.includes('const laborRatio = !salesInvalid && !payrollUnknown && salesSum>0 ? (laborPay/salesSum*100) : null;'));
 });
 
 // ---- server (static checks; the behaviour was verified on the staging project)

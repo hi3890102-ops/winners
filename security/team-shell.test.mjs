@@ -22,9 +22,10 @@ test('team shell styles are scoped, legacy elements only restyled under .team-ui
 const slice=(from,to)=>{const a=html.indexOf(from),b=html.indexOf(to,a);assert.ok(a>0&&b>a,'anchor '+from);return html.slice(a,b);};
 test('T1: staff pay summary shows the deduction and the final amount (100,000 won, 3.3% -> 96,700)', ()=>{
   const src=slice('  function getTaxRate(c){','  function calcCrewPay(c, y, m){')+slice('  function renderStaffPayPill(person){','  function renderStaffApp(){');
-  const make=new Function('calcCrewPay','state',src+';return renderStaffPayPill;');
-  const out=make(()=>({days:5,hours:40,pay:100000}),{monthYear:2026,monthNum:9})({tax33:true,probation:false,employmentSetupRequired:false});
-  assert.ok(out.includes('100,000원')&&out.includes('(-)3,300원')&&out.includes('96,700원')&&out.includes('최종 환산금액'));
+  const payroll=slice('  function payrollAdjustmentSnapshot(', '  async function loadDashboardData(){');
+  const make=new Function('calcCrewPayFrom','state','now',src+payroll+';return renderStaffPayPill;');
+  const out=make(()=>({days:5,hours:40,pay:100000}),{monthYear:2026,monthNum:9},new Date(2026,8,19))({tax33:true,probation:false,employmentSetupRequired:false});
+  assert.ok(out.includes('100,000원')&&out.includes('(-)3,300원')&&out.includes('96,700원')&&out.includes('세후급여 · 가불 포함'));
   // the new 내 근무 screen and the home shortcut point at it
   assert.ok(/renderStaffSchedule\(person,true\)[^;]*renderStaffPayPill\(person\)/.test(html));
   assert.ok(html.includes('["schedule:pay","wallet","내 예상 급여"]')&&html.includes('state.teamScroll="team-pay"'));

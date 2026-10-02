@@ -1082,6 +1082,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     { value:"food", label:"식자재" },
     { value:"beverage", label:"주류·음료" },
     { value:"supplies", label:"소모품" },
+    { value:"insurance", label:"보험료 납부" },
+    { value:"payroll_tax", label:"급여 원천세 납부" },
+    { value:"utilities", label:"가스·전기·수도" },
+    { value:"fees", label:"카드·결제 수수료" },
+    { value:"tax", label:"기타 세금 납부" },
     { value:"other", label:"기타" }
   ];
   const FOOD_RATIO_CATEGORY_SET = new Set(["food","beverage"]);
@@ -1232,7 +1237,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   // The manager's "이번 달 매장 요약" card (own function so the same output can be tested directly).
   function renderManagerSummaryCard(sum){
-    if(sum.salesInvalid)return '<div class="s-card" role="alert">매출 자료에 잘못된 금액이 있어 계산 불가해요. 매출 보고를 수정해 주세요.</div>';
+    if(sum.salesInvalid||sum.payrollUnknown)return '<div class="s-card" role="alert">매출 또는 급여 자료가 미확정이라 계산할 수 없어요. 해당 자료를 확인해 주세요.</div>';
     let html = "";
     const laborV = laborRatioVerdict(state.store, sum.laborRatio);
     const ratioColor = (laborV.state==="none" || laborV.state==="unknown") ? "var(--ink-soft)" : (laborV.state==="over" ? "var(--danger)" : "var(--olive)");
@@ -1255,16 +1260,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const sales = summarizeSalesFigures(state.salesReports);
     const salesSum = sales.grossSales, deliverySum = sales.delivery;
     const salesInvalid = sales.invalid.length>0;
-    let laborPay = 0;
-    (state.crew||[]).forEach(c=>{ laborPay += calcCrewPayFrom(c, state.attendance||[], y, m).pay; });
-    const laborRatio = !salesInvalid && salesSum>0 ? (laborPay/salesSum*100) : null;
+    const payroll=summarizeNetPayroll(state.crew,state.attendance,state.payAdjustments,state.monthlyPayrolls,y,m);
+    const laborPay=payroll.netPay,failed=state.reportDataFailed||new Set();
+    const payrollUnknown=payroll.unknownCount>0||['직원','근태','급여조정','급여확정'].some(k=>failed.has(k));
+    const laborRatio = !salesInvalid && !payrollUnknown && salesSum>0 ? (laborPay/salesSum*100) : null;
     // 지출비율 = 전체 지출(분류 무관) ÷ 매출. category는 지출 내역 정리용일 뿐, 이 비율·경고 판정에는 영향을 주지 않는다.
     let expenseSum = 0;
     (state.expenseEntries||[]).forEach(e=> expenseSum += Number(e.amount)||0);
     const expenseRatio = !salesInvalid && salesSum>0 ? (expenseSum/salesSum*100) : null;
     const all = countAllFrom(state.homeChecklistItems, state.homeChecklistChecks);
     const checklistPct = all.total>0 ? Math.round(all.done/all.total*100) : null;
-    return { salesSum, deliverySum, netSales:sales.netSales, salesInvalid, laborRatio, expenseSum, expenseRatio, checklistPct };
+    return { salesSum, deliverySum, netSales:sales.netSales, salesInvalid, payrollUnknown, laborRatio, expenseSum, expenseRatio, checklistPct };
   }
 
   function addStore(){
@@ -1460,7 +1466,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.accountRecoveryKey=null;state.passwordResetRequests=[];state.revealedResetCode=null;state.staffLinkPreview=null;state.staffLinkCode=null;
     state.staffSignupUsernameCheck=null;state.ownerRequestUsernameCheck=null;
     state.items={};state.checks={};state.checklistLog={};state.homeChecklistItems={};state.homeChecklistChecks={};
-    state.fixedExpenses=[];state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
+    state.fixedExpenses=[];state.monthlyPayrolls=[];state.payAdjustments=[];state.reservations=[];state.dashboardReservations=[];state.checklistSaving=false;
     state.staffPersonalProfile=null;
     state.authProfile=null; state.authMemberships=[]; state.staffLinkRequests=[]; state.ownerStaffAccess=null;
     state.myCrewId=null; state.myUsername=null; state.myStores=[]; state.store=null; state.storeList=[]; state.storeIdMap={};
@@ -1560,7 +1566,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(!alive()) return;
       state.crew=crewRows;
       const me=state.crew.find(c=>c.id===state.myCrewId);
-      const tasks=[loadRatioLimits(store),loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
+      const tasks=[loadMonthlyNetPayroll(store,monthKey()),loadPayAdjustments(store,monthKey()),loadRatioLimits(store),loadShifts(store,monthKey()),loadAttendance(store,monthKey()),loadAnnouncements(store),loadHomeChecklistPreview(store),loadTodayReservations(store),loadUpcomingReservations(store)];
       if(me && (me.salesAccess || me.isManager)) tasks.push(loadSalesReports(store,monthKey()),loadExpenseEntries(store,monthKey()),loadVendors(store));
       else { state.salesReports=[]; state.expenseEntries=[]; state.vendors=[]; }
       await Promise.all(tasks);
@@ -3071,7 +3077,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
   // The existing lookups + reset that every entry into the sales screens performs (same calls as before, now shared).
   async function loadSalesEntryData(){
-    await Promise.all([ loadSalesReports(state.store, monthKey()), loadCrew(state.store), loadAttendance(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadVendors(state.store), loadFixedExpenses(state.store, monthKey()) ]);
+    await Promise.all([ loadSalesReports(state.store, monthKey()), loadCrew(state.store), loadAttendance(state.store, monthKey()), loadPayAdjustments(state.store, monthKey()), loadMonthlyNetPayroll(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadVendors(state.store), loadFixedExpenses(state.store, monthKey()) ]);
     state.selectedSalesDate = null;
     state.salesSectionTab = "sales";
   }
@@ -3222,46 +3228,82 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(failed) markReportDataFailed("직원"); else clearReportDataFailed("직원");
     }
   }
-  async function loadPayAdjustments(store, monthKeyStr){
-    const storeId = state.storeIdMap[store];
-    const alive = maneeLoadGuard("payAdjustments");
-    if(!storeId){ state.payAdjustments = []; return; }
+  function payrollRow(r){
+    return {id:r.id,crewId:r.crew_id,monthKey:r.month_key,netPay:Number(r.net_pay),paidOn:r.paid_on||null,adjustmentSnapshot:r.adjustment_snapshot||[],updatedAt:r.updated_at};
+  }
+  function adjustmentRow(r){
+    return {id:r.id,crewId:r.crew_id,monthKey:r.month_key,type:r.type,amount:Number(r.amount),note:r.note||'',unpaidDate:r.unpaid_date||null,adjustmentDate:r.adjustment_date||null};
+  }
+  async function loadMonthlyNetPayroll(store, mKey){
+    const sid=state.storeIdMap[store],alive=maneeLoadGuard('netPayroll');state.monthlyPayrolls=[];
+    if(!sid)return;
     try{
-      const { data, error } = await db.from('crew_pay_adjustments').select('*').eq('store_id', storeId).eq('month_key', monthKeyStr);
-      if(error) throw error;
-      if(!alive()) return;
-      state.payAdjustments = (data||[]).map(r=>({ id:r.id, crewId:r.crew_id, type:r.type, amount:Number(r.amount)||0, note:r.note||"" }));
-    }catch(e){ if(alive()) state.payAdjustments = []; }
+      const {data,error}=await db.from('monthly_net_payroll').select('id,crew_id,month_key,net_pay,paid_on,adjustment_snapshot,updated_at').eq('store_id',sid).eq('month_key',mKey);
+      if(error)throw error;if(!alive())return;state.monthlyPayrolls=(data||[]).map(payrollRow);clearReportDataFailed('급여확정');
+    }catch(e){if(alive()){state.monthlyPayrolls=[];markReportDataFailed('급여확정');}}
+  }
+  async function loadPayAdjustments(store, mKey){
+    const sid=state.storeIdMap[store],alive=maneeLoadGuard('payAdjustments');state.payAdjustments=[];
+    if(!sid)return;
+    try{
+      const {data,error}=await db.from('crew_pay_adjustments').select('*').eq('store_id',sid).eq('month_key',mKey);
+      if(error)throw error;if(!alive())return;state.payAdjustments=(data||[]).map(adjustmentRow);clearReportDataFailed('급여조정');
+    }catch(e){if(alive()){state.payAdjustments=[];markReportDataFailed('급여조정');}}
+  }
+  function payrollMutationGuard(){
+    const sid=currentStoreId(),mKey=monthKey(),epoch=maneeViewEpoch,user=state.authProfile?.user_id,crewId=state.payCrewId;
+    return ()=>sid===currentStoreId() && mKey===monthKey() && epoch===maneeViewEpoch && user===state.authProfile?.user_id && crewId===state.payCrewId;
+  }
+  async function saveMonthlyNetPayroll(){
+    if(!canManageBusinessData()||state.payrollSaving)return;
+    const raw=String(document.getElementById('actual-net-pay-input')?.value??'').trim(),net=Number(raw);
+    const paidOn=document.getElementById('actual-pay-date-input')?.value||null;
+    if(!/^\d+$/.test(raw)||!Number.isSafeInteger(net)||net<0||net>2147483647){showToast('실제 세후급여를 0원 이상의 정수로 입력해 주세요.');return;}
+    if(paidOn && (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn)||Number.isNaN(Date.parse(paidOn+'T12:00:00Z'))||new Date(paidOn+'T12:00:00Z').toISOString().slice(0,10)!==paidOn||paidOn>todayKey())){showToast('실제 지급일은 이미 지난 날짜로 입력해 주세요.');return;}
+    const sid=currentStoreId(),crewId=state.payCrewId,mKey=monthKey(),alive=payrollMutationGuard();
+    if(!sid||!state.crew.some(c=>c.id===crewId))return;
+    state.payrollSaving=true;
+    try{
+      const row=await checkedBusinessMutation(db.from('monthly_net_payroll').upsert({store_id:sid,crew_id:crewId,month_key:mKey,net_pay:net,paid_on:paidOn},{onConflict:'store_id,crew_id,month_key'}).select('id,crew_id,month_key,net_pay,paid_on,adjustment_snapshot,updated_at'));
+      if(!alive())return;
+      state.monthlyPayrolls=(state.monthlyPayrolls||[]).filter(r=>r.crewId!==crewId);state.monthlyPayrolls.push(payrollRow(row));state.dashboardData=null;render();showToast('이번 달 실제 세후급여를 확인했어요.');
+    }catch(e){if(alive())showToast('급여를 저장하지 못했어요. 입력 내용은 유지돼요.');}
+    finally{state.payrollSaving=false;}
   }
   async function addPayAdjustment(){
-    const crewId = state.payCrewId;
-    const typeSel = document.getElementById("payadj-type-select");
-    const amtInp = document.getElementById("payadj-amount-input");
-    const noteInp = document.getElementById("payadj-note-input");
-    if(!crewId || !amtInp) return;
-    const amount = parseInt(amtInp.value||"0",10);
-    if(!amount){ showToast("금액을 입력해 주세요."); return; }
-    const storeId = currentStoreId();
-    const monthKeyStr = monthKey();
-    const type = typeSel ? typeSel.value : "기타";
-    const note = (noteInp.value||"").trim();
+    if(!canManageBusinessData()||state.payrollSaving)return;
+    const crewId=state.payCrewId,c=state.crew.find(c=>c.id===crewId),type=document.getElementById('payadj-type-select')?.value;
+    if(!c||!['가불','무급휴가','기타'].includes(type))return;
+    const raw=String(document.getElementById('payadj-amount-input')?.value||'').trim();
+    const unpaidDate=type==='무급휴가'?document.getElementById('payadj-unpaid-date')?.value:null;
+    let amount=Number(raw);
+    if(type==='무급휴가'){
+      if(!document.getElementById('payadj-unpaid-check')?.checked||!unpaidDate||!unpaidDate.startsWith(monthKey()+'-')){showToast('무급휴무를 체크하고 이번 달 날짜를 선택해 주세요.');return;}
+      if((state.payAdjustments||[]).some(a=>a.crewId===crewId&&a.unpaidDate===unpaidDate)){showToast('이미 등록된 무급휴무일이에요.');return;}
+      if((state.attendance||[]).some(a=>a.crewId===crewId&&a.date===unpaidDate&&a.confirmed&&a.checkOut)){showToast('근무가 확정된 날이에요. 근태를 먼저 확인해 주세요.');return;}
+      amount=0; // Server computes monthly daily deduction; hourly remains zero.
+    }else{
+      if(!/^\d+$/.test(raw)||!Number.isSafeInteger(amount)||amount<=0||amount>2147483647){showToast('금액은 양수로 입력해 주세요. 차감 방향은 자동 적용돼요.');return;}
+      if(type==='가불'||document.getElementById('payadj-direction')?.value==='deduct')amount=-amount;
+    }
+    const sid=currentStoreId(),mKey=monthKey(),alive=payrollMutationGuard();state.payrollSaving=true;
     try{
-      const { data, error } = await db.from('crew_pay_adjustments').insert({ store_id: storeId, crew_id: crewId, month_key: monthKeyStr, type, amount, note }).select().single();
-      if(error) throw error;
-      if(!state.payAdjustments) state.payAdjustments = [];
-      state.payAdjustments.push({ id:data.id, crewId:data.crew_id, type:data.type, amount:Number(data.amount)||0, note:data.note||"" });
-      amtInp.value=""; if(noteInp) noteInp.value="";
-      render();
-      showToast("급여 조정 항목을 추가했어요.");
-    }catch(e){ showToast("저장에 실패했어요."); }
+      const row=await checkedBusinessMutation(db.from('crew_pay_adjustments').insert({store_id:sid,crew_id:crewId,month_key:mKey,type,amount,note:String(document.getElementById('payadj-note-input')?.value||'').trim(),unpaid_date:unpaidDate||null,adjustment_date:type==='가불'?todayKey():null}).select('*'));
+      if(!alive())return;(state.payAdjustments||=[]).push(adjustmentRow(row));state.dashboardData=null;render();showToast('급여 조정을 저장했어요. 실제 세후급여는 다시 확인해 주세요.');
+    }catch(e){if(alive())showToast('저장하지 못했어요. 무급휴무일·근무조건·중복 기록을 확인해 주세요.');}
+    finally{state.payrollSaving=false;}
   }
   function deletePayAdjustment(id){
-    askConfirm("이 급여 조정 항목을 삭제할까요?", async ()=>{
-      state.payAdjustments = (state.payAdjustments||[]).filter(a=>String(a.id)!==String(id));
-      render();
-      try{ await db.from('crew_pay_adjustments').delete().eq('id', id); }catch(e){}
+    if(!canManageBusinessData()||state.payrollSaving)return;
+    const sid=currentStoreId(),alive=payrollMutationGuard();
+    askConfirm('이 급여 조정 항목을 삭제할까요?',async()=>{
+      if(!alive()||state.payrollSaving)return;state.payrollSaving=true;
+      try{await checkedBusinessMutation(db.from('crew_pay_adjustments').delete().eq('store_id',sid).eq('id',id).select('id'));if(!alive())return;state.payAdjustments=(state.payAdjustments||[]).filter(a=>a.id!==id);state.dashboardData=null;render();}
+      catch(e){if(alive())showToast('삭제하지 못했어요. 기존 항목은 유지돼요.');}
+      finally{state.payrollSaving=false;}
     });
   }
+
   async function updateCrewRow(id, patch){
     try{
       const { data, error } = await db.from('crew').update(patch).eq('id', id).select('id');
@@ -4040,8 +4082,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const y = state.monthYear, m = state.monthNum;
     const ctx = { store: state.store, month: y+"-"+pad(m), role: state.role, today: bizToday() };
     ctx.crew = (state.crew||[]).map(c=>{
-      const info = calcCrewPay(c, y, m);
-      return { name: c.name, position: c.position, wageType: c.wageType, wage: c.wage, hoursThisMonth: Number(info.hours.toFixed(1)), daysThisMonth: info.days, estimatedPay: info.pay };
+      const info = crewSettlement(c);
+      return { name: c.name, position: c.position, wageType: c.wageType, wage: c.wage, hoursThisMonth: Number(info.hours.toFixed(1)), daysThisMonth: info.days, estimatedPay: info.unknown?null:info.netPay, payrollConfirmed:info.confirmed };
     });
     ctx.salesReportsThisMonth = (state.salesReports||[]).map(r=>({
       date: r.date, totalSales: r.totalSales, cashSales: r.cashSales, cardSales: r.cardSales,
@@ -4337,6 +4379,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       loadTodayReservations(store),
       loadUpcomingReservations(store),
       loadPayAdjustments(store, monthKey()),
+      loadMonthlyNetPayroll(store, monthKey()),
       loadRatioLimits(store)
     ]);
     if(!alive()) return;
@@ -4699,6 +4742,52 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return { hours, days, pay };
   }
 
+  // Net wage includes advances; only the remaining transfer deducts them.
+  function payrollAdjustmentSnapshot(adjustments){
+    return (adjustments||[]).filter(a=>a.type!=='가불').map(a=>[String(a.id),a.type,Number(a.amount),a.unpaidDate||null]).sort((a,b)=>a[0].localeCompare(b[0]));
+  }
+  function settleNetPayroll(c, base, netBase, adjustments, record, year, month, today){
+    const mKey=year+'-'+String(month).padStart(2,'0');
+    const mine=(adjustments||[]).filter(a=>a.crewId===c.id && (!a.monthKey || a.monthKey===mKey));
+    const reasons=[];
+    const missingHire=c.wageType==='monthly'&&!c.hireDate;
+    const missingPastHire=missingHire && !String(today).startsWith(mKey+'-');
+    let advance=0,balanceUnknown=false,estimated=netBase;
+    for(const a of mine){
+      const n=Number(a.amount);
+      if(!Number.isSafeInteger(n)){reasons.push('급여 조정 금액 오류');continue;}
+      if(a.type==='가불'){
+        if(n>=0){balanceUnknown=true;reasons.push('이전 가불의 차감 방향 확인 필요');}else advance-=n;
+      }else if(!(a.unpaidDate && a.unpaidDate>today))estimated+=n;
+    }
+    const validRecord=record && Number.isSafeInteger(record.netPay) && record.netPay>=0;
+    const stale=!!record && JSON.stringify(record.adjustmentSnapshot||[])!==JSON.stringify(payrollAdjustmentSnapshot(mine));
+    const confirmed=!!validRecord&&!stale;
+    const netPay=confirmed?record.netPay:estimated;
+    const invalidAdjustments=reasons.includes('급여 조정 금액 오류');
+    const unknown=stale || invalidAdjustments || (!confirmed && (missingPastHire || !!c.employmentSetupRequired || !Number.isFinite(netPay) || netPay<0 || (Number(c.wage)<=0 && (base.days>0 || base.hours>0))));
+    if(missingPastHire&&!confirmed)reasons.push('입사일이 없어 과거 급여 미확정');
+    if(stale)reasons.push('급여 조정 변경 후 실제 세후급여 재확인 필요');
+    if(c.employmentSetupRequired&&!confirmed)reasons.push('근무조건 설정 대기');
+    return {hours:base.hours,days:base.days,grossPay:base.pay,netPay,advance,balance:balanceUnknown?null:netPay-advance,unknown,confirmed,stale,missingHire,reasons};
+  }
+  function crewSettlementFrom(c, attendance, adjustments, records, year, month){
+    const mKey=year+'-'+String(month).padStart(2,'0');
+    const monthAttendance=(attendance||[]).filter(a=>String(a.date||'').startsWith(mKey+'-'));
+    const base=calcCrewPayFrom(c,monthAttendance,year,month);
+    const netBase=computeNetPay(c,base.pay).netPay;
+    const record=(records||[]).find(r=>r.crewId===c.id && r.monthKey===mKey);
+    const today=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+    return settleNetPayroll(c,base,netBase,adjustments,record,year,month,today);
+  }
+  function crewSettlement(c){
+    return crewSettlementFrom(c,state.attendance,state.payAdjustments,state.monthlyPayrolls,state.monthYear,state.monthNum);
+  }
+  function summarizeNetPayroll(crew, attendance, adjustments, records, year, month){
+    const people=(crew||[]).map(c=>({crew:c,...crewSettlementFrom(c,attendance,adjustments,records,year,month)}));
+    return {people,netPay:people.reduce((s,p)=>s+p.netPay,0),unknownCount:people.filter(p=>p.unknown).length,estimatedCount:people.filter(p=>!p.confirmed&&!p.unknown).length,confirmedCount:people.filter(p=>p.confirmed).length};
+  }
+
   async function loadDashboardData(){
     // A lookup only lands if the account/screen it was started for is still current (logout, account switch,
     // or a newer dashboard request all invalidate it). It also records which inputs could NOT be read.
@@ -4775,10 +4864,21 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const sales = summarizeSalesFigures(salesArr);
       const salesSum = sales.grossSales, deliverySum = sales.delivery;
       if(sales.invalid.length && !failed.includes('매출'))failed.push('매출');
-      let laborPay = 0;
-      crewArr.forEach(c=>{ laborPay += calcCrewPayFrom(c, attArr, y, m).pay; });
-      // A ratio is only computed from inputs that were actually read; otherwise it is unknown (null), never 0.
-      const laborReadable = failed.indexOf("직원")<0 && failed.indexOf("근태")<0 && failed.indexOf("매출")<0;
+      let adjustmentRows=[],payrollRows=[];
+      if(storeId){
+        try{
+          const [a,p]=await Promise.all([
+            db.from('crew_pay_adjustments').select('*').eq('store_id',storeId).eq('month_key',mKey),
+            db.from('monthly_net_payroll').select('id,crew_id,month_key,net_pay,paid_on,adjustment_snapshot,updated_at').eq('store_id',storeId).eq('month_key',mKey)
+          ]);
+          if(a.error)failed.push('급여조정');else adjustmentRows=(a.data||[]).map(adjustmentRow);
+          if(p.error)failed.push('급여확정');else payrollRows=(p.data||[]).map(payrollRow);
+        }catch(e){failed.push('급여조정','급여확정');}
+      }
+      const payroll=summarizeNetPayroll(crewArr,attArr,adjustmentRows,payrollRows,y,m);
+      const laborPay=payroll.netPay;
+      if(payroll.unknownCount)failed.push('급여미확정');
+      const laborReadable = ['직원','근태','매출','급여조정','급여확정','급여미확정'].every(k=>!failed.includes(k));
       const expenseReadable = failed.indexOf("지출")<0 && failed.indexOf("매출")<0;
       const laborRatio = (laborReadable && salesSum>0) ? (laborPay/salesSum*100) : null;
       // 지출비율 = 전체 지출(분류 무관) ÷ 매출.
@@ -4849,7 +4949,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const dailySales = {};
       salesArr.forEach(s=>{ dailySales[s.date] = (dailySales[s.date]||0) + (Number(s.totalSales)||0); });
 
-      return { store, foodThreshold, laborThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
+      return { store, foodThreshold, laborThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, payrollEstimatedCount:payroll.estimatedCount, payrollConfirmedCount:payroll.confirmedCount, laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
     }));
     if(!alive()) return;
     results.sort((a,b)=> b.salesSum - a.salesSum);
@@ -4889,10 +4989,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       return;
     }
     // 요약 시트 (근무확인 완료 기준)
-    const summaryRows = [["이름","구분","급여방식","근무일수","총 근무시간","급여(시급/월급)","예상 급여"]];
+    const summaryRows = [["이름","구분","급여방식","근무일수","총 근무시간","급여(시급/월급)","세전 참고액","세후 월급여 (가불 포함)","남은 지급액","확인 상태"]];
     state.crew.forEach(c=>{
       const info = calcCrewPay(c, state.monthYear, state.monthNum);
-      summaryRows.push([c.name, c.position||"홀", c.wageType==="monthly"?"월급":"시급", info.days, Number(info.hours.toFixed(1)), c.wage, info.pay]);
+      const pay=crewSettlement(c);
+      summaryRows.push([c.name, c.position||"홀", c.wageType==="monthly"?"월급":"시급", info.days, Number(info.hours.toFixed(1)), c.wage, info.pay,pay.unknown?'미확정':pay.netPay,pay.unknown||pay.balance===null?'미확정':pay.balance,pay.confirmed?'실제 확인':pay.unknown?'미확정':'참고 추정']);
     });
 
     // 상세 시트 (근무확인 완료된 기록만)
@@ -5088,14 +5189,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     });
     expenseRows.push(["합계", totalExpense, 100]);
 
-    let totalLabor = 0;
-    const laborRows = [["이름","예상급여","근무일수","근무시간"]];
-    state.crew.forEach(c=>{
-      const info = calcCrewPay(c, y, m);
-      totalLabor += info.pay;
-      laborRows.push([c.name, info.pay, info.days, Number(info.hours.toFixed(1))]);
-    });
-    laborRows.push(["합계", totalLabor, "", ""]);
+    const payroll=summarizeNetPayroll(state.crew,state.attendance,state.payAdjustments,state.monthlyPayrolls,y,m);
+    if(payroll.unknownCount){showToast('급여 미확정 직원이 있어 내보낼 수 없어요. 실제 세후급여 또는 입사일을 확인해 주세요.');return;}
+    const totalLabor=payroll.netPay;
+    const laborRows=[['이름','세전 참고액','세후 월급여 (가불 포함)','이미 지급한 가불','남은 지급액','실제 확인/추정','근무시간','근무일수']];
+    payroll.people.forEach(p=>laborRows.push([p.crew.name,p.grossPay,p.netPay,p.advance,p.balance===null?'확인 필요':p.balance,p.confirmed?'실제 확인':'참고 추정',Number(p.hours.toFixed(1)),p.days]));
+    laborRows.push(['합계','',totalLabor]);
 
     const ratioCell = r => r===null ? "-" : Number(r.toFixed(1));
     const laborRatio = ratioCell(salesCostRatio(totalLabor, totalSales));
@@ -5103,7 +5202,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     let totalFixed = 0; state.fixedExpenses.forEach(f=> totalFixed += Number(f.amount)||0);
     const reportFailed = state.reportDataFailed && state.reportDataFailed.size>0;
     const netProfit = (reportFailed || sf.invalid.length>0) ? "계산 불가" : sf.netSales - totalExpense - totalLabor - totalFixed;
-    const summaryRows = [["항목","값"],["총매출", totalSales],["할인", sf.discount],["반품", sf.refund],["실매출", sf.netSales],["배달매출 (합산 안 함)", totalBaemin+totalCoupang+totalYogiyo],["총지출", totalExpense],["총인건비", totalLabor],["고정지출", totalFixed],["예상 순수익 (실매출 기준)", netProfit],["인건비율(%)", laborRatio],["지출비율(%)", expenseRatio]];
+    const summaryRows = [["항목","값"],["총매출", totalSales],["할인", sf.discount],["반품", sf.refund],["실매출", sf.netSales],["배달매출 (합산 안 함)", totalBaemin+totalCoupang+totalYogiyo],["총지출", totalExpense],["총인건비 (세후급여·가불 포함)", totalLabor],["고정지출", totalFixed],["예상 순수익 (실매출 기준)", netProfit],["인건비율(%)", laborRatio],["지출비율(%)", expenseRatio]];
 
     const wb = XLSX.utils.book_new();
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows); styleWorksheet(wsSummary, summaryRows);
@@ -5199,7 +5298,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.dashboardData = null;
     // 직원 목록(직원 실패 상태 포함)은 달마다 다시 불러오지 않으므로 여기서 지우지 않는다 - 매출·지출·근태·고정지출은
     // 아래에서 다시 불러오는 대로 각자 성공/실패 상태를 스스로 갱신한다(clearReportDataFailures 주석 참고).
-    Promise.all([ loadShifts(state.store, monthKey()), loadAttendance(state.store, monthKey()), loadSalesReports(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadFixedExpenses(state.store, monthKey()), loadChecklistLog(state.store, monthKey()), loadPayAdjustments(state.store, monthKey()) ]).then(render);
+    Promise.all([ loadShifts(state.store, monthKey()), loadAttendance(state.store, monthKey()), loadSalesReports(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadFixedExpenses(state.store, monthKey()), loadChecklistLog(state.store, monthKey()), loadPayAdjustments(state.store, monthKey()), loadMonthlyNetPayroll(state.store, monthKey()) ]).then(render);
   }
 
   async function addCrewMember(){
@@ -7165,23 +7264,19 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return html;
   }
   function renderStaffPayPill(person){
-    let html = '';
-    const payInfo = calcCrewPay(person, state.monthYear, state.monthNum);
-    const net = computeNetPay(person, payInfo.pay);
-    html += '<div class="month-pill"><p class="mp-label">'+state.monthYear+'년 '+state.monthNum+'월 내 근무 (확인된 근무 기준)</p>';
-    html += '<div class="mp-row"><span>근무일수</span><b>'+payInfo.days+'일</b></div>';
-    html += '<div class="mp-row"><span>총 근무시간</span><b>'+payInfo.hours.toFixed(1)+'시간</b></div>';
-    if(person.probation){
-      html += '<div class="mp-row"><span>수습 적용</span><b>급여액 10% 차감됨</b></div>';
-    }
-    html += '<div class="mp-row"><span>예상 급여</span><b>'+(person.employmentSetupRequired?'근무조건 설정 대기':payInfo.pay.toLocaleString()+'원')+'</b></div>';
-    if(net.taxRate > 0){
-      html += '<div class="mp-row"><span>세금 ('+net.taxLabel+')</span><b>(-)'+net.taxAmount.toLocaleString()+'원</b></div>';
-      html += '<div class="mp-row" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.25);font-size:15px;"><span>최종 환산금액</span><b style="color:#fff;font-size:17px;">'+net.netPay.toLocaleString()+'원</b></div>';
-      html += '<p style="font-size:10.5px;color:rgba(255,255,255,0.75);margin:6px 0 0;">참고용 계산이에요. 실제 공제·실수령액은 사람마다 다를 수 있어요.</p>';
-    }
-    html += '</div>';
-
+    const info=crewSettlement(person);
+    const reference=computeNetPay(person,info.grossPay);
+    const failed=['직원','근태','급여조정','급여확정'].some(k=>state.reportDataFailed&&state.reportDataFailed.has(k));
+    const money=n=>n.toLocaleString()+'원';
+    let html='<div class="month-pill"><p class="mp-label">'+state.monthYear+'년 '+state.monthNum+'월 내 급여</p>';
+    html+='<div class="mp-row"><span>근무일수</span><b>'+info.days+'일</b></div>';
+    html+='<div class="mp-row"><span>총 근무시간</span><b>'+info.hours.toFixed(1)+'시간</b></div>';
+    html+='<div class="mp-row"><span>세전 참고액</span><b>'+money(info.grossPay)+'</b></div>';
+    if(!info.confirmed&&reference.taxRate>0)html+='<div class="mp-row"><span>참고 공제 ('+reference.taxLabel+')</span><b>(-)'+money(reference.taxAmount)+'</b></div>';
+    html+='<div class="mp-row"><span>세후급여 · 가불 포함</span><b>'+(failed?'조회 실패':info.unknown?'급여 미확정':money(info.netPay))+'</b></div>';
+    html+='<div class="mp-row"><span>이미 받은 가불</span><b>'+money(info.advance)+'</b></div>';
+    html+='<div class="mp-row"><span>남은 지급액</span><b>'+(failed||info.unknown||info.balance===null?'확인 필요':money(info.balance))+'</b></div>';
+    html+='<p style="font-size:11px;margin-top:8px;">'+(info.confirmed?'사장님이 확인한 실제 세후급여예요.':'참고 추정치예요. 실제 세후급여 확인이 필요해요.')+'</p></div>';
     return html;
   }
   // ---------- 직원·매니저 앱 (team shell) ----------
@@ -7288,7 +7383,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return '<div class="team-ratio '+kind+'"><span class="team-ratio-label">'+label+'</span><strong>'+(value===null?'—':value.toFixed(1)+'%')+'</strong><span class="team-verdict">'+(icons[kind]||icons.none)+word+'</span><small>'+limitText+'</small></div>';
   }
   function renderTeamSummaryCard(sum){
-    if(sum.salesInvalid)return '<div class="s-card" role="alert">매출 자료에 잘못된 금액이 있어 계산 불가해요. 매출 보고를 수정해 주세요.</div>';
+    if(sum.salesInvalid||sum.payrollUnknown)return '<div class="s-card" role="alert">매출 또는 급여 자료가 미확정이라 계산할 수 없어요. 해당 자료를 확인해 주세요.</div>';
     const lv = laborRatioVerdict(state.store, sum.laborRatio);
     const laborKind = lv.state;
     const laborLimitText = lv.state==='unknown' ? '기준을 조회하지 못했어요' : formatLimit(laborRatioLimit(state.store)===null?DEFAULT_LABOR_RATIO_LIMIT:laborRatioLimit(state.store))+'% 이하가 기준';
@@ -8181,15 +8276,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }else{
       html += '<p class="crew-code-hint">날짜를 누르면 그날 내 근무 시간을 볼 수 있어요.</p>';
     }
-    if(person && !noPay){
-      const info = calcCrewPay(person, y, m);
-      html += '<div class="month-pill" style="margin-top:12px;">';
-      html += '<p class="mp-label">'+m+'월 총 근무 (근무확인 완료 기준)</p>';
-      html += '<div class="mp-row"><span>근무일수</span><b>'+info.days+'일</b></div>';
-      html += '<div class="mp-row"><span>총 근무시간</span><b>'+info.hours.toFixed(1)+'시간</b></div>';
-      html += '<div class="mp-row"><span>예상 급여</span><b>'+(person.employmentSetupRequired?'근무조건 설정 대기':info.pay.toLocaleString()+'원')+'</b></div>';
-      html += '</div>';
-    }
+    if(person && !noPay)html+=renderStaffPayPill(person);
     return html;
   }
 
@@ -8413,7 +8500,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   // Which inputs each ratio needs (a failure of one item never blocks the verdict of another).
   // The store's labor limit as the dashboard row carries it: a number, null = could not be read (never the default), undefined = row without the field (default).
   function ownerLaborLimit(d){ return d.laborThreshold===undefined ? DEFAULT_LABOR_RATIO_LIMIT : d.laborThreshold; }
-  function ownerLaborReadable(d){ const f=d.loadFailures||[]; return f.indexOf("직원")<0 && f.indexOf("근태")<0 && f.indexOf("매출")<0; }
+  function ownerLaborReadable(d){ const f=d.loadFailures||[]; return ['직원','근태','매출','급여조정','급여확정','급여미확정'].every(k=>!f.includes(k)); }
   function ownerFoodReadable(d){ const f=d.loadFailures||[]; return f.indexOf("지출")<0 && f.indexOf("매출")<0; }
   function ownerSalesUnreadable(d){ return (d.loadFailures||[]).indexOf("매출")>=0; }
   // Combined judgement (existing conditions, computed from stores that could be read). It never turns into a
@@ -8773,13 +8860,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     // 지출비율 = 전체 지출(식자재/주류음료/소모품/기타/미분류 모두 포함) ÷ 매출. 분류 여부는 이 비율·경고 판정에 영향을 주지 않는다.
     const expenseRatio = totalSales>0 ? (totalExpense/totalSales*100) : null;
 
-    let totalLabor = 0;
-    const perPerson = state.crew.map(c=>{
-      const info = calcCrewPay(c, y, m);
-      totalLabor += info.pay;
-      return { name: c.name, pay: info.pay, hours: info.hours, days: info.days };
-    }).sort((a,b)=> b.pay-a.pay);
-    const laborRatio = totalSales>0 ? (totalLabor/totalSales*100) : null;
+    const payroll=summarizeNetPayroll(state.crew,state.attendance,state.payAdjustments,state.monthlyPayrolls,y,m);
+    const totalLabor=payroll.netPay;
+    const payrollUnknown=payroll.unknownCount>0;
+    const perPerson=payroll.people.map(p=>({name:p.crew.name,pay:p.unknown?'미확정':p.netPay,hours:p.hours,days:p.days,confirmed:p.confirmed}));
+    const laborRatio = !payrollUnknown&&totalSales>0 ? (totalLabor/totalSales*100) : null;
 
     let totalFixed = 0;
     state.fixedExpenses.forEach(f=> totalFixed += Number(f.amount)||0);
@@ -8793,7 +8878,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const failedSet = state.reportDataFailed || new Set();
     const salesFailed = failedSet.has('매출');
     const expenseFailed = failedSet.has('지출');
-    const laborFailed = failedSet.has('직원') || failedSet.has('근태');
+    const laborFailed = failedSet.has('직원') || failedSet.has('근태') || failedSet.has('급여조정') || failedSet.has('급여확정') || payrollUnknown;
     const fixedFailed = failedSet.has('고정지출');
     const anyFailed = salesFailed || expenseFailed || laborFailed || fixedFailed;
     const netProfitFailed = anyFailed || salesInvalid;
@@ -8805,9 +8890,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     // sales (매출 없이 지출·인건비·고정지출만 있는 달) still show their real, possibly negative 예상 순수익.
     const hasAnyActivity = reportedDays>0 || totalExpense>0 || totalLabor>0 || fixedRegistered;
     let captionLine;
-    if(anyFailed) captionLine = '조회 실패 · 일부 자료를 불러오지 못했어요 ('+Array.from(failedSet).join('·')+')';
+    if(anyFailed) captionLine = payrollUnknown?'급여 미확정 '+payroll.unknownCount+'명 · 직원별 실제 세후급여 또는 입사일을 확인해 주세요.':'조회 실패 · 일부 자료를 불러오지 못했어요 ('+Array.from(failedSet).join('·')+')';
     else if(!hasAnyActivity) captionLine = '입력된 자료 없음';
-    else captionLine = reportedDays+'/'+lastDay+'일 매출 보고'+(fixedRegistered?'':' · 고정지출 미등록 (반영 안 됨)');
+    else captionLine = reportedDays+'/'+lastDay+'일 매출 보고 · 세후급여 실제 확인 '+payroll.confirmedCount+'명 · 추정 '+payroll.estimatedCount+'명'+(fixedRegistered?'':' · 고정지출 미등록 (반영 안 됨)');
     if(!anyFailed && salesInvalid) captionLine += ' · 매출 보고에 음수/잘못된 금액이 있어 순수익 계산 불가';
 
     // ---- top: net profit + figures (label+ratio on the left, amount alone on the right - same right edge every row) ----
@@ -8839,7 +8924,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       +'</div>';
     };
     html += '<div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">'+healthCard('인건비율',laborRatio,laborV,laborFailed)+healthCard('지출비율',expenseRatio,foodV,expenseFailed||salesFailed).replace('class="labor-verdict"','class="food-verdict"')+'</div>';
-    html += '<div style="margin-top:10px;font-size:11.5px;opacity:.85;">입력된 자료 기준 예상액이에요. 순수익은 실매출(총매출-할인-반품) 기준, 비율은 전체 지출·인건비 ÷ 총매출이에요.</div>';
+    html += '<div style="margin-top:10px;font-size:11.5px;opacity:.85;">입력된 자료 기준 예상액이에요. 순수익은 실매출에서 세후급여·지출·고정비를 차감해요. 보험료·원천세 납부액은 지출에만 반영하며 다시 더해 차감하지 않아요. 비율 분모는 총매출이에요. 통장 잔액과는 다를 수 있어요.</div>';
     html += '</div>';
 
     // ---- VAT summary card (links to detail screen) ----
@@ -9723,89 +9808,47 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function renderPay(){
-    let html = "";
-    const pendingSetup=state.crew.filter(c=>c.employmentSetupRequired);
-    if(pendingSetup.length) html+='<p class="owner-warning">근무조건을 설정하지 않은 직원 '+pendingSetup.length+'명이 있어요. 표시된 급여 합계는 확정 금액이 아니에요.</p>';
-    if(state.crew.length===0){
-      html += '<div class="empty-note">먼저 "직원 관리"에서 스텝을 등록해 주세요.</div>';
-      return html;
+    if(!state.crew.length)return '<div class="empty-note">먼저 직원 정보를 연결해 주세요.</div>';
+    const payroll=summarizeNetPayroll(state.crew,state.attendance,state.payAdjustments,state.monthlyPayrolls,state.monthYear,state.monthNum);
+    const failed=state.reportDataFailed||new Set(),unavailable=payroll.unknownCount>0||['직원','근태','급여조정','급여확정'].some(k=>failed.has(k));
+    const sales=summarizeSalesFigures(state.salesReports);
+    const ratio=!unavailable&&!sales.invalid.length?salesCostRatio(payroll.netPay,sales.grossSales):null;
+    let html='<div class="pay-summary c-blue"><p class="label">'+state.monthYear+'년 '+state.monthNum+'월 총 세후급여 · 가불 포함</p><p class="amount">'+(unavailable?'계산 불가':payroll.netPay.toLocaleString()+'원')+'</p>';
+    html+='<p class="meta">실제 급여 확인 '+payroll.confirmedCount+'명 · 추정 '+payroll.estimatedCount+'명 · 미확정 '+payroll.unknownCount+'명</p><p class="meta">총매출 대비 세후급여 '+(ratio===null?'—':ratio.toFixed(1)+'%')+'</p></div>';
+    const missing=payroll.people.filter(p=>p.missingHire);
+    if(missing.length)html+='<p class="owner-warning">입사일 미등록: '+missing.map(p=>escapeHtml(p.crew.name)).join(', ')+'. 과거 급여는 입사일을 설정하거나 실제 세후급여를 확인해야 총액에 반영돼요.</p>';
+    if(unavailable)html+='<p role="alert" class="owner-warning">미확정·조회 실패 자료가 있어 급여 합계를 확정할 수 없어요. 직원별 항목을 확인해 주세요.</p>';
+    html+='<p class="crew-code-hint">실제 세후급여를 확인하기 전에는 기존 공제율을 이용한 참고 추정액이에요. 보험료·원천세는 실제 납부액을 지출에 별도로 기록하세요. 월 손익과 통장 잔액은 다를 수 있어요.</p>';
+    html+='<button class="landing-btn secondary" id="export-excel-btn" style="margin-bottom:14px;">엑셀로 내보내기 (급여·출퇴근)</button>';
+    if(!state.payCrewId||!state.crew.some(c=>c.id===state.payCrewId))state.payCrewId=state.crew[0].id;
+    html+='<select class="pay-select" id="pay-crew-select">';
+    state.crew.forEach(c=>html+='<option value="'+c.id+'"'+(c.id===state.payCrewId?' selected':'')+'>'+escapeHtml(c.name)+'</option>');html+='</select>';
+    const person=state.crew.find(c=>c.id===state.payCrewId),settlement=crewSettlement(person);
+    const personInfo={pay:settlement.grossPay,hours:settlement.hours,days:settlement.days};
+    const myAttConfirmed=state.attendance.filter(a=>a.crewId===person.id&&a.checkOut&&a.confirmed).sort((a,b)=>a.date.localeCompare(b.date));
+    const myAttPending=state.attendance.filter(a=>a.crewId===person.id&&a.checkOut&&!a.confirmed).sort((a,b)=>a.date.localeCompare(b.date));
+    html+='<div class="pay-summary c-teal"><p class="label">'+escapeHtml(person.name)+' · '+(settlement.confirmed?'확인된 실제':'참고 추정')+' 세후 월급여</p><p class="amount">'+(settlement.unknown?'미확정':settlement.netPay.toLocaleString()+'원')+'</p>';
+    html+='<p class="meta">이미 지급한 가불 '+settlement.advance.toLocaleString()+'원 · 남은 지급액 '+(settlement.unknown||settlement.balance===null?'확인 필요':settlement.balance.toLocaleString()+'원')+'</p>';
+    if(settlement.balance!==null&&settlement.balance<0)html+='<p class="meta">가불이 월 급여를 초과해 추가 정산이 필요해요.</p>';
+    if(settlement.reasons.length)html+='<p class="meta">'+settlement.reasons.map(escapeHtml).join(' · ')+'</p>';
+    html+='<p class="meta">세전 참고액 '+personInfo.pay.toLocaleString()+'원 · '+personInfo.days+'일 · '+personInfo.hours.toFixed(1)+'시간</p></div>';
+    const actual=(state.monthlyPayrolls||[]).find(r=>r.crewId===person.id&&r.monthKey===monthKey());
+    if(canManageBusinessData()){
+      html+='<div class="day-panel"><h3>실제 세후급여 확인</h3><p class="crew-code-hint">무급휴무·추가 지급·공제를 반영한 이번 달 전체 실수령액을 입력하세요. 이미 지급한 가불도 포함한 금액이에요. 가불은 남은 지급액에서만 차감돼요.</p>';
+      html+='<label class="field-label" for="actual-net-pay-input">월 세후급여 · 가불 포함 (원)</label><input class="field-input" id="actual-net-pay-input" type="number" inputmode="numeric" min="0" step="1" value="'+(actual?actual.netPay:'')+'" placeholder="실제 급여명세서 금액">';
+      html+='<label class="field-label" for="actual-pay-date-input">실제 지급일 (선택)</label><input class="field-input" id="actual-pay-date-input" type="date" max="'+todayKey()+'" value="'+escapeHtml(actual?.paidOn||'')+'"><button class="crew-code-btn" id="save-actual-net-pay-btn" style="width:100%;margin-top:10px;">이번 달 실제 세후급여 저장</button>';
+      html+='<p class="crew-code-hint">귀속월은 '+monthKey()+'이에요. 지급일은 현금 흐름 확인용으로 구분해 기록해요.</p></div>';
     }
-    // total across all crew, this month (confirmed attendance only)
-    let grandHours = 0, grandPay = 0;
-    state.crew.forEach(c=>{
-      const info = calcCrewPay(c, state.monthYear, state.monthNum);
-      grandHours += info.hours;
-      grandPay += info.pay;
-    });
-    let salesSum = 0;
-    state.salesReports.forEach(r=> salesSum += Number(r.totalSales)||0);
-    const laborRatio = salesSum>0 ? (grandPay/salesSum*100) : 0;
-
-    html += '<div class="pay-summary c-blue">';
-    html += '<p class="label">'+state.monthYear+'년 '+state.monthNum+'월 예상 총 급여 (근무확인 기준)</p>';
-    html += '<p class="amount">'+grandPay.toLocaleString()+'원</p>';
-    html += '<p class="meta">스텝 '+state.crew.length+'명 · 총 '+grandHours.toFixed(1)+'시간</p>';
-    html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.15);">';
-    html += '<p class="meta">'+state.monthNum+'월 예상 총매출 (현재까지 누적) · '+salesSum.toLocaleString()+'원</p>';
-    html += '<p class="meta">매출 대비 인건비 · '+(salesSum>0 ? laborRatio.toFixed(1) : "0.0")+'%</p>';
-    html += '</div>';
-    html += '</div>';
-    html += '<button class="landing-btn secondary" id="export-excel-btn" style="margin-bottom:14px;">엑셀로 내보내기 (이번 달 출퇴근 기록)</button>';
-
-    if(!state.payCrewId || !state.crew.find(c=>c.id===state.payCrewId)){
-      state.payCrewId = state.crew[0].id;
+    const myAdjustments=(state.payAdjustments||[]).filter(a=>a.crewId===person.id);
+    html+='<div class="day-panel"><h3>급여 조정 · 가불·무급휴무</h3><p class="crew-code-hint">가불 금액은 양수로 입력하면 자동 차감돼요. 가불을 일반 지출에도 입력하면 급여 비용이 이중으로 잡힐 수 있어요. 기존 반차 기록은 유지돼요.</p>';
+    myAdjustments.forEach(a=>html+='<div class="pay-list-item"><span class="d">'+escapeHtml(a.type==='무급휴가'?'무급휴무':a.type)+(a.unpaidDate?' · '+escapeHtml(a.unpaidDate):'')+(a.note?' · '+escapeHtml(a.note):'')+'</span><span>'+(a.amount>=0?'+':'')+a.amount.toLocaleString()+'원'+(canManageBusinessData()?'<button class="crew-del" data-deladj="'+a.id+'">삭제</button>':'')+'</span></div>');
+    if(canManageBusinessData()){
+      html+='<div class="row2"><select class="field-input" id="payadj-type-select"><option value="가불">가불 · 자동 차감</option><option value="무급휴가">무급휴무 · 체크로 등록</option><option value="기타">기타 조정</option></select><input class="field-input" type="number" inputmode="numeric" min="1" step="1" id="payadj-amount-input" placeholder="양수 금액"></div>';
+      html+='<div id="payadj-direction-wrap" hidden><label class="field-label">조정 방향</label><select class="field-input" id="payadj-direction"><option value="add">추가 지급</option><option value="deduct">차감</option></select></div>';
+      html+='<div id="payadj-unpaid-wrap" hidden><label><input type="checkbox" id="payadj-unpaid-check"> 무급휴무 · '+(person.wageType==='monthly'?'세후 추정 일급 자동 차감':'시급은 추가 차감 없음')+'</label><input class="field-input" type="date" id="payadj-unpaid-date" min="'+monthKey()+'-01" max="'+monthKey()+'-'+String(daysInMonth(state.monthYear,state.monthNum)).padStart(2,'0')+'"></div>';
+      html+='<input class="field-input" id="payadj-note-input" placeholder="메모 (선택)" style="margin-top:8px;"><button class="crew-code-btn" id="add-payadj-btn" style="margin-top:8px;width:100%;">급여 조정 저장</button>';
     }
-    html += '<select class="pay-select" id="pay-crew-select">';
-    state.crew.forEach(c=> html += '<option value="'+c.id+'"'+(c.id===state.payCrewId?' selected':'')+'>'+c.name+' ('+(c.position||"홀")+')</option>');
-    html += '</select>';
-
-    const person = state.crew.find(c=>c.id===state.payCrewId);
-    const personInfo = calcCrewPay(person, state.monthYear, state.monthNum);
-    const myAttConfirmed = state.attendance.filter(a=>a.crewId===state.payCrewId && a.checkOut && a.confirmed).sort((a,b)=>a.date.localeCompare(b.date));
-    const myAttPending = state.attendance.filter(a=>a.crewId===state.payCrewId && a.checkOut && !a.confirmed).sort((a,b)=>a.date.localeCompare(b.date));
-
-    html += '<div class="pay-summary c-teal">';
-    html += '<p class="label">'+person.name+' 예상 급여 · '+(person.wageType==="monthly"?"월급":"시급")+' 방식'+(person.probation?' · 수습 적용':'')+'</p>';
-    html += '<p class="amount">'+personInfo.pay.toLocaleString()+'원</p>';
-    if(person.wageType==="monthly"){
-      html += '<p class="meta">근무 '+personInfo.days+'일 (이번달 '+daysInMonth(state.monthYear,state.monthNum)+'일 중) · 월급 '+person.wage.toLocaleString()+'원 · 일할 계산</p>';
-    }else{
-      html += '<p class="meta">근무 '+personInfo.days+'일 · 총 '+personInfo.hours.toFixed(1)+'시간 · 시급 '+person.wage.toLocaleString()+'원</p>';
-    }
-    const personNet = computeNetPay(person, personInfo.pay);
-    if(personNet.taxRate > 0){
-      html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.15);">';
-      html += '<p class="meta">세금 ('+personNet.taxLabel+') (-)'+personNet.taxAmount.toLocaleString()+'원</p>';
-      html += '<p class="meta" style="font-size:15px;color:var(--brick-dim);font-weight:700;">실수령 예상액 '+personNet.netPay.toLocaleString()+'원</p>';
-      html += '<p style="font-size:10.5px;color:rgba(255,255,255,0.75);margin:4px 0 0;">참고용 계산이에요. 실제 공제·실수령액은 사람마다 다를 수 있어요.</p>';
-      html += '</div>';
-    }
-    html += '</div>';
-
-    const myAdjustments = (state.payAdjustments||[]).filter(a=>a.crewId===state.payCrewId);
-    const adjTotal = myAdjustments.reduce((s,a)=>s+a.amount,0);
-    const baseForAdj = personNet.taxRate>0 ? personNet.netPay : personInfo.pay;
-    html += '<div class="day-panel" style="margin-top:12px;">';
-    html += '<h3 style="margin-top:0;">급여 조정 (반차·가불·무급휴가 등)</h3>';
-    html += '<p class="crew-code-hint" style="margin-bottom:10px;">양수는 지급액에 더하고, 음수(예: 가불은 -100000)는 이번 달 지급액에서 빼요.</p>';
-    if(myAdjustments.length===0){
-      html += '<p class="empty-note" style="padding:6px 0;">등록된 조정 항목이 없어요.</p>';
-    }else{
-      myAdjustments.forEach(a=>{
-        html += '<div class="pay-list-item"><span class="d">'+escapeHtml(a.type)+(a.note?(' · '+escapeHtml(a.note)):'')+'</span><span style="display:flex;align-items:center;gap:8px;">'+(a.amount>=0?'+':'')+a.amount.toLocaleString()+'원<button class="crew-del" data-deladj="'+a.id+'">삭제</button></span></div>';
-      });
-      html += '<div class="pay-list-item" style="font-weight:800;"><span class="d">조정 합계</span><span>'+(adjTotal>=0?'+':'')+adjTotal.toLocaleString()+'원</span></div>';
-    }
-    html += '<div class="row2" style="margin-top:10px;">';
-    html += '<select class="field-input" id="payadj-type-select"><option value="반차">반차</option><option value="가불">가불</option><option value="무급휴가">무급휴가</option><option value="기타">기타</option></select>';
-    html += '<input class="field-input" type="text" inputmode="decimal" pattern="-?[0-9]*" id="payadj-amount-input" placeholder="금액 (가불은 -)">';
-    html += '</div>';
-    html += '<input class="field-input" type="text" id="payadj-note-input" placeholder="메모 (선택)" style="margin-top:8px;">';
-    html += '<button class="crew-code-btn" id="add-payadj-btn" style="margin-top:8px;width:100%;">+ 조정 항목 추가</button>';
-    html += '</div>';
-    if(myAdjustments.length>0){
-      html += '<div class="pay-summary c-teal" style="margin-top:12px;"><p class="label">조정 반영 후 최종 지급 예상액</p><p class="amount">'+(baseForAdj+adjTotal).toLocaleString()+'원</p></div>';
-    }
+    html+='</div>';
 
     if(myAttPending.length>0){
       html += '<div class="empty-note" style="background:#FFF3E0;border-radius:12px;padding:12px;text-align:left;margin-bottom:14px;">매니저 근무확인을 기다리는 근무가 '+myAttPending.length+'건 있어요. 확인 전에는 급여에 반영되지 않아요.</div>';
@@ -10463,6 +10506,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     });
     const paySel = document.getElementById("pay-crew-select");
     if(paySel) paySel.addEventListener("change", ()=>{ state.payCrewId = paySel.value; render(); });
+    const actualPayButton=document.getElementById('save-actual-net-pay-btn');if(actualPayButton)actualPayButton.onclick=saveMonthlyNetPayroll;
+    const adjustmentType=document.getElementById('payadj-type-select');
+    if(adjustmentType)adjustmentType.onchange=()=>{
+      const unpaid=adjustmentType.value==='무급휴가',amount=document.getElementById('payadj-amount-input');
+      const unpaidWrap=document.getElementById('payadj-unpaid-wrap'),directionWrap=document.getElementById('payadj-direction-wrap');
+      if(unpaidWrap)unpaidWrap.hidden=!unpaid;if(directionWrap)directionWrap.hidden=adjustmentType.value!=='기타';
+      if(amount){amount.disabled=unpaid;amount.placeholder=unpaid?'저장 시 자동 계산':'양수 금액';}
+    };
     const addPayAdjBtn = document.getElementById("add-payadj-btn");
     if(addPayAdjBtn) addPayAdjBtn.addEventListener("click", addPayAdjustment);
     app.querySelectorAll("[data-deladj]").forEach(btn=>{
