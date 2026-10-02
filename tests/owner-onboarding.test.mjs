@@ -41,3 +41,31 @@ test('invite proceeds without employees, wages or schedules and unsaved cost dra
 test('store cutoff rejection leaves original value and step for retry',async()=>{
  const h=harness();h.state.onboardingStep='cutoff';h.state.ownerSetupDraft={'setup-cutoff':'4'};h.setResponse({data:[]});await h.c.nextOwnerSetup();assert.equal(h.state.storeCutoffMap.A,6);assert.equal(h.state.onboardingStep,'cutoff');
 });
+function checklistEditHarness(deleting=false){
+ const h=harness(),sent=[];let confirm;
+ h.state.items={morning:[{id:'c1',items:[{id:'i1',label:'기존 업무'},{id:'i2',label:'유지 업무'}]}]};
+ const el={dataset:{setupTab:'morning',setupCat:'c1',setupEditTask:'i1',setupDeleteTask:'i1'},hasAttribute:()=>deleting};
+ h.c.app={querySelector:()=>null,querySelectorAll:s=>s==='[data-setup-edit-task],[data-setup-delete-task]'?[el]:[]};
+ h.c.document={getElementById:()=>({value:'수정 업무'})};h.c.MANEE_STAFF_AUTH_ENABLED=true;h.c.bizToday=()=> '2026-09-30';
+ h.c.askConfirm=(_,fn)=>confirm=fn;
+ h.c.callAuthChecklist=async(...args)=>sent.push(args);
+ h.c.loadChecklist=async()=>{h.state.items=JSON.parse(JSON.stringify(sent.at(-1)[3].items));};
+ h.c.bindOnboardingWizardEvents();
+ return {...h,el,sent,confirm:()=>confirm?.()};
+}
+test('setup checklist edit updates only selected item and submits store-scoped template',async()=>{
+ const h=checklistEditHarness();h.el.onclick();await new Promise(r=>setImmediate(r));
+ assert.equal(h.sent.length,1);assert.equal(h.sent[0][0],'templates');assert.equal(h.sent[0][1],'s1');
+ assert.equal(h.state.items.morning[0].items[0].label,'수정 업무');assert.equal(h.state.items.morning[0].items[1].label,'유지 업무');
+});
+test('setup checklist delete requires confirmation and preserves unrelated item',async()=>{
+ const h=checklistEditHarness(true);h.el.onclick();assert.equal(h.sent.length,0);await h.confirm();
+ assert.deepEqual(h.state.items.morning[0].items.map(i=>i.id),['i2']);
+});
+test('setup checklist confirmation cannot mutate a store selected later',async()=>{
+ const h=checklistEditHarness(true);h.el.onclick();h.state.store='B';await h.confirm();assert.equal(h.sent.length,0);
+});
+test('setup checklist failed save leaves original template intact',async()=>{
+ const h=checklistEditHarness();h.c.callAuthChecklist=async()=>{throw Error('offline')};h.el.onclick();await new Promise(r=>setImmediate(r));
+ assert.equal(h.state.items.morning[0].items[0].label,'기존 업무');assert.ok(h.messages.length);
+});

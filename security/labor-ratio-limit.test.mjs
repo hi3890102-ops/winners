@@ -174,10 +174,10 @@ test('settings card: one "비율 경고 기준" card, two independent rows, owne
   assert.equal(/from\('stores'\)\s*\.update\([^)]*labor_ratio/.test(html),false,'the labor limit is never written by a direct table update');
   assert.equal(html.includes("'labor_ratio_threshold'")&&/\.update\([^)]*labor_ratio/.test(html),false);
 });
-test('only warning labels change: pay calculation, wages and ratio formulas are the same functions as before',()=>{
+test('sales validation preserves gross-sales ratio denominator and original wage functions',()=>{
   for(const n of ['calcCrewPayFrom','calcCrewPay','computeMyStoreSummary']) assert.ok(html.includes('function '+n+'('),n);
   assert.ok(html.includes('const laborRatio = (laborReadable && salesSum>0) ? (laborPay/salesSum*100) : null;'));
-  assert.ok(html.includes('const laborRatio = salesSum>0 ? (laborPay/salesSum*100) : null;'));
+  assert.ok(html.includes('const laborRatio = !salesInvalid && salesSum>0 ? (laborPay/salesSum*100) : null;'));
 });
 
 // ---- server (static checks; the behaviour was verified on the staging project)

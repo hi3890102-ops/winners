@@ -1232,6 +1232,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   // The manager's "이번 달 매장 요약" card (own function so the same output can be tested directly).
   function renderManagerSummaryCard(sum){
+    if(sum.salesInvalid)return '<div class="s-card" role="alert">매출 자료에 잘못된 금액이 있어 계산 불가해요. 매출 보고를 수정해 주세요.</div>';
     let html = "";
     const laborV = laborRatioVerdict(state.store, sum.laborRatio);
     const ratioColor = (laborV.state==="none" || laborV.state==="unknown") ? "var(--ink-soft)" : (laborV.state==="over" ? "var(--danger)" : "var(--olive)");
@@ -1251,21 +1252,19 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   function computeMyStoreSummary(){
     const y = state.monthYear, m = state.monthNum;
-    let salesSum = 0, deliverySum = 0;
-    (state.salesReports||[]).forEach(r=>{
-      salesSum += Number(r.totalSales)||0;
-      deliverySum += (Number(r.deliveryBaemin)||0)+(Number(r.deliveryCoupang)||0)+(Number(r.deliveryYogiyo)||0);
-    });
+    const sales = summarizeSalesFigures(state.salesReports);
+    const salesSum = sales.grossSales, deliverySum = sales.delivery;
+    const salesInvalid = sales.invalid.length>0;
     let laborPay = 0;
     (state.crew||[]).forEach(c=>{ laborPay += calcCrewPayFrom(c, state.attendance||[], y, m).pay; });
-    const laborRatio = salesSum>0 ? (laborPay/salesSum*100) : null;
+    const laborRatio = !salesInvalid && salesSum>0 ? (laborPay/salesSum*100) : null;
     // 지출비율 = 전체 지출(분류 무관) ÷ 매출. category는 지출 내역 정리용일 뿐, 이 비율·경고 판정에는 영향을 주지 않는다.
     let expenseSum = 0;
     (state.expenseEntries||[]).forEach(e=> expenseSum += Number(e.amount)||0);
-    const expenseRatio = salesSum>0 ? (expenseSum/salesSum*100) : null;
+    const expenseRatio = !salesInvalid && salesSum>0 ? (expenseSum/salesSum*100) : null;
     const all = countAllFrom(state.homeChecklistItems, state.homeChecklistChecks);
     const checklistPct = all.total>0 ? Math.round(all.done/all.total*100) : null;
-    return { salesSum, deliverySum, laborRatio, expenseSum, expenseRatio, checklistPct };
+    return { salesSum, deliverySum, netSales:sales.netSales, salesInvalid, laborRatio, expenseSum, expenseRatio, checklistPct };
   }
 
   function addStore(){
@@ -3339,7 +3338,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   function recalcDerived(){
     const num = v => parseInt(String(v||"0").replace(/[^0-9-]/g,""),10) || 0;
-    state.salesDraft.netSales = String(num(state.salesDraft.totalSales) - num(state.salesDraft.discount));
+    state.salesDraft.netSales = String(num(state.salesDraft.totalSales) - num(state.salesDraft.discount) - num(state.salesDraft.refund));
     state.salesDraft.actualCash = String(num(state.salesDraft.cashSales) - sumCashExpenseItems(state.salesDraft.cashExpenseItems) - sumCashExpenseItems(state.salesDraft.bankTransferItems));
   }
   function addCashExpenseItem(){
@@ -4223,7 +4222,16 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       else if(state.role === "franchise") managerName = state.franchiseName+" 관리자";
     }
     const d = state.salesDraft;
+    const fields=['totalSales','discount','refund','cardSales','cashSales','emoneySales','deliveryBaemin','deliveryCoupang','deliveryYogiyo','till'];
+    for(const key of fields){
+      const raw=String(d[key]??'').trim();
+      const clean=raw.replace(/,/g,'');
+      const value=clean===''?0:Number(clean);
+      if((raw && !/^\d+(?:,\d{3})*$|^\d+$/.test(raw)) || !Number.isSafeInteger(value) || value<0 || value>2147483647){showToast('매출 금액은 0원 이상의 정수로 입력해 주세요.');return;}
+    }
     const num = v => parseInt(String(v||"0").replace(/[^0-9-]/g,""),10) || 0;
+    const netSalesValue=num(d.totalSales)-num(d.discount)-num(d.refund);
+    if(netSalesValue < -2147483648){showToast('실매출 금액이 저장 가능한 범위를 초과했어요.');return;}
     const dateStr = state.salesEditDate || bizToday();
     const wasEditing = !!state.salesEditingId;
     const storeId = currentStoreId();
@@ -4241,7 +4249,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       store_id: storeId, date: dateStr,
       manager_name: managerName, crew_id: state.myCrewId || null,
       total_sales: num(d.totalSales), discount: num(d.discount), refund: num(d.refund), refund_reason: (d.refundReason||"").trim(),
-      net_sales: num(d.netSales), cash_sales: num(d.cashSales), expense: cashExpenseTotal, cash_expense_items: (d.cashExpenseItems||[]), actual_cash: num(d.actualCash),
+      net_sales: num(d.totalSales)-num(d.discount)-num(d.refund), cash_sales: num(d.cashSales), expense: cashExpenseTotal, cash_expense_items: (d.cashExpenseItems||[]), actual_cash: num(d.actualCash),
       card_sales: num(d.cardSales), emoney_sales: num(d.emoneySales), card_expense: sumCashExpenseItems(d.cardExpenseItems), card_expense_items: (d.cardExpenseItems||[]),
       bank_transfer: sumCashExpenseItems(d.bankTransferItems), bank_transfer_items: (d.bankTransferItems||[]), till: num(d.till),
       delivery_baemin: num(d.deliveryBaemin), delivery_coupang: num(d.deliveryCoupang), delivery_yogiyo: num(d.deliveryYogiyo),
@@ -4737,9 +4745,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       try{
         if(storeId){
           const { start, end } = monthDateRange(mKey);
-          const { data, error } = await db.from('sales_reports').select('date,total_sales,delivery_baemin,delivery_coupang,delivery_yogiyo').eq('store_id', storeId).gte('date', start).lte('date', end);
+          const { data, error } = await db.from('sales_reports').select('date,total_sales,discount,refund,delivery_baemin,delivery_coupang,delivery_yogiyo').eq('store_id', storeId).gte('date', start).lte('date', end);
           if(error) throw error;
-          salesArr = (data||[]).map(r=>({ date: r.date, totalSales: r.total_sales||0, deliverySum: (r.delivery_baemin||0)+(r.delivery_coupang||0)+(r.delivery_yogiyo||0) }));
+          salesArr = (data||[]).map(r=>({ date: r.date, totalSales: r.total_sales, discount:r.discount, refund:r.refund, deliveryBaemin:r.delivery_baemin, deliveryCoupang:r.delivery_coupang, deliveryYogiyo:r.delivery_yogiyo, deliverySum: (r.delivery_baemin||0)+(r.delivery_coupang||0)+(r.delivery_yogiyo||0) }));
         }
       }catch(e){ failed.push("매출"); }
       try{
@@ -4764,10 +4772,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         }
       }catch(e){ failed.push("지출"); }
 
-      let salesSum = 0;
-      salesArr.forEach(s=> salesSum += Number(s.totalSales)||0);
-      let deliverySum = 0;
-      salesArr.forEach(s=> deliverySum += Number(s.deliverySum)||0);
+      const sales = summarizeSalesFigures(salesArr);
+      const salesSum = sales.grossSales, deliverySum = sales.delivery;
+      if(sales.invalid.length && !failed.includes('매출'))failed.push('매출');
       let laborPay = 0;
       crewArr.forEach(c=>{ laborPay += calcCrewPayFrom(c, attArr, y, m).pay; });
       // A ratio is only computed from inputs that were actually read; otherwise it is unknown (null), never 0.
@@ -5031,6 +5038,27 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       }
     }
   }
+  // 매출 공통 계산 (pure). total_sales = 할인 전 총매출 (submitSalesReport 검증식: 카드+현금+전자화폐+할인) - 의미 변경 금지.
+  // 실매출 = 총매출 - 할인 - 반품. 반품 초과로 음수가 되어도 그대로 반환(숨기지 않음). 음수/NaN 입력은 0으로 더하지 않고 invalid에 기록.
+  // 배달 3사 금액이 총매출에 이미 포함되는지 미확정 → 합산하지 않고 별도 값으로만 돌려준다. 모든 집계 화면과 엑셀은 이 함수를 공유한다.
+  function summarizeSalesFigures(reports){
+    let grossSales=0, discount=0, refund=0, baemin=0, coupang=0, yogiyo=0;
+    const invalid=[];
+    (reports||[]).forEach(r=>{
+      const read = key=>{
+        const raw = r ? r[key] : undefined;
+        if(raw===undefined || raw===null || raw==="") return 0;
+        const n = Number(raw);
+        if(!['string','number'].includes(typeof raw) || !Number.isSafeInteger(n) || n<0){ invalid.push({ date: r.date, field: key }); return 0; }
+        return n;
+      };
+      grossSales += read("totalSales"); discount += read("discount"); refund += read("refund");
+      baemin += read("deliveryBaemin"); coupang += read("deliveryCoupang"); yogiyo += read("deliveryYogiyo");
+    });
+    return { grossSales, discount, refund, netSales: grossSales-discount-refund, baemin, coupang, yogiyo, delivery: baemin+coupang+yogiyo, invalid };
+  }
+  // 비용비율 분모는 총매출(할인 전). 0매출이면 null.
+  function salesCostRatio(cost, grossSales){ return grossSales>0 ? (cost/grossSales*100) : null; }
   function exportExcelMonthlyReport(){
     if(typeof XLSX === "undefined"){
       showToast("엑셀 기능을 불러오는 중이에요. 잠시 후 다시 눌러주세요.");
@@ -5038,19 +5066,18 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }
     const y = state.monthYear, m = state.monthNum;
 
-    let totalSales=0, totalBaemin=0, totalCoupang=0, totalYogiyo=0;
-    state.salesReports.forEach(r=>{
-      totalSales += Number(r.totalSales)||0;
-      totalBaemin += Number(r.deliveryBaemin)||0;
-      totalCoupang += Number(r.deliveryCoupang)||0;
-      totalYogiyo += Number(r.deliveryYogiyo)||0;
-    });
+    const sf = summarizeSalesFigures(state.salesReports);
+    if(sf.invalid.length || state.reportDataFailed?.size){showToast('자료 오류 또는 조회 실패가 있어 내보낼 수 없어요. 자료를 확인하고 다시 시도해 주세요.');return;}
+    const totalSales = sf.grossSales, totalBaemin = sf.baemin, totalCoupang = sf.coupang, totalYogiyo = sf.yogiyo;
     const salesRows = [["구분","금액"]];
     salesRows.push(["총매출", totalSales]);
+    salesRows.push(["할인", sf.discount]);
+    salesRows.push(["반품", sf.refund]);
+    salesRows.push(["실매출", sf.netSales]);
     salesRows.push(["배민", totalBaemin]);
     salesRows.push(["쿠팡", totalCoupang]);
     salesRows.push(["요기요", totalYogiyo]);
-    salesRows.push(["배달매출 합계", totalBaemin+totalCoupang+totalYogiyo]);
+    salesRows.push(["배달매출 합계 (총매출 포함 여부 미확정 · 합산 안 함)", totalBaemin+totalCoupang+totalYogiyo]);
 
     const vendorBreakdown = computeVendorBreakdown();
     let totalExpense = 0; vendorBreakdown.forEach(v=> totalExpense += v.amount);
@@ -5070,9 +5097,13 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     });
     laborRows.push(["합계", totalLabor, "", ""]);
 
-    const laborRatio = totalSales>0 ? Number((totalLabor/totalSales*100).toFixed(1)) : 0;
-    const expenseRatio = totalSales>0 ? Number((totalExpense/totalSales*100).toFixed(1)) : 0;
-    const summaryRows = [["항목","값"],["총매출", totalSales],["배달매출", totalBaemin+totalCoupang+totalYogiyo],["총지출", totalExpense],["총인건비", totalLabor],["인건비율(%)", laborRatio],["지출비율(%)", expenseRatio]];
+    const ratioCell = r => r===null ? "-" : Number(r.toFixed(1));
+    const laborRatio = ratioCell(salesCostRatio(totalLabor, totalSales));
+    const expenseRatio = ratioCell(salesCostRatio(totalExpense, totalSales));
+    let totalFixed = 0; state.fixedExpenses.forEach(f=> totalFixed += Number(f.amount)||0);
+    const reportFailed = state.reportDataFailed && state.reportDataFailed.size>0;
+    const netProfit = (reportFailed || sf.invalid.length>0) ? "계산 불가" : sf.netSales - totalExpense - totalLabor - totalFixed;
+    const summaryRows = [["항목","값"],["총매출", totalSales],["할인", sf.discount],["반품", sf.refund],["실매출", sf.netSales],["배달매출 (합산 안 함)", totalBaemin+totalCoupang+totalYogiyo],["총지출", totalExpense],["총인건비", totalLabor],["고정지출", totalFixed],["예상 순수익 (실매출 기준)", netProfit],["인건비율(%)", laborRatio],["지출비율(%)", expenseRatio]];
 
     const wb = XLSX.utils.book_new();
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows); styleWorksheet(wsSummary, summaryRows);
@@ -5536,10 +5567,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html+='<p>현재 매장 체크리스트를 확인해 주세요. 업무 항목은 운영 메뉴에서 계속 수정할 수 있어요.</p>';
       for(const [tab,label] of [['morning','오픈'],['afternoon','마감'],['routine','수시']]){
         html+='<details><summary>'+label+' 업무</summary>';
-        for(const cat of state.items?.[tab]||[]){html+='<h3>'+escapeHtml(cat.title||cat.name||'업무')+'</h3>';for(const item of cat.items||[])html+='<div class="setup-row">'+escapeHtml(item.label)+'</div>';html+=ownerSetupField('setup-task-'+cat.id,'업무 추가','')+'<button data-setup-task="'+escapeHtml(cat.id)+'" data-setup-tab="'+tab+'">추가</button>';}
+        for(const cat of state.items?.[tab]||[]){
+          html+='<h3>'+escapeHtml(cat.title||cat.name||'업무')+'</h3>';
+          for(const item of cat.items||[])html+='<div class="setup-row" style="flex-wrap:wrap;gap:6px;"><input aria-label="업무 내용" class="field-input" id="setup-edit-task-'+escapeHtml(item.id)+'" value="'+escapeHtml(item.label)+'"><button type="button" data-setup-edit-task="'+escapeHtml(item.id)+'" data-setup-cat="'+escapeHtml(cat.id)+'" data-setup-tab="'+tab+'">수정</button><button type="button" data-setup-delete-task="'+escapeHtml(item.id)+'" data-setup-cat="'+escapeHtml(cat.id)+'" data-setup-tab="'+tab+'">삭제</button></div>';
+          html+=ownerSetupField('setup-task-'+cat.id,'업무 추가','')+'<button data-setup-task="'+escapeHtml(cat.id)+'" data-setup-tab="'+tab+'">추가</button>';
+        }
         html+='</details>';
       }
     }else if(step==='preferences'){
+      html+='<p class="setup-note">매니 추천 · 인건비 20~23% · 식자재 40~43%<br><small>매장 상황에 맞게 설정하세요. 기존 기준은 자동으로 바뀌지 않아요.</small></p>';
       html+='<p>비율 경고 기준은 비용을 계산하는 값이 아니라 관리가 필요한 상황을 알려주는 기준이에요.</p>'+ownerSetupField('setup-labor','인건비율 경고 기준 (%)',state.storeLaborLimitMap?.[state.store]===false?'':laborRatioLimit(state.store),'number')+ownerSetupField('setup-food','지출비율 경고 기준 (%)',state.storeFoodLimitMap?.[state.store]===false?'':foodRatioLimit(state.store),'number');
       const manager=state.ownerSetupDraft?.['setup-manager']??managerDashboardEnabled(state.store);
       html+='<label class="setup-check"><input id="setup-manager" data-setup-draft type="checkbox"'+(manager?' checked':'')+'>매니저에게 매장 요약정보 공개</label><button data-setup-push>'+ (state.pushSubscribed?'알림 수신 중':'출퇴근·예약 알림 켜기')+'</button><p>알림은 기기 권한을 허용해야 받을 수 있어요.</p>';
@@ -5602,6 +5638,25 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const next=OWNER_SETUP_STEPS[OWNER_SETUP_STEPS.indexOf(step)+1];rememberOwnerSetup(next,skip||'확인 완료');state.onboardingStep=next;render();
   }
   function bindOnboardingWizardEvents(){
+    app.querySelectorAll('[data-setup-edit-task],[data-setup-delete-task]').forEach(el=>el.onclick=()=>{
+      const deleting=el.hasAttribute('data-setup-delete-task'),id=deleting?el.dataset.setupDeleteTask:el.dataset.setupEditTask;
+      const tab=el.dataset.setupTab,cat=el.dataset.setupCat;
+      const store=currentStoreId(),user=state.myUsername;
+      const label=String(document.getElementById('setup-edit-task-'+id)?.value||'').trim();
+      if(!deleting&&!label){showToast('업무 내용을 입력해 주세요.');return;}
+      const save=()=>{
+        if(!ownerSetupAlive(store,user))return;
+        return ownerSetupMutation(async(sid,alive)=>{
+        if(!MANEE_STAFF_AUTH_ENABLED)throw Error('직원 계정 연결 기능을 확인한 뒤 운영 메뉴에서 수정해 주세요.');
+        const items=JSON.parse(JSON.stringify(state.items)),group=(items[tab]||[]).find(c=>c.id===cat);
+        const item=group?.items.find(i=>i.id===id);if(!item)throw Error('업무 목록을 다시 확인해 주세요.');
+        if(deleting)group.items=group.items.filter(i=>i.id!==id);else item.label=label;
+        await callAuthChecklist('templates',sid,bizToday(),{items});if(!alive())return;
+        await loadChecklist(state.store,bizToday());
+        });
+      };
+      if(deleting)askConfirm('이 업무 항목을 삭제할까요?',save);else save();
+    });
     app.querySelectorAll('[data-setup-draft]').forEach(el=>el.addEventListener('input',()=>{if(!state.ownerSetupDraft)state.ownerSetupDraft={};state.ownerSetupDraft[el.id]=el.type==='checkbox'?el.checked:el.value;}));
     const bind=(selector,fn)=>{const el=app.querySelector(selector);if(el)el.onclick=fn;};
     bind('[data-setup-next]',()=>nextOwnerSetup());bind('[data-setup-skip]',()=>nextOwnerSetup('나중에 설정'));bind('[data-setup-none]',()=>nextOwnerSetup('해당 없음'));
@@ -7213,6 +7268,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return '<div class="team-ratio '+kind+'"><span class="team-ratio-label">'+label+'</span><strong>'+(value===null?'—':value.toFixed(1)+'%')+'</strong><span class="team-verdict">'+(icons[kind]||icons.none)+word+'</span><small>'+limitText+'</small></div>';
   }
   function renderTeamSummaryCard(sum){
+    if(sum.salesInvalid)return '<div class="s-card" role="alert">매출 자료에 잘못된 금액이 있어 계산 불가해요. 매출 보고를 수정해 주세요.</div>';
     const lv = laborRatioVerdict(state.store, sum.laborRatio);
     const laborKind = lv.state;
     const laborLimitText = lv.state==='unknown' ? '기준을 조회하지 못했어요' : formatLimit(laborRatioLimit(state.store)===null?DEFAULT_LABOR_RATIO_LIMIT:laborRatioLimit(state.store))+'% 이하가 기준';
@@ -8681,13 +8737,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const y = state.monthYear, m = state.monthNum;
     let html = '<div class="month-nav"><button id="prev-month">‹</button><span class="month-label">'+y+'년 '+m+'월</span><button id="next-month">›</button></div>';
 
-    let totalSales=0, totalBaemin=0, totalCoupang=0, totalYogiyo=0;
-    state.salesReports.forEach(r=>{
-      totalSales += Number(r.totalSales)||0;
-      totalBaemin += Number(r.deliveryBaemin)||0;
-      totalCoupang += Number(r.deliveryCoupang)||0;
-      totalYogiyo += Number(r.deliveryYogiyo)||0;
-    });
+    const sales = summarizeSalesFigures(state.salesReports);
+    if(sales.invalid.length)return html+'<div class="s-card" role="alert"><p class="amount">계산 불가</p><p>매출 보고에 음수/잘못된 금액이 있어요. 해당 보고를 수정하면 매출·실매출·비율을 다시 계산해요.</p></div>';
+    const totalSales=sales.grossSales, totalDiscount=sales.discount, totalRefund=sales.refund;
+    const totalBaemin=sales.baemin, totalCoupang=sales.coupang, totalYogiyo=sales.yogiyo, netSales=sales.netSales;
+    const salesInvalid=false;
     const totalDelivery = totalBaemin+totalCoupang+totalYogiyo;
     const reportedDays = state.salesReports.length;
     const lastDay = daysInMonth(y, m);
@@ -8709,8 +8763,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.fixedExpenses.forEach(f=> totalFixed += Number(f.amount)||0);
     const fixedRegistered = state.fixedExpenses.length>0;
 
-    // 예상 순수익: unchanged formula, always the full expense total regardless of classification (분류 여부와 무관).
-    const netProfit = totalSales - totalExpense - totalLabor - totalFixed;
+    // 예상 순수익: 실매출(총매출-할인-반품)에서 전체 지출·인건비·고정지출 차감 (분류 여부와 무관). 비율 분모는 총매출 유지.
+    const netProfit = netSales - totalExpense - totalLabor - totalFixed;
 
     // Per-field failure tracking (never "0명"/"0원" standing in for "couldn't read"). 직원·근태 어느 쪽이 실패해도
     // 인건비는 신뢰할 수 없으므로 laborFailed로 묶는다. 예상 순수익은 네 값의 합이므로 하나라도 실패하면 함께 계산 불가.
@@ -8720,7 +8774,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const laborFailed = failedSet.has('직원') || failedSet.has('근태');
     const fixedFailed = failedSet.has('고정지출');
     const anyFailed = salesFailed || expenseFailed || laborFailed || fixedFailed;
-    const netProfitFailed = anyFailed;
+    const netProfitFailed = anyFailed || salesInvalid;
     const laborV = laborFailed ? {state:'unknown', limit: laborRatioLimit(state.store)} : laborRatioVerdict(state.store, laborRatio);
     const foodV = (expenseFailed||salesFailed) ? {state:'unknown', limit: foodRatioLimit(state.store)} : foodRatioVerdict(state.store, expenseRatio);
 
@@ -8732,6 +8786,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(anyFailed) captionLine = '조회 실패 · 일부 자료를 불러오지 못했어요 ('+Array.from(failedSet).join('·')+')';
     else if(!hasAnyActivity) captionLine = '입력된 자료 없음';
     else captionLine = reportedDays+'/'+lastDay+'일 매출 보고'+(fixedRegistered?'':' · 고정지출 미등록 (반영 안 됨)');
+    if(!anyFailed && salesInvalid) captionLine += ' · 매출 보고에 음수/잘못된 금액이 있어 순수익 계산 불가';
 
     // ---- top: net profit + figures (label+ratio on the left, amount alone on the right - same right edge every row) ----
     const mini = pct => pct===null ? '' : ' <small style="font-size:11.5px;font-weight:700;background:rgba(255,255,255,.22);border-radius:6px;padding:1px 6px;">'+pct.toFixed(1)+'%</small>';
@@ -8743,6 +8798,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '<p class="meta">'+captionLine+(anyFailed?' <button type="button" class="owner-retry" data-retry-report="1" style="margin-left:6px;">다시 시도</button>':'')+'</p>';
     html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.25);display:flex;flex-direction:column;gap:8px;">';
     html += '<div style="display:flex;justify-content:space-between;align-items:baseline;"><span>매출</span>'+amountOrFail(salesFailed, '<strong>'+totalSales.toLocaleString()+'원</strong>')+'</div>';
+    if(!salesFailed && (totalDiscount>0 || totalRefund>0)) html += '<div style="display:flex;justify-content:space-between;align-items:baseline;"><span>실매출 <small style="opacity:.85;">할인 '+totalDiscount.toLocaleString()+' · 반품 '+totalRefund.toLocaleString()+' 차감</small></span><strong>'+netSales.toLocaleString()+'원</strong></div>';
     html += '<div style="display:flex;justify-content:space-between;align-items:baseline;"><span>지출비용'+(expenseFailed?'':mini(expenseRatio))+'</span>'+amountOrFail(expenseFailed, '<strong>'+totalExpense.toLocaleString()+'원</strong>')+'</div>';
     html += '<div style="display:flex;justify-content:space-between;align-items:baseline;"><span>인건비'+(laborFailed?'':mini(laborRatio))+'</span>'+amountOrFail(laborFailed, '<strong>'+totalLabor.toLocaleString()+'원</strong>')+'</div>';
     html += '<div style="display:flex;justify-content:space-between;align-items:baseline;"><span>고정지출</span>'+amountOrFail(fixedFailed, '<strong>'+(fixedRegistered?totalFixed.toLocaleString()+'원':'미등록')+'</strong>')+'</div>';
@@ -8761,7 +8817,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       +'</div>';
     };
     html += '<div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">'+healthCard('인건비율',laborRatio,laborV,laborFailed)+healthCard('지출비율',expenseRatio,foodV,expenseFailed||salesFailed).replace('class="labor-verdict"','class="food-verdict"')+'</div>';
-    html += '<div style="margin-top:10px;font-size:11.5px;opacity:.85;">입력된 자료 기준 예상액이에요. 지출비용 옆 비율은 전체 지출 ÷ 매출이에요.</div>';
+    html += '<div style="margin-top:10px;font-size:11.5px;opacity:.85;">입력된 자료 기준 예상액이에요. 순수익은 실매출(총매출-할인-반품) 기준, 비율은 전체 지출·인건비 ÷ 총매출이에요.</div>';
     html += '</div>';
 
     // ---- VAT summary card (links to detail screen) ----

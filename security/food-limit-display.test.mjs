@@ -24,7 +24,7 @@ function screens(limitState,{sales=1000000,expense=600000}={}){
     renderFixedExpenseManage:()=> '',labelWithIcon:(i,l)=>l,renderSalesReportRows:()=> '',renderVatSummaryCard:()=> '',canManageBusinessData:()=>true,MANEE_STAFF_AUTH_ENABLED:false,
     OWNER_STATUS_TEXT:{attention:'관리 필요',ok:'안정',norevenue:'매출 없음',pending:'집계 전',error:'확인 필요'}});
   vm.runInContext([line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/),line(/  const FOOD_LIMIT_UNKNOWN_TEXT[^\n]*\n/),line(/  function formatLimit\([^\n]*\n/),
-    ...['foodRatioLimit','foodRatioVerdict','laborRatioLimit','laborRatioVerdict','ownerFoodReadable','ownerLaborReadable','ownerLaborLimit','renderManagerSummaryCard','renderMonthlyReport','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary','renderSalesTrendBars','renderDashboard','foodRatioColor','foodRatioNote'].map(fnText),
+    ...['summarizeSalesFigures','foodRatioLimit','foodRatioVerdict','laborRatioLimit','laborRatioVerdict','ownerFoodReadable','ownerLaborReadable','ownerLaborLimit','renderManagerSummaryCard','renderMonthlyReport','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary','renderSalesTrendBars','renderDashboard','foodRatioColor','foodRatioNote'].map(fnText),
     ';this.api={renderManagerSummaryCard,renderMonthlyReport,renderDashboard,foodRatioVerdict};'].join('\n'),ctx);
   const ratio=expense/sales*100;
   const failure=limitState===false;
