@@ -1,0 +1,60 @@
+import test,{after} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {PGlite} from '@electric-sql/pglite';
+const db=new PGlite();
+await db.exec(`create role anon nologin;create role authenticated nologin;create role service_role nologin bypassrls;
+create schema auth;create table auth.users(id uuid primary key,email text,banned_until timestamptz);
+create table auth.sessions(id uuid primary key,user_id uuid,created_at timestamptz default clock_timestamp(),updated_at timestamptz,not_after timestamptz);
+create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;
+create function auth.role() returns text language sql stable as $$select nullif(current_setting('request.jwt.claim.role',true),'')$$;
+grant usage on schema auth to anon,authenticated,service_role;`);
+for(const file of ['fixtures/staging-baseline.sql','staff-auth.sql','account-recovery.sql','store-permissions.sql'])await db.exec(fs.readFileSync(new URL('../security/'+file,import.meta.url),'utf8'));
+await db.exec(`create table public.crew_pay_adjustments(id uuid primary key default gen_random_uuid(),store_id uuid not null references public.stores(id),crew_id uuid not null references public.crew(id),month_key text not null,type text not null,amount integer not null,memo text);
+alter table public.crew_pay_adjustments enable row level security;
+grant select,insert,update,delete on public.crew_pay_adjustments to authenticated;
+create policy adjustments_manager on public.crew_pay_adjustments for all to authenticated using(private.can_manage_store(store_id)) with check(private.can_manage_store(store_id));
+alter table public.vendors add column default_category text;
+alter table public.expense_entries add column category text;`);
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002062518_net_payroll_and_unpaid_leave.sql',import.meta.url),'utf8'));
+await db.exec(`alter table public.crew add column if not exists employment_setup_required boolean default false not null;alter table public.sales_reports add column if not exists emoney_sales integer default 0;create table public.store_business_calendar(store_id uuid primary key,closed_weekdays integer[] default '{}',closed_dates date[] default '{}',open_dates date[] default '{}');`);
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002105522_financial_reports_and_franchise_privacy.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002110504_franchise_personal_data_boundary.sql',import.meta.url),'utf8'));
+const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
+const owner=id(1),worker=id(2),stranger=id(3),store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202);
+await db.exec(`insert into auth.users(id) values('${owner}'),('${worker}'),('${stranger}');
+insert into auth.sessions(id,user_id) select id,id from auth.users;
+insert into public.profiles(user_id,username,display_name) values('${owner}','owner','Owner'),('${worker}','worker','Worker'),('${stranger}','stranger','Stranger');
+insert into public.stores(id,name) values('${store}','Synthetic A'),('${otherStore}','Synthetic B');
+insert into public.crew(id,store_id,name,join_code,wage) values('${crew}','${store}','Synthetic staff','A2B3C4D5',10000),('${otherCrew}','${otherStore}','Other staff','E6F7G8H9',10000);
+insert into public.store_memberships(user_id,store_id,role,crew_id) values('${owner}','${store}','owner',null),('${worker}','${store}','staff','${crew}'),('${stranger}','${otherStore}','staff','${otherCrew}');`);
+async function role(user){await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claim.role','authenticated',false),set_config('request.jwt.claims',$2,false)",[user,JSON.stringify({sub:user,session_id:user,role:'authenticated'})]);await db.exec('set role authenticated');}
+after(()=>db.close());
+
+
+test('financial report nets discounts/refunds, net wage, expenses and fixed costs exactly once',async()=>{
+ await db.exec('reset role');await db.query("insert into public.sales_reports(store_id,date,total_sales,discount,refund) values($1,'2026-09-01',1000000,100000,50000)",[store]);
+ await db.query("insert into public.expense_entries(store_id,date,description,amount,category) values($1,'2026-09-01','Private memo excluded',100000,'insurance')",[store]);
+ await db.query("insert into public.fixed_expenses(store_id,month_key,name,amount) values($1,'2026-09','임대료',200000)",[store]);
+ await role(owner);await db.query("insert into public.monthly_net_payroll(store_id,crew_id,month_key,net_pay) values($1,$2,'2026-09',300000)",[store,crew]);
+ const r=(await db.query("select public.manee_financial_report($1,'2026-09') as r",[store])).rows[0].r;
+ assert.equal(r.gross_sales,1000000);assert.equal(r.net_sales,850000);assert.equal(r.net_payroll,300000);assert.equal(r.profit,250000);assert.equal(r.labor_ratio,30);
+ await db.exec('reset role');await db.query("insert into public.crew(id,store_id,name,join_code,wage,wage_type,hire_date) values($1,$2,'Second hourly worker','SECOND01',10000,'hourly','2026-01-01')",[id(203),store]);await role(owner);
+ assert.equal((await db.query("select public.manee_financial_report($1,'2026-09') as r",[store])).rows[0].r.payroll_status.estimated_count,1);
+ assert.equal(JSON.stringify(r).includes('Synthetic staff'),false);assert.equal(JSON.stringify(r).includes('Private memo'),false);
+ await role(stranger);await assert.rejects(()=>db.query("select public.manee_financial_report($1,'2026-09')",[store]));
+});
+test('franchise RPC is brand scoped and never returns employee/owner fields',async()=>{
+ await db.exec('reset role');const brand=id(301),foreign=id(302);
+ await db.query("insert into public.franchises(id,name,username,password_hash) values($1,'Test Brand','brand','unused'),($2,'Other Brand','otherbrand','unused')",[brand,foreign]);
+ await db.query('update public.stores set franchise_id=$1 where id=$2',[brand,store]);
+ await db.query("insert into public.franchise_memberships(user_id,franchise_id,role,status) values($1,$2,'admin','active')",[stranger,brand]);
+ await role(stranger);const r=(await db.query("select public.manee_franchise_financials($1,'2026-09') as r",[brand])).rows[0].r;
+ assert.equal(r.stores.length,1);assert.equal(r.stores[0].store_id,store);assert.equal(r.stores[0].profit,250000);
+ assert.equal((await db.query('select * from public.crew where store_id=$1',[store])).rows.length,0);
+ assert.equal((await db.query('select * from public.stores where id=$1',[store])).rows.length,0);
+ assert.equal((await db.query('select * from public.sales_reports where store_id=$1',[store])).rows.length,0);
+ for(const key of ['owner_username','ownerDisplayName','phone','bank_account','crew_id','resident_number'])assert.equal(JSON.stringify(r).includes(key),false,key);
+ await assert.rejects(()=>db.query("select public.manee_franchise_financials($1,'2026-09')",[foreign]));
+});
