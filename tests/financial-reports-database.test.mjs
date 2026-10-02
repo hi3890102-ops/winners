@@ -23,6 +23,7 @@ await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002105522_fin
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002110504_franchise_personal_data_boundary.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002112742_monthly_report_closing_revisions.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002132537_financial_report_safe_labels.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002134950_private_financial_rpc_cores.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),worker=id(2),stranger=id(3),store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202);
 await db.exec(`insert into auth.users(id) values('${owner}'),('${worker}'),('${stranger}');
@@ -77,4 +78,9 @@ test('closing requires confirmed actual payroll and full open-day reports; revis
  const restored=(await db.query('select public.manee_closed_report($1) as r',[first.id])).rows[0].r;assert.equal(restored.snapshot.profit,250000);assert.equal(Object.hasOwn(restored,'closed_by'),false);
  assert.equal((await db.query('select public.manee_report_history($1) as r',[store])).rows[0].r.length,2);
  await role(worker);await assert.rejects(()=>db.query("select public.manee_close_month($1,'2026-09',$2,'staff denied')",[store,id(404)]));
+});
+
+test('financial RPC endpoints are invoker wrappers; private cores preserve explicit identity checks and deny anon',async()=>{
+ await db.exec('reset role');const rows=(await db.query("select n.nspname,p.proname,p.prosecdef,pg_get_functiondef(p.oid) definition,has_function_privilege('anon',p.oid,'EXECUTE') anon_execute from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.proname in ('manee_financial_report','manee_franchise_financials','manee_franchise_directory','manee_close_month','manee_report_history','manee_closed_report')")).rows;
+ assert.equal(rows.length,12);for(const r of rows){assert.equal(r.prosecdef,r.nspname==='private');assert.equal(r.anon_execute,false);if(r.nspname==='private')assert.ok(r.definition.includes('auth.uid() is null'));}
 });
