@@ -38,6 +38,15 @@ test('monthly prorating and actual confirmed net pay remain authoritative',()=>{
   const p=context.crewSettlementFrom(crew,[shift('09:29')],[],[{crewId:'c',monthKey:'2026-09',netPay:123456,adjustmentSnapshot:[]}],2026,9);
   assert.equal(p.netPay,123456);assert.equal(p.confirmed,true);
 });
+test('missing monthly hire date defaults to month start without changing stored date or blocking totals',()=>{
+  const c={...crew,wageType:'monthly',wage:3100000,hireDate:null};
+  for(const [month,expected] of [[9,3100000],[10,300000],[11,0]]){
+    const p=context.crewSettlementFrom(c,[],[],[],2026,month);
+    assert.equal(p.netPay,expected);assert.equal(p.unknown,false);assert.equal(p.confirmed,false);assert.equal(c.hireDate,null);
+  }
+  assert.equal(context.calcCrewPayFrom({...c,resignDate:'2026-09-10'},[],2026,9).pay,1033333);
+  assert.equal(context.calcCrewPayFrom({...c,hireDate:'2026-09-20',resignDate:'2026-09-23'},[],2026,9).pay,413333);
+});
 test('probation, deductions and advances run after shift flooring',()=>{
   const c={...crew,probation:true,tax33:true};
   const p=context.crewSettlementFrom(c,[shift('10:59')],[{id:'a',crewId:'c',monthKey:'2026-09',type:'가불',amount:-1000}],[],2026,9);
@@ -47,8 +56,8 @@ test('deduction half-won boundary matches numeric SQL rounding',()=>{
   assert.equal(context.computeNetPay({...crew,insurance2:true},22500).taxAmount,203);
   assert.equal(context.computeNetPay({...crew,insurance2:true},22500).netPay,22297);
 });
-test('missing hire date, missing wage and malformed times remain explicit unknowns',()=>{
-  for(const [c,rows] of [[{...crew,wageType:'monthly',hireDate:null},[]],[{...crew,wage:0},[shift('09:10')]],[crew,[shift('25:00')]]]){
+test('missing wage and malformed times remain explicit unknowns',()=>{
+  for(const [c,rows] of [[{...crew,wage:0},[shift('09:10')]],[crew,[shift('25:00')]]]){
     const p=context.crewSettlementFrom(c,rows,[],[],2026,9);assert.equal(p.unknown,true);assert.ok(p.reasons.length);
   }
 });
@@ -80,7 +89,7 @@ test('expense failure does not drop readable payroll from combined labor total o
   assert.match(out,/합산 인건비 \(세후\) 400,000원/);assert.match(out,/인건비율 20\.0%/);assert.doesNotMatch(out,/인건비 합산/);
 });
 test('unknown payroll is excluded with a coverage count, store name and concrete reason',()=>{
-  const out=dashboard([row('A'),row('B',{loadFailures:['급여미확정'],payrollIssues:['입사일이 없어 과거 급여 미확정'],laborRatio:null})]);
-  assert.match(out,/부분 인건비 \(세후\) 200,000원/);assert.match(out,/인건비 합산 1\/2곳/);assert.match(out,/제외 매장: B \(입사일이 없어 과거 급여 미확정\)/);
+  const out=dashboard([row('A'),row('B',{loadFailures:['급여미확정'],payrollIssues:['근무 기록은 있으나 급여 금액이 미등록'],laborRatio:null})]);
+  assert.match(out,/부분 인건비 \(세후\) 200,000원/);assert.match(out,/인건비 합산 1\/2곳/);assert.match(out,/제외 매장: B \(근무 기록은 있으나 급여 금액이 미등록\)/);
   assert.match(out,/부분 인건비율 20\.0%/);assert.match(out,/지출비율 30\.0%/);
 });
