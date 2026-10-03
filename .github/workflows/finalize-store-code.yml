@@ -35,7 +35,11 @@ jobs:
       - name: All security and concurrent connection tests
         run: |
           set -o pipefail
-          node --test security/*.test.mjs | tee /tmp/store-code-tests.txt
+          # Both suites create cluster-wide roles. Keep setup sequential;
+          # competing requests within each suite still run concurrently.
+          node --test security/store-code-concurrency.test.mjs | tee /tmp/store-code-tests.txt
+          node --test security/new-staff-self-profile-concurrency.test.mjs | tee -a /tmp/store-code-tests.txt
+          env -u MANEE_TEST_DATABASE_URL node --test security/*.test.mjs tests/*.test.mjs | tee -a /tmp/store-code-tests.txt
           node --input-type=module - <<'JS'
           import {readFileSync} from 'node:fs';import {Script} from 'node:vm';
           const html=readFileSync('index.html','utf8');let count=0;
