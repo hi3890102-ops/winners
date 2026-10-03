@@ -22,9 +22,9 @@ test('changing/removing nonadvance adjustments invalidates confirmation; advance
  assert.equal(settle([{id:'a1',crewId:'c1',type:'가불',amount:-100000}],record).confirmed,true);
  assert.equal(settle([],{netPay:2800000,adjustmentSnapshot:[['a1','기타',100000,null]]}).unknown,true);
 });
-test('missing hire date in a past month is explicitly unknown, but actual wage confirms financial amount',()=>{
- const c={...crew,hireDate:null},b={pay:0,hours:0,days:0};
- assert.equal(settle([],null,c,b,'2026-11-01').unknown,true);
+test('missing hire date permits a monthly estimate, and actual wage still overrides it',()=>{
+ const c={...crew,hireDate:null},b={pay:3000000,hours:0,days:31};
+ const estimate=settle([],null,c,b,'2026-11-01');assert.equal(estimate.unknown,false);assert.equal(estimate.confirmed,false);assert.equal(estimate.netPay,2900000);assert.ok(estimate.reasons.some(r=>r.includes('1일부터')));
  const result=settle([],{netPay:2400000,adjustmentSnapshot:[]},c,b,'2026-11-01');assert.equal(result.unknown,false);assert.equal(result.netPay,2400000);
 });
 test('unpaid hourly leave with zero adjustment never deducts another daily wage',()=>{

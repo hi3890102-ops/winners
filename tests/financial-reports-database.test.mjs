@@ -25,6 +25,7 @@ await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002112742_mon
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002132537_financial_report_safe_labels.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002134950_private_financial_rpc_cores.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261003111913_payroll_half_hour_floor.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261003114744_payroll_optional_hire_date.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),worker=id(2),stranger=id(3),store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202);
 await db.exec(`insert into auth.users(id) values('${owner}'),('${worker}'),('${stranger}');
@@ -116,4 +117,20 @@ test('SQL floors each shift including seconds and overnight, matching JS in owne
  const unknown=(await db.query("select private.net_payroll_totals($1,'2026-09','2026-10-03') r",[s])).rows[0].r;
  assert.equal(unknown.unknown_count,1);assert.equal(unknown.net_pay,null);
  for(const role of ['anon','authenticated'])assert.equal((await db.query("select has_function_privilege($1,'private.net_payroll_totals(uuid,text,date)','EXECUTE') allowed",[role])).rows[0].allowed,false);
+});
+
+test('SQL estimates monthly pay without hire date, honors known dates and leaves actual net confirmation authoritative',async()=>{
+ await db.exec('reset role');const s=id(601),c=id(602);
+ await db.query("insert into public.stores(id,name) values($1,'Optional hire date QA')",[s]);
+ await db.query("insert into public.crew(id,store_id,name,join_code,wage,wage_type) values($1,$2,'Synthetic monthly','OPTHIRE1',3100000,'monthly')",[c,s]);
+ const get=async(month)=>(await db.query("select private.net_payroll_totals($1,$2,'2026-10-03') r",[s,month])).rows[0].r;
+ for(const [month,expected] of [['2026-09',3100000],['2026-10',300000],['2026-11',0]]){
+  const r=await get(month);assert.equal(r.net_pay,expected);assert.equal(r.unknown_count,0);assert.equal(r.estimated_count,1);
+ }
+ await db.query("update public.crew set resign_date='2026-09-10' where id=$1",[c]);
+ assert.equal((await get('2026-09')).net_pay,1033333);assert.equal((await get('2026-10')).net_pay,0);
+ await db.query("update public.crew set hire_date='2026-09-20',resign_date='2026-09-23' where id=$1",[c]);
+ assert.equal((await get('2026-09')).net_pay,413333);
+ await db.query("insert into public.monthly_net_payroll(store_id,crew_id,month_key,net_pay) values($1,$2,'2026-09',450000)",[s,c]);
+ assert.equal((await get('2026-09')).net_pay,450000);
 });

@@ -58,25 +58,12 @@ test('calcCrewPayFrom: a resignation date still caps a past month correctly (fix
   assert.equal(r.pay,Math.round(3000000/31*10));
 });
 
-// ---------- 1b) 2026-09-22 fix: hireDate=null must never be treated as "employed since month start" for a PAST month ----------
-// Root cause of the user-reported 과거 월(7·8월 등) bug: 58 of 121 real crew rows have a NULL hire_date (never
-// recorded), 14 of them monthly-wage. The pre-fix code defaulted a null hireDate to `monthStart`, so every past
-// month silently paid these 14 employees a full month even for months before they may have ever worked. This is a
-// DIFFERENT bug from the already-fixed future-month issue above - null hireDate + PAST month must now yield 0
-// pay/0 days, while null hireDate + CURRENT month (still actively used to onboard new hires) is unaffected.
-test('calcCrewPayFrom: hireDate=null + a PAST month accrues 0 pay/0 days (the actual 과거 달 bug - hire date unknown, do not assume "employed since month start")',()=>{
-  const calc=payHarness(new Date(2026,8,22)); // today = 2026-09-22
-  const c={id:'c1',wageType:'monthly',wage:3000000,hireDate:null,resignDate:null};
-  const r=calc(c,[],2026,8); // August 2026 - fully in the past, hire date never recorded
-  assert.equal(r.days,0,'unknown hire date must never be silently treated as employed for a past month');
-  assert.equal(r.pay,0);
-});
-test('calcCrewPayFrom: hireDate=null + an even-earlier past month (July) also accrues 0 pay/0 days',()=>{
+// ---------- 1b) 2026-10-03 user decision: null hire date defaults to month start ----------
+for(const month of [7,8])test('calcCrewPayFrom: missing hire date accrues the registered full wage for past month '+month,()=>{
   const calc=payHarness(new Date(2026,8,22));
   const c={id:'c1',wageType:'monthly',wage:3000000,hireDate:null,resignDate:null};
-  const r=calc(c,[],2026,7);
-  assert.equal(r.days,0);
-  assert.equal(r.pay,0);
+  const r=calc(c,[],2026,month);
+  assert.equal(r.days,31);assert.equal(r.pay,3000000);assert.equal(c.hireDate,null);
 });
 test('calcCrewPayFrom: hireDate=null + the CURRENT month is unaffected by the fix (still clamps to today, since a new hire this month has no hireDate recorded yet)',()=>{
   const calc=payHarness(new Date(2026,8,22)); // today = 2026-09-22 (22nd of a 30-day month)
