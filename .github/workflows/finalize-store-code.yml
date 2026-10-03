@@ -35,7 +35,7 @@ jobs:
       - name: All security and concurrent connection tests
         run: |
           set -o pipefail
-          node --test security/*.test.mjs | tee /tmp/store-code-tests.txt
+          node --test security/*.test.mjs tests/*.test.mjs | tee /tmp/store-code-tests.txt
           node --input-type=module - <<'JS'
           import {readFileSync} from 'node:fs';import {Script} from 'node:vm';
           const html=readFileSync('index.html','utf8');let count=0;

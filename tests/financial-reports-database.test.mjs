@@ -24,6 +24,7 @@ await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002110504_fra
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002112742_monthly_report_closing_revisions.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002132537_financial_report_safe_labels.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261002134950_private_financial_rpc_cores.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261003111913_payroll_half_hour_floor.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),worker=id(2),stranger=id(3),store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202);
 await db.exec(`insert into auth.users(id) values('${owner}'),('${worker}'),('${stranger}');
@@ -83,4 +84,36 @@ test('closing requires confirmed actual payroll and full open-day reports; revis
 test('financial RPC endpoints are invoker wrappers; private cores preserve explicit identity checks and deny anon',async()=>{
  await db.exec('reset role');const rows=(await db.query("select n.nspname,p.proname,p.prosecdef,pg_get_functiondef(p.oid) definition,has_function_privilege('anon',p.oid,'EXECUTE') anon_execute from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.proname in ('manee_financial_report','manee_franchise_financials','manee_franchise_directory','manee_close_month','manee_report_history','manee_closed_report')")).rows;
  assert.equal(rows.length,12);for(const r of rows){assert.equal(r.prosecdef,r.nspname==='private');assert.equal(r.anon_execute,false);if(r.nspname==='private')assert.ok(r.definition.includes('auth.uid() is null'));}
+});
+
+test('SQL floors each shift including seconds and overnight, matching JS in owner/franchise reports',async()=>{
+ await db.exec('reset role');
+ const s=id(501),c=id(502);
+ await db.query("insert into public.stores(id,name,franchise_id) values($1,'Half-hour test',$2)",[s,id(301)]);
+ await db.query("insert into public.crew(id,store_id,name,join_code,wage,wage_type,hire_date) values($1,$2,'Synthetic hourly','HALFHOUR',10000,'hourly','2026-01-01')",[c,s]);
+ await db.query("insert into public.store_memberships(user_id,store_id,role) values($1,$2,'owner')",[owner,s]);
+ const cases=[['09:00:50','09:30:00',0],['09:00','09:29:59.999999',0],['09:00','09:30',5000],['09:00','09:59:59',5000],['23:45','01:14:59',10000]];
+ for(const [cin,cout,pay] of cases){
+  await db.query('delete from public.attendance where store_id=$1',[s]);
+  await db.query("insert into public.attendance(store_id,crew_id,date,check_in,check_out,confirmed) values($1,$2,'2026-09-01',$3,$4,true)",[s,c,cin,cout]);
+  const r=(await db.query("select private.net_payroll_totals($1,'2026-09','2026-10-03') r",[s])).rows[0].r;
+  assert.equal(r.net_pay,pay,cin+'–'+cout);assert.equal(r.unknown_count,0);
+ }
+ await db.query('delete from public.attendance where store_id=$1',[s]);
+ for(let day=1;day<=2;day++)await db.query("insert into public.attendance(store_id,crew_id,date,check_in,check_out,confirmed) values($1,$2,$3,'09:00','09:29',true)",[s,c,`2026-09-0${day}`]);
+ assert.equal((await db.query("select private.net_payroll_totals($1,'2026-09','2026-10-03') r",[s])).rows[0].r.net_pay,0);
+ await db.query("insert into public.attendance(store_id,crew_id,date,check_in,check_out,confirmed) values($1,$2,'2026-09-03','09:00','09:59:59',true),($1,$2,'2026-09-04','09:00','19:00',false),($1,$2,'2026-08-31','09:00','19:00',true)",[s,c]);
+ await role(owner);
+ assert.equal((await db.query("select public.manee_financial_report($1,'2026-09') r",[s])).rows[0].r.net_payroll,5000);
+ await role(stranger);
+ const franchise=(await db.query("select public.manee_franchise_financials($1,'2026-09') r",[id(301)])).rows[0].r;
+ assert.equal(franchise.stores.find(x=>x.store_id===s).net_payroll,5000);
+ await role(owner);await db.query("insert into public.monthly_net_payroll(store_id,crew_id,month_key,net_pay) values($1,$2,'2026-09',12345)",[s,c]);
+ assert.equal((await db.query("select public.manee_financial_report($1,'2026-09') r",[s])).rows[0].r.net_payroll,12345);
+ await db.exec('reset role');await db.query('delete from public.monthly_net_payroll where store_id=$1',[s]);await db.query('update public.crew set wage=0 where id=$1',[c]);
+ await db.query('delete from public.attendance where store_id=$1',[s]);
+ await db.query("insert into public.attendance(store_id,crew_id,date,check_in,check_out,confirmed) values($1,$2,'2026-09-01','09:00','09:10',true)",[s,c]);
+ const unknown=(await db.query("select private.net_payroll_totals($1,'2026-09','2026-10-03') r",[s])).rows[0].r;
+ assert.equal(unknown.unknown_count,1);assert.equal(unknown.net_pay,null);
+ for(const role of ['anon','authenticated'])assert.equal((await db.query("select has_function_privilege($1,'private.net_payroll_totals(uuid,text,date)','EXECUTE') allowed",[role])).rows[0].allowed,false);
 });
