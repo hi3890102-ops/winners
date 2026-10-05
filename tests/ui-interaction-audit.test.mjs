@@ -10,7 +10,7 @@ function setup(){
   controls['[data-'+attr+']']={listeners:[],getAttribute:()=> 'fixture-1',addEventListener(type,cb){this.listeners.push(cb)},click(){this.onclick?.();this.listeners.forEach(cb=>cb())}};
   counts[fn]=0;
  }
- const context={app:{querySelectorAll:sel=>controls[sel]?[controls[sel]]:[]},document:{getElementById:()=>null},bindVendorExpenseDefault(){},bindVendorClassificationEvents(){}};
+ const context={app:{querySelectorAll:sel=>controls[sel]?[controls[sel]]:[]},document:{getElementById:()=>null},bindVendorExpenseDefault(){},bindVendorClassificationEvents(){},bindMonthlyCostEvents(){}};
  for(const fn of Object.keys(counts))context[fn]=()=>counts[fn]++;
  vm.createContext(context);vm.runInContext(section('bindSalesReportEvents','bindCrewManageEvents')+section('bindSalesSectionEvents','bindOwnerEvents'),context);
  return {context,controls,counts};
