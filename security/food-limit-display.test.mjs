@@ -21,7 +21,7 @@ function screens(limitState,{sales=1000000,expense=600000}={}){
     dashboardLoading:false,storeList:['A'],dashboardDailyTrend:{},dashboardTrendActiveDate:null};
   const ctx=vm.createContext({state,console,now:new Date(2026,8,19),calcCrewPayFrom:()=>({pay:0,hours:0,days:0}),escapeHtml:s=>String(s),daysInMonth:()=>30,computeVendorBreakdown:()=>[{name:'거래처A',amount:expense}],calcCrewPay:()=>({pay:0,hours:0,days:0}),
     navIcon:()=> '',renderRoleAvatar:()=> '',ownerRouteButton:()=> '',pad:n=>String(n).padStart(2,'0'),bizDateObj:()=>new Date(2026,8,19),
-    renderFixedExpenseManage:()=> '',labelWithIcon:(i,l)=>l,renderSalesReportRows:()=> '',renderVatSummaryCard:()=> '',canManageBusinessData:()=>true,MANEE_STAFF_AUTH_ENABLED:false,
+    renderMonthlyReportActions:()=>'',renderMonthlyCostReview:()=>'',renderFixedExpenseManage:()=> '',labelWithIcon:(i,l)=>l,renderSalesReportRows:()=> '',renderVatSummaryCard:()=> '',canManageBusinessData:()=>true,MANEE_STAFF_AUTH_ENABLED:false,
     OWNER_STATUS_TEXT:{attention:'관리 필요',ok:'안정',norevenue:'매출 없음',pending:'집계 전',error:'확인 필요'}});
   vm.runInContext([line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/),line(/  const FOOD_LIMIT_UNKNOWN_TEXT[^\n]*\n/),line(/  function formatLimit\([^\n]*\n/),
     ...['renderClosingControls','getTaxRate', 'getTaxLabel', 'computeNetPay', 'payrollAdjustmentSnapshot', 'settleNetPayroll', 'crewSettlementFrom', 'summarizeNetPayroll'].map(fnText),

@@ -44,7 +44,7 @@ function report(salesReports,{fixed=0,expense=0,failed=[]}={}){
   const ctx=vm.createContext({state,console,escapeHtml:s=>String(s),daysInMonth:()=>30,
     computeVendorBreakdown:()=>expense?[{name:'v',amount:expense}]:[],calcCrewPay:()=>({pay:0,hours:0,days:0}),
     navIcon:()=>'',renderRoleAvatar:()=>'',ownerRouteButton:()=>'',pad:n=>String(n).padStart(2,'0'),
-    renderFixedExpenseManage:()=>'',labelWithIcon:(i,l)=>l,renderSalesReportRows:()=>'',renderVatSummaryCard:()=>'',
+    renderMonthlyReportActions:()=>'',renderMonthlyCostReview:()=>'',renderFixedExpenseManage:()=>'',labelWithIcon:(i,l)=>l,renderSalesReportRows:()=>'',renderVatSummaryCard:()=>'',
     canManageBusinessData:()=>true,MANEE_STAFF_AUTH_ENABLED:false,formatLimit:n=>String(n)});
   vm.runInContext([line(/  const DEFAULT_LABOR_RATIO_LIMIT[^\n]*\n/),line(/  const FOOD_LIMIT_UNKNOWN_TEXT[^\n]*\n/),
     ...['renderClosingControls','getTaxRate', 'getTaxLabel', 'computeNetPay', 'payrollAdjustmentSnapshot', 'settleNetPayroll', 'crewSettlementFrom', 'summarizeNetPayroll'].map(fnText),
@@ -69,7 +69,7 @@ test('월리포트: 반품 초과 음수 실매출이 순수익에 그대로 반
 test('월리포트: 0매출 → 비율 "—", 할인/반품 없는 기존 화면은 그대로',()=>{
   const h=report([],{fixed:1000});
   assert.match(h,/<p class="amount">-1,000원<\/p>/);
-  assert.equal(/실매출/.test(h.replace(/순수익은 실매출/,'')),false);
+  assert.equal(/실매출/.test(h.replace(/실매출에서 세후급여/,'')),false);
 });
 test('월리포트: 음수/NaN 매출 입력 → 순수익 계산 불가 (0으로 덮지 않음)',()=>{
   const h=report([{date:'2026-10-01',totalSales:'abc',discount:0,refund:0}]);
