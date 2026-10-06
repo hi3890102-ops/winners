@@ -1548,6 +1548,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   };
   function clearStaffAuthView(){
     maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
+    state.ownerReportHomeNotices=null;
     state.pushSubscribed=false;state.pushBusy=false;state.pushRegistrationError=null;
     state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__"; state.ownerStoreChoice=null; state.expenseEditDraft=null; state.editingExpenseEntryId=null; state.expenseOpenGroups=[];
     state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
@@ -6481,6 +6482,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     let html='<div class="owner-greeting oh-greeting">'+renderRoleAvatar('owner',48)+'<div><h2>사장님, 반가워요</h2><p>'+todayLabel()+'</p></div>'+renderOwnerFortuneMini().replace(/<p class="oh-fortune-text"[\s\S]*$/,'')+'</div>';
     const open=state.ownerFortuneDay===ownerFortune().day;
     if(open) html+='<p class="oh-fortune-text" role="status">'+escapeHtml(ownerFortune().text)+'</p>';
+    html+=renderOwnerReportHomeNotices();
     html+=renderOwnerSetupResume();
     html+=renderOwnerOverview();
     html+=renderOwnerWork();
@@ -6594,6 +6596,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   function bindOwnerUIEvents(){
     bindAccessibleActions();
+    loadOwnerReportHomeNotices();
+    app.querySelectorAll('[data-home-report-store]').forEach(button=>button.onclick=()=>openOwnerReportHomeNotice(button.dataset.homeReportStore,button.dataset.homeReportMonth));
     app.querySelectorAll('[data-owner-route]').forEach(button=>button.addEventListener('click',()=>{
       const go=async()=>{
         state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.showAddStoreForm=false;
@@ -8995,6 +8999,62 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return html;
   }
 
+  // Server-targeted notices work on every phone signed in to the same account.
+  // The SELECT policy also hides a notice once that store/month's costs are confirmed.
+  async function loadOwnerReportHomeNotices(force=false){
+    if(state.role!=='storeOwner'||state.section!=='dashboard'||state.loading||document.hidden){
+      if(state.ownerReportHomeNotices&&state.section!=='dashboard')state.ownerReportHomeNotices.checkedAt=0;
+      return;
+    }
+    const uid=state.authProfile?.user_id;if(!uid)return;
+    let cache=state.ownerReportHomeNotices;
+    if(!cache||cache.userId!==uid)cache=state.ownerReportHomeNotices={userId:uid,rows:[],checkedAt:0,loading:false};
+    if(cache.loading||(!force&&cache.checkedAt&&Date.now()-cache.checkedAt<60000))return;
+    const alive=()=>state.role==='storeOwner'&&state.authProfile?.user_id===uid&&state.ownerReportHomeNotices===cache;cache.loading=true;
+    try{
+      const r=await db.from('owner_report_home_notices').select('store_id,month_key').eq('user_id',uid).order('month_key');
+      if(r.error||!Array.isArray(r.data))throw Error('Home notice unavailable');
+      if(!alive()||state.ownerReportHomeNotices!==cache)return;
+      cache.rows=r.data;
+    }catch(e){
+      // A notice lookup must not block the existing home screen or prompt for push access.
+    }finally{
+      if(alive()&&state.ownerReportHomeNotices===cache){cache.loading=false;cache.checkedAt=state.section==='dashboard'?Date.now():0;if(state.role==='storeOwner'&&state.section==='dashboard'&&!state.loading)render();}
+    }
+  }
+  function renderOwnerReportHomeNotices(){
+    const cache=state.ownerReportHomeNotices;
+    if(state.role!=='storeOwner'||cache?.userId!==state.authProfile?.user_id)return '';
+    const scope=ownerHomeScope(),months=new Map();
+    for(const row of cache?.rows||[]){
+      const store=scope.find(name=>state.storeIdMap[name]===row.store_id);
+      if(!store||!/^\d{4}-(0[1-9]|1[0-2])$/.test(row.month_key||''))continue;
+      if(!months.has(row.month_key))months.set(row.month_key,[]);
+      months.get(row.month_key).push({...row,store});
+    }
+    return [...months].sort(([a],[b])=>a.localeCompare(b)).map(([key,rows])=>{
+      const month=Number(key.slice(5));
+      let html='<section class="owner-report-home-notice" aria-label="'+month+'월 보고서 마무리 안내"><div class="home-report-heading"><span>'+escapeHtml(key.slice(0,4))+'년 '+month+'월</span><span class="home-report-count">확인할 매장 '+rows.length+'곳</span></div><h3>'+month+'월 보고서를 마무리해 주세요</h3><p>전기·수도·가스 등 빠진 지출과 고정비를 확인해 주세요. 이미 입력한 지출은 다시 입력하지 않아도 돼요.</p><ul class="home-report-stores">';
+      rows.sort((a,b)=>scope.indexOf(a.store)-scope.indexOf(b.store)).forEach(row=>{
+        html+='<li><strong>'+escapeHtml(row.store)+'</strong><button type="button" data-home-report-store="'+escapeHtml(row.store_id)+'" data-home-report-month="'+key+'" aria-label="'+escapeHtml(row.store)+' '+month+'월 비용 확인">비용 확인 <span aria-hidden="true">›</span></button></li>';
+      });
+      return html+'</ul><p class="home-report-footnote">확인을 마친 매장은 목록에서 사라져요.</p></section>';
+    }).join('');
+  }
+  async function openOwnerReportHomeNotice(storeId,key){
+    const cache=state.ownerReportHomeNotices,store=(state.myStores||[]).find(name=>state.storeIdMap[name]===storeId);
+    if(state.role!=='storeOwner'||cache?.userId!==state.authProfile?.user_id||!store||!cache?.rows.some(row=>row.store_id===storeId&&row.month_key===key)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(key||''))return;
+    const [year,month]=key.split('-').map(Number),alive=maneeLoadGuard('openOwnerReportHomeNotice');
+    state.monthYear=year;state.monthNum=month;state.dashboardData=null;
+    state.showOwnerSalesForm=false;state.showAddStoreForm=false;state.salesEditingId=null;state.salesEditDate=null;
+    state.selectedDate=null;state.selectedSalesDate=null;state.expenseEditDraft=null;state.editingExpenseEntryId=null;state.expenseOpenGroups=[];
+    state.store=store;state.homeStore=store;state.section='sales';state.salesSectionTab='report';state.showVatDetail=false;state.vatData=null;
+    state.costReviewOpen=true;state.costEditKey=null;state.costLinkKey=null;state.costAddRequest=null;
+    try{await loadAllForStore(store);if(alive())window.scrollTo(0,0);}
+    catch(e){if(alive())showToast('보고서를 불러오지 못했어요. 다시 시도해 주세요.');}
+  }
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadOwnerReportHomeNotices(true);});
+
   async function loadMonthlyCostReview(store,key){
     const alive=maneeLoadGuard('monthlyCostReview');state.monthlyCostReview=null;state.costReviewFailed=false;
     if(!canManageBusinessData())return;
@@ -9045,6 +9105,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const sid=currentStoreId(),key=monthKey(),alive=reportActionGuard();state.costSaving=true;
     try{const r=await db.rpc('manee_cost_review',{p_store_id:sid,p_month_key:key,p_action:action,p_payload:payload});if(r.error||!r.data)throw Error('Cost save failed');if(!alive())return;
       state.costAddRequest=null;state.costEditKey=null;state.costLinkKey=null;state.monthlyCostReview={...r.data,scope:sid+':'+key};
+      state.ownerReportHomeNotices=null;
       await Promise.all([loadExpenseEntries(state.store,key),loadFixedExpenses(state.store,key)]);if(!alive())return;await loadMonthlyCostReview(state.store,key);if(!alive())return;render();showToast(action==='complete'?'비용 확인을 완료했어요.':'저장했어요. 같은 비용은 한 번만 반영돼요.');
     }catch(e){if(alive())showToast('저장하지 못했어요. 날짜·금액·미확인 항목·중복 고정비를 확인해 주세요.');}
     finally{state.costSaving=false;}

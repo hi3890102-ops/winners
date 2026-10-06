@@ -29,6 +29,7 @@ await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261003114744_pay
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261005113245_monthly_cost_reminders_report_details.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261005115540_monthly_costs_compatibility.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261006064743_owner_push_registration.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261006102305_owner_report_home_notices.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),worker=id(2),stranger=id(3),store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202);
 await db.exec(`insert into auth.users(id) values('${owner}'),('${worker}'),('${stranger}');
@@ -142,4 +143,26 @@ test('only a verified active owner device can be claimed and a repeated schedule
  const first=(await db.query('select public.manee_claim_cost_reminders() r')).rows[0].r;assert.equal(first.length,1);assert.equal(first[0].month_key,'2026-09');assert.equal(first[0].subscription_id,sub);
  assert.equal((await db.query('select public.manee_claim_cost_reminders() r')).rows[0].r.length,0);
  await db.query('select public.manee_finish_cost_reminder($1,$2,$3,$4,$5)',[store,'2026-09',sub,first[0].send_date,'sent']);
+});
+
+test('home notices are private to the selected owner and disappear after shared monthly confirmation',async()=>{
+ await db.exec('reset role');
+ await db.query("insert into public.store_memberships(user_id,store_id,role) values($1,$2,'owner') on conflict do nothing",[stranger,store]);
+ await db.query("insert into public.owner_report_home_notices(user_id,store_id,month_key) values($1,$2,'2026-08'),($3,$2,'2026-08'),($1,$4,'2026-08')",[owner,store,worker,otherStore]);
+ const visible=async()=>(await db.query('select store_id,month_key from public.owner_report_home_notices')).rows;
+ await role(owner);assert.equal((await visible()).length,1);assert.equal((await visible())[0].store_id,store);
+ for(const sql of ['delete from public.owner_report_home_notices',"update public.owner_report_home_notices set month_key='2026-07'",`insert into public.owner_report_home_notices values('${owner}','${store}','2026-07')`])await assert.rejects(()=>db.query(sql),e=>e.code==='42501');
+ await role(stranger);assert.equal((await visible()).length,0); // same-store owner was not targeted
+ await role(worker);assert.equal((await visible()).length,0); // even a targeted staff identity cannot read
+ await db.exec('reset role;set role anon');await assert.rejects(visible,e=>e.code==='42501');
+ await db.exec('reset role');await db.query("insert into public.monthly_cost_reviews(store_id,month_key,completed_at) values($1,'2026-08',now())",[store]);
+ await role(owner);assert.equal((await visible()).length,0);
+ await db.exec('reset role');await db.query("update public.monthly_cost_reviews set completed_at=null where store_id=$1 and month_key='2026-08'",[store]);
+ await role(owner);assert.equal((await visible()).length,1);
+ await db.exec('reset role');await db.query("update public.store_memberships set status='revoked' where user_id=$1 and store_id=$2",[owner,store]);
+ await role(owner);assert.equal((await visible()).length,0);
+ await db.exec('reset role');await db.query("update public.store_memberships set status='active' where user_id=$1 and store_id=$2",[owner,store]);
+ await db.query("update auth.sessions set not_after=now()-interval '1 minute' where user_id=$1",[owner]);
+ await role(owner);assert.equal((await visible()).length,0);
+ await db.exec('reset role');await db.query('update auth.sessions set not_after=null where user_id=$1',[owner]);
 });

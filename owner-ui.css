@@ -366,3 +366,14 @@ body:has(.expense-editor-overlay) .toast{z-index:110}
 .cost-entry .field-input{width:100%;box-sizing:border-box;}
 .cost-review-finish{margin-top:20px;padding-top:16px;border-top:1px solid #dde2de;font-size:13px;}
 .monthly-report-actions h3,.monthly-cost-panel h3{color:#355346;}
+.owner-ui .owner-report-home-notice{margin:0 0 16px;padding:18px;border:1px solid #dce6df;border-radius:16px;background:#f3f7f3;}
+.owner-ui .home-report-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;font-size:12px;font-weight:600;color:#587263;}
+.owner-ui .home-report-count{padding:4px 8px;border-radius:6px;background:#e5eee7;color:#315f45;white-space:nowrap;}
+.owner-ui .owner-report-home-notice h3{margin:0 0 8px;font-size:17px;line-height:1.45;color:#244e38;}
+.owner-ui .owner-report-home-notice p{margin:0;font-size:13px;line-height:1.65;color:#536258;word-break:keep-all;}
+.owner-ui .home-report-stores{list-style:none;margin:14px 0 10px;padding:0;border-top:1px solid #dce6df;}
+.owner-ui .home-report-stores li{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #dce6df;}
+.owner-ui .home-report-stores strong{flex:1;min-width:0;font-size:14px;line-height:1.5;color:#2d4435;overflow-wrap:anywhere;}
+.owner-ui .owner-report-home-notice button{display:flex;align-items:center;gap:12px;flex-shrink:0;padding:11px 12px;border:0;border-radius:9px;background:#315f45;color:#fff;font:inherit;font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer;}
+.owner-ui .owner-report-home-notice .home-report-footnote{font-size:11px;color:#66766b;}
+.owner-ui .owner-report-home-notice button:focus-visible{outline:3px solid #a1bda8;outline-offset:3px;}
