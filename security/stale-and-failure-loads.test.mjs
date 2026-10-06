@@ -8,7 +8,7 @@ import vm from 'node:vm';
 const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
 function fnText(name){const a=html.indexOf('  function '+name+'(');const b=html.indexOf('  async function '+name+'(');const s=a>=0?a:b;if(s<0)return '';const e=html.indexOf('\n  }\n',s);return html.slice(s,e+5);}
 function optional(re){const m=html.match(re);return m?m[0]:'';}
-const NAMES=['loadMonthlyCostReview','loadReportHistory','loadBusinessCalendar','loadHqNotices','getTaxRate', 'getTaxLabel', 'computeNetPay', 'payrollAdjustmentSnapshot', 'settleNetPayroll', 'crewSettlementFrom', 'summarizeNetPayroll', 'payrollRow', 'adjustmentRow', 'loadMonthlyNetPayroll','summarizeSalesFigures','monthKey','monthDateRange','rowToCrew','prevMonthKey','clearStaffAuthView','clearReportDataFailures','markReportDataFailed','clearReportDataFailed','loadDashboardData','loadDashboardReservations','loadCrewRaw','loadCrew','loadShifts','loadAttendance','loadFixed','loadSalesReports','loadExpenseEntries','loadVendors','loadFixedExpenses','loadTodayReservations','loadUpcomingReservations','loadAnnouncements','loadPayAdjustments','loadChecklist','loadChecklistLog','loadAllForStore',
+const NAMES=['readDashboardRows','dashboardQueryScope','canShowOwnerHomeWhileLoading','loadMonthlyCostReview','loadReportHistory','loadBusinessCalendar','loadHqNotices','getTaxRate', 'getTaxLabel', 'computeNetPay', 'payrollAdjustmentSnapshot', 'settleNetPayroll', 'crewSettlementFrom', 'summarizeNetPayroll', 'payrollRow', 'adjustmentRow', 'loadMonthlyNetPayroll','summarizeSalesFigures','monthKey','monthDateRange','rowToCrew','prevMonthKey','clearStaffAuthView','clearReportDataFailures','markReportDataFailed','clearReportDataFailed','loadDashboardData','loadDashboardReservations','loadCrewRaw','loadCrew','loadShifts','loadAttendance','loadFixed','loadSalesReports','loadExpenseEntries','loadVendors','loadFixedExpenses','loadTodayReservations','loadUpcomingReservations','loadAnnouncements','loadPayAdjustments','loadChecklist','loadChecklistLog','loadAllForStore',
   'formatLimit','foodRatioLimit','loadFoodLimit','loadLaborLimit','loadRatioLimits','ownerLaborLimit','ownerSalesUnreadable','ownerStatusChip','ownerCostNote','ownerStoreStatus','ownerOverallKind','renderOwnerStatusSummary','splitExpenseByCategory'];
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 // A fake Supabase query builder. `respond(table,{storeId,gte})` may return {data,error}, throw, or return a promise.
@@ -17,9 +17,16 @@ function harness(respond,extra={}){
   function builder(table){
     const q={filters:{}};
     const chain=new Proxy(q,{get(t,prop){
-      if(prop==='then')return (res,rej)=>Promise.resolve().then(()=>respond(table,{storeId:t.filters.store_id,gte:t.filters.gte,inserting:t.inserting})).then(res,rej);
+      if(prop==='then')return (res,rej)=>Promise.resolve().then(()=>respond(table,{storeId:t.filters.store_id||(t.storeIds||[])[0],gte:t.filters.gte,inserting:t.inserting})).then(result=>{
+        // The batched SELECT explicitly includes store_id (old single-store fixtures omitted it).
+        if(t.storeIds&&Array.isArray(result.data))return {...result,data:result.data.map(row=>({store_id:t.storeIds[0],...row}))};
+        if(table==='stores'&&t.ids&&!result.error&&Array.isArray(result.data)&&!result.data.length)return {...result,data:t.ids.map(id=>({id,food_ratio_threshold:null,labor_ratio_threshold:null}))};
+        return result;
+      }).then(res,rej);
       return (...args)=>{
         if(prop==='eq')t.filters[args[0]]=args[1];
+        if(prop==='in'&&args[0]==='store_id')t.storeIds=args[1];
+        if(prop==='in'&&args[0]==='id')t.ids=args[1];
         if(prop==='gte')t.filters.gte=args[1];
         if(prop==='insert'){t.inserting=args[0];log.inserts.push({table,rows:args[0]});}
         return chain;};
