@@ -757,6 +757,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     announcements: [],
     showAnnounceForm: false,
     dashboardData: null,
+    dashboardRequest: null, dashboardSalesPreview: null, dashboardScope: null,
     dashboardLoading: false,
     selectedDate: null,
     payCrewId: null,
@@ -1288,7 +1289,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!alive()) return false;
     if(!state.storeLaborLimitMap) state.storeLaborLimitMap = {};
     state.storeLaborLimitMap[store] = value;
-    state.dashboardData = null;
+    state.dashboardData = null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;
     render();
     if(state.myStores && state.myStores.length) loadDashboardData();
     showToast(value === null ? "인건비율 기준을 기본값("+DEFAULT_LABOR_RATIO_LIMIT+"%)으로 되돌렸어요" : "인건비율 기준을 "+formatLimit(value)+"%로 저장했어요");
@@ -1317,7 +1318,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!alive()) return false;
     if(!state.storeFoodLimitMap) state.storeFoodLimitMap = {};
     state.storeFoodLimitMap[store] = value;
-    state.dashboardData = null;
+    state.dashboardData = null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;
     render();
     if(state.myStores && state.myStores.length) loadDashboardData();
     showToast(value === null ? "지출비율 기준을 기본값("+DEFAULT_FOOD_RATIO_LIMIT+"%)으로 되돌렸어요" : "지출비율 기준을 "+formatLimit(value)+"%로 저장했어요");
@@ -1565,7 +1566,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.ownerSignupDraft=null; state.ownerSetupDraft=null;state.sharedScheduleView=false;state.editShiftId=null;
     state.attConfirmPrompt=null; state.onboardingStep=null; state.announcements=[]; state.todayReservations=[]; state.vendors=[];
     // The owner home caches per-account data; without this the next account briefly sees the previous one's.
-    state.dashboardData=null; state.dashboardLoading=false; state.expandedStoreRows={}; state.expandedCrewIds={}; state.storeFoodLimitMap={}; state.storeLaborLimitMap={};
+    state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false; state.dashboardScope=null;state.dashboardDailyTrend={}; state.expandedStoreRows={}; state.expandedCrewIds={}; state.storeFoodLimitMap={}; state.storeLaborLimitMap={};
     state.dashboardReservations=[]; state.section='dashboard'; state.showOwnerSalesForm=false; state.salesEditingId=null;
     state.salesEditDate=null; state.showAddStoreForm=false; state.selectedDate=null; state.selectedSalesDate=null;
     state.role='landing'; state.landingMode='default'; state.loading=false;
@@ -3357,7 +3358,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     try{
       const row=await checkedBusinessMutation(db.from('monthly_net_payroll').upsert({store_id:sid,crew_id:crewId,month_key:mKey,net_pay:net,paid_on:paidOn},{onConflict:'store_id,crew_id,month_key'}).select('id,crew_id,month_key,net_pay,paid_on,adjustment_snapshot,updated_at'));
       if(!alive())return;
-      state.monthlyPayrolls=(state.monthlyPayrolls||[]).filter(r=>r.crewId!==crewId);state.monthlyPayrolls.push(payrollRow(row));state.dashboardData=null;render();showToast('이번 달 실제 세후급여를 확인했어요.');
+      state.monthlyPayrolls=(state.monthlyPayrolls||[]).filter(r=>r.crewId!==crewId);state.monthlyPayrolls.push(payrollRow(row));state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;render();showToast('이번 달 실제 세후급여를 확인했어요.');
     }catch(e){if(alive())showToast('급여를 저장하지 못했어요. 입력 내용은 유지돼요.');}
     finally{state.payrollSaving=false;}
   }
@@ -3380,7 +3381,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const sid=currentStoreId(),mKey=monthKey(),alive=payrollMutationGuard();state.payrollSaving=true;
     try{
       const row=await checkedBusinessMutation(db.from('crew_pay_adjustments').insert({store_id:sid,crew_id:crewId,month_key:mKey,type,amount,note:String(document.getElementById('payadj-note-input')?.value||'').trim(),unpaid_date:unpaidDate||null,adjustment_date:type==='가불'?todayKey():null}).select('*'));
-      if(!alive())return;(state.payAdjustments||=[]).push(adjustmentRow(row));state.dashboardData=null;render();showToast('급여 조정을 저장했어요. 실제 세후급여는 다시 확인해 주세요.');
+      if(!alive())return;(state.payAdjustments||=[]).push(adjustmentRow(row));state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;render();showToast('급여 조정을 저장했어요. 실제 세후급여는 다시 확인해 주세요.');
     }catch(e){if(alive())showToast('저장하지 못했어요. 무급휴무일·근무조건·중복 기록을 확인해 주세요.');}
     finally{state.payrollSaving=false;}
   }
@@ -3389,7 +3390,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const sid=currentStoreId(),alive=payrollMutationGuard();
     askConfirm('이 급여 조정 항목을 삭제할까요?',async()=>{
       if(!alive()||state.payrollSaving)return;state.payrollSaving=true;
-      try{await checkedBusinessMutation(db.from('crew_pay_adjustments').delete().eq('store_id',sid).eq('id',id).select('id'));if(!alive())return;state.payAdjustments=(state.payAdjustments||[]).filter(a=>a.id!==id);state.dashboardData=null;render();}
+      try{await checkedBusinessMutation(db.from('crew_pay_adjustments').delete().eq('store_id',sid).eq('id',id).select('id'));if(!alive())return;state.payAdjustments=(state.payAdjustments||[]).filter(a=>a.id!==id);state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;render();}
       catch(e){if(alive())showToast('삭제하지 못했어요. 기존 항목은 유지돼요.');}
       finally{state.payrollSaving=false;}
     });
@@ -4015,7 +4016,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(!alive())return;
       Object.assign(entry,saved);
       if(!saved.date.startsWith(month))state.expenseEntries=state.expenseEntries.filter(e=>e.id!==id);
-      state.expenseEditDraft=null;state.editingExpenseEntryId=null;state.dashboardData=null;state.vatData=null;
+      state.expenseEditDraft=null;state.editingExpenseEntryId=null;state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;state.vatData=null;
       if(state.ownerWork){state.ownerWork.loadedOnce=false;state.ownerWork.lastStartAt=0;}
       showToast(saved.date.startsWith(month)?'지출 내역과 합계를 수정했어요.':saved.date.slice(0,7)+'월로 지출을 이동했어요.');
       notifyOwnerOfExpenseChange(entry,'수정했','edited');
@@ -4500,9 +4501,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }catch(e){}
   }
 
+  function canShowOwnerHomeWhileLoading(){
+    return state.role==='storeOwner'&&state.section==='dashboard'&&!!(state.storeOnboardingMap&&state.storeOnboardingMap[state.store])&&!state.onboardingStep&&!state.showOwnerSalesForm&&!state.showAddStoreForm;
+  }
   async function loadAllForStore(store){
     const alive = maneeLoadGuard("allForStore");
-    state.loading = true; clearReportDataFailures(); render();
+    state.loading = true; clearReportDataFailures();
+    if(canShowOwnerHomeWhileLoading()&&!state.dashboardData) loadDashboardData();
+    render();
     await Promise.all([
       loadChecklist(store, state.checklistViewDate || bizToday()),
       loadCrew(store),
@@ -4937,183 +4943,181 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return {people,netPay:people.reduce((s,p)=>s+p.netPay,0),unknownCount:people.filter(p=>p.unknown).length,estimatedCount:people.filter(p=>!p.confirmed&&!p.unknown).length,confirmedCount:people.filter(p=>p.confirmed).length};
   }
 
-  async function loadDashboardData(){
-    // A lookup only lands if the account/screen it was started for is still current (logout, account switch,
-    // or a newer dashboard request all invalidate it). It also records which inputs could NOT be read.
-    const alive = maneeLoadGuard("dashboard");
-    state.dashboardLoading = true; render();
-    const mKey = monthKey();
-    const y = state.monthYear, m = state.monthNum;
-    const storesToLoad = (state.role==="hq"||state.role==="franchise") ? state.storeList : state.myStores;
-    const day = now.getDate();
-    const showTax = day >= 5;
-    let curM = now.getMonth()+1, prevM = curM-1, prevY = now.getFullYear();
-    if(prevM < 1){ prevM = 12; prevY -= 1; }
-    const prevMonthKey = prevY+"-"+pad(prevM);
-    const curMonthKey = now.getFullYear()+"-"+pad(now.getMonth()+1);
-    let ackedStoreIds = new Set();
-    if(showTax){
+  // Bounded batches keep URLs small. Stable primary-key order + pagination prevents truncated totals.
+  // Each failed batch discards its partial pages: an incomplete amount is never treated as a full total.
+  async function readDashboardRows(storeIds, makeQuery, orderKeys, storeColumn){
+    const ids=[...new Set(storeIds.filter(Boolean))], result={}, pageSize=500, batchSize=40;
+    const chunks=[];
+    for(let i=0;i<ids.length;i+=batchSize) chunks.push(ids.slice(i,i+batchSize));
+    await Promise.all(chunks.map(async chunk=>{
+      let rows=[], error=null;
       try{
-        const { data, error } = await db.from('tax_reminder_ack').select('store_id').eq('month_key', curMonthKey);
-        if(error) throw error;
-        (data||[]).forEach(r=> ackedStoreIds.add(r.store_id));
-      }catch(e){}
-    }
-    if(!alive()) return;
-    const results = await Promise.all(storesToLoad.map(async (store)=>{
-      let crewArr = [], attArr = [], salesArr = [], items = {}, checks = {};
-      // Inputs of the status verdict that could not be read. An error or a network failure is NOT "no rows".
-      const failed = [];
-      const storeId = state.storeIdMap[store];
-      try{
-        if(storeId){
-          const { data, error } = await db.from('crew').select('*').eq('store_id', storeId);
-          if(error) throw error;
-          crewArr = (data||[]).map(rowToCrew);
+        for(let offset=0;;offset+=pageSize){
+          let query=makeQuery(chunk);
+          (orderKeys||['id']).forEach(key=>{query=query.order(key);});
+          const page=await query.range(offset,offset+pageSize-1);
+          if(page.error) throw page.error;
+          rows.push(...(page.data||[]));
+          if((page.data||[]).length<pageSize) break;
         }
-      }catch(e){ failed.push("직원"); }
-      try{
-        if(storeId){
-          const { start, end } = monthDateRange(mKey);
-          const { data, error } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
-          if(error) throw error;
-          attArr = (data||[]).map(r=>({ crewId:r.crew_id, date:r.date, checkInExact:r.check_in, checkOutExact:r.check_out, checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out? r.check_out.slice(0,5): null, confirmed: !!r.confirmed }));
-        }
-      }catch(e){ failed.push("근태"); }
-      try{
-        if(storeId){
-          const { start, end } = monthDateRange(mKey);
-          const { data, error } = await db.from('sales_reports').select('date,total_sales,discount,refund,delivery_baemin,delivery_coupang,delivery_yogiyo').eq('store_id', storeId).gte('date', start).lte('date', end);
-          if(error) throw error;
-          salesArr = (data||[]).map(r=>({ date: r.date, totalSales: r.total_sales, discount:r.discount, refund:r.refund, deliveryBaemin:r.delivery_baemin, deliveryCoupang:r.delivery_coupang, deliveryYogiyo:r.delivery_yogiyo, deliverySum: (r.delivery_baemin||0)+(r.delivery_coupang||0)+(r.delivery_yogiyo||0) }));
-        }
-      }catch(e){ failed.push("매출"); }
-      try{
-        if(storeId){
-          const { data } = await db.from('checklist_templates').select('tab,data').eq('store_id', storeId);
-          (data||[]).forEach(r=>{ items[r.tab] = r.data; });
-        }
-      }catch(e){}
-      try{
-        if(storeId){
-          const { data } = await db.from('checklist_checks').select('item_id').eq('store_id', storeId).eq('date', bizToday());
-          (data||[]).forEach(r=>{ checks[r.item_id] = true; });
-        }
-      }catch(e){}
-      let expenseArr = [];
-      try{
-        if(storeId){
-          const { start, end } = monthDateRange(mKey);
-          const { data, error } = await db.from('expense_entries').select('amount').eq('store_id', storeId).gte('date', start).lte('date', end);
-          if(error) throw error;
-          expenseArr = (data||[]).map(r=>({ amount: r.amount||0 }));
-        }
-      }catch(e){ failed.push("지출"); }
-
-      const sales = summarizeSalesFigures(salesArr);
-      const salesSum = sales.grossSales, deliverySum = sales.delivery;
-      if(sales.invalid.length && !failed.includes('매출'))failed.push('매출');
-      let adjustmentRows=[],payrollRows=[];
-      if(storeId){
-        try{
-          const [a,p]=await Promise.all([
-            db.from('crew_pay_adjustments').select('*').eq('store_id',storeId).eq('month_key',mKey),
-            db.from('monthly_net_payroll').select('id,crew_id,month_key,net_pay,paid_on,adjustment_snapshot,updated_at').eq('store_id',storeId).eq('month_key',mKey)
-          ]);
-          if(a.error)failed.push('급여조정');else adjustmentRows=(a.data||[]).map(adjustmentRow);
-          if(p.error)failed.push('급여확정');else payrollRows=(p.data||[]).map(payrollRow);
-        }catch(e){failed.push('급여조정','급여확정');}
-      }
-      const payroll=summarizeNetPayroll(crewArr,attArr,adjustmentRows,payrollRows,y,m);
-      const laborPay=payroll.netPay;
-      if(payroll.unknownCount)failed.push('급여미확정');
-      const laborReadable = ['직원','근태','매출','급여조정','급여확정','급여미확정'].every(k=>!failed.includes(k));
-      const expenseReadable = failed.indexOf("지출")<0 && failed.indexOf("매출")<0;
-      const laborRatio = (laborReadable && salesSum>0) ? (laborPay/salesSum*100) : null;
-      // 지출비율 = 전체 지출(분류 무관) ÷ 매출.
-      let expenseSum = 0;
-      expenseArr.forEach(e=> expenseSum += Number(e.amount)||0);
-      const expenseRatio = (expenseReadable && salesSum>0) ? (expenseSum/salesSum*100) : null;
-
-      let total=0, done=0;
-      if(items){
-        Object.keys(items).forEach(tabId=>{
-          (items[tabId]||[]).forEach(cat=> (cat.items||[]).forEach(it=>{ total++; if(checks[it.id]) done++; }));
-        });
-      }
-      const checklistPct = total>0 ? Math.round(done/total*100) : null;
-
-      const yKey = yesterdayKey();
-      const hasYesterdayReport = salesArr.some(s=> s.date===yKey);
-
-      const todayD = new Date(todayKey());
-      const expiringCerts = crewArr
-        .filter(c=> !!c.healthCertExpiry)
-        .map(c=>{
-          const exp = new Date(c.healthCertExpiry);
-          const daysUntil = Math.round((exp - todayD) / 86400000);
-          return { name: c.name, expiry: c.healthCertExpiry, daysUntil };
-        })
-        .filter(item=> item.daysUntil <= 30)
-        .sort((a,b)=> a.daysUntil - b.daysUntil);
-
-      let taxInfo = null;
-      if(showTax && storeId && !ackedStoreIds.has(storeId)){
-        try{
-          const { start, end } = monthDateRange(prevMonthKey);
-          const { data, error } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
-          if(error) throw error;
-          const prevAttArr = (data||[]).map(r=>({ crewId:r.crew_id, date:r.date, checkInExact:r.check_in, checkOutExact:r.check_out, checkIn:(r.check_in||"").slice(0,5), checkOut: r.check_out? r.check_out.slice(0,5): null, confirmed: !!r.confirmed }));
-          let prevTotal = 0;
-          crewArr.forEach(c=>{ prevTotal += calcCrewPayFrom(c, prevAttArr, prevY, prevM).pay; });
-          taxInfo = { monthKey: curMonthKey, prevMonthLabel: prevY+"년 "+prevM+"월", total: prevTotal, isPastDeadline: day > 10 };
-        }catch(e){}
-      }
-
-      let foodThreshold = DEFAULT_FOOD_RATIO_LIMIT;
-      try{
-        if(storeId){
-          const { data, error } = await db.from('stores').select('food_ratio_threshold').eq('id', storeId).maybeSingle();
-          if(error && error.code !== '42703') throw error;
-          if(!error && data && data.food_ratio_threshold != null) foodThreshold = Number(data.food_ratio_threshold);
-        }
-      }catch(e){ failed.push("식자재 기준"); foodThreshold = null; }
-      let laborThreshold = DEFAULT_LABOR_RATIO_LIMIT;
-      try{
-        if(storeId){
-          const { data, error } = await db.from('stores').select('labor_ratio_threshold').eq('id', storeId).maybeSingle();
-          if(error && error.code !== '42703') throw error;
-          if(!error && data && data.labor_ratio_threshold != null) laborThreshold = Number(data.labor_ratio_threshold);
-        }
-      }catch(e){ failed.push("인건비 기준"); laborThreshold = null; }
-      let prevMonthSalesSum = 0, prevMonthFailed = false;
-      try{
-        if(storeId){
-          const { start, end } = monthDateRange(prevMonthKey);
-          const { data, error } = await db.from('sales_reports').select('total_sales').eq('store_id', storeId).gte('date', start).lte('date', end);
-          if(error) throw error;
-          (data||[]).forEach(r=> prevMonthSalesSum += Number(r.total_sales)||0);
-        }
-      }catch(e){ prevMonthFailed = true; }
-      const dailySales = {};
-      salesArr.forEach(s=>{ dailySales[s.date] = (dailySales[s.date]||0) + (Number(s.totalSales)||0); });
-
-      return { store, foodThreshold, laborThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, payrollEstimatedCount:payroll.estimatedCount, payrollConfirmedCount:payroll.confirmedCount, payrollUnknownCount:payroll.unknownCount, payrollIssues:[...new Set(payroll.people.filter(p=>p.unknown).flatMap(p=>p.reasons))], laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
+      }catch(e){rows=[];error=e;}
+      chunk.forEach(id=>{result[id]={data:[],error};});
+      rows.forEach(row=>{const target=result[row[storeColumn||'store_id']];if(target)target.data.push(row);});
     }));
-    if(!alive()) return;
-    results.sort((a,b)=> b.salesSum - a.salesSum);
-    state.dashboardData = results;
-    const dailyTotals = {};
-    results.forEach(d=>{
-      if(ownerSalesUnreadable(d)) return;   // unknown, not zero
-      Object.keys(d.dailySales||{}).forEach(date=>{
-        dailyTotals[date] = (dailyTotals[date]||0) + d.dailySales[date];
-      });
-    });
-    state.dashboardDailyTrend = dailyTotals;
-    state.dashboardLoading = false;
+    return result;
+  }
+  function dashboardQueryScope(){
+    const stores=(state.role==='hq'||state.role==='franchise')?state.storeList:state.myStores;
+    return JSON.stringify([maneeViewEpoch,state.authProfile&&state.authProfile.user_id,state.role,monthKey(),(stores||[]).map(store=>[store,state.storeIdMap[store]])]);
+  }
+  function clearStaleDashboard(){
+    if(state.dashboardScope&&state.dashboardScope!==dashboardQueryScope()){
+      state.dashboardData=null;state.dashboardSalesPreview=null;state.dashboardRequest=null;
+      state.dashboardScope=null;state.dashboardLoading=false;state.dashboardDailyTrend={};
+    }
+  }
+  async function loadDashboardData(){
+    const key=dashboardQueryScope();
+    // Repeated renders share only the current in-flight lookup, never a persistent financial cache.
+    if(state.dashboardLoading&&state.dashboardRequest&&state.dashboardRequest.key===key) return state.dashboardRequest.promise;
+    if(state.dashboardScope!==key){state.dashboardData=null;state.dashboardSalesPreview=null;}
+    const request={key}, guard=maneeLoadGuard('dashboard');
+    const alive=()=>guard()&&state.dashboardRequest===request&&dashboardQueryScope()===key;
+    state.dashboardRequest=request;state.dashboardScope=key;state.dashboardLoading=true;
     render();
-    loadDashboardReservations();
+    request.promise=(async()=>{
+      try{
+        const mKey=monthKey(), y=state.monthYear, m=state.monthNum;
+        const storesToLoad=((state.role==='hq'||state.role==='franchise')?state.storeList:state.myStores).slice();
+        const storeMap={...state.storeIdMap}, storeIds=storesToLoad.map(store=>storeMap[store]).filter(Boolean);
+        const day=now.getDate(), showTax=day>=5;
+        let prevM=now.getMonth(), prevY=now.getFullYear();
+        if(prevM<1){prevM=12;prevY--;}
+        const prevMonthKey=prevY+'-'+pad(prevM), curMonthKey=now.getFullYear()+'-'+pad(now.getMonth()+1);
+        const range=monthDateRange(mKey), prevRange=monthDateRange(prevMonthKey);
+        const read=(table,columns,filter,order,storeColumn)=>readDashboardRows(storeIds,ids=>filter(db.from(table).select(columns).in(storeColumn||'store_id',ids)),order,storeColumn);
+        const inMonth=q=>q.gte('date',range.start).lte('date',range.end);
+        const inPrev=q=>q.gte('date',prevRange.start).lte('date',prevRange.end);
+        // Sales starts first and is published without waiting for payroll, checklists, or reminders.
+        const salesTask=read('sales_reports','id,store_id,date,total_sales,discount,refund,delivery_baemin,delivery_coupang,delivery_yogiyo',inMonth);
+        const crewTask=read('crew','*',q=>q);
+        const attendanceTask=read('attendance','id,store_id,crew_id,date,check_in,check_out,confirmed',inMonth);
+        const expenseTask=read('expense_entries','id,store_id,amount',inMonth);
+        const adjustmentTask=read('crew_pay_adjustments','*',q=>q.eq('month_key',mKey));
+        const payrollTask=read('monthly_net_payroll','id,store_id,crew_id,month_key,net_pay,paid_on,adjustment_snapshot,updated_at',q=>q.eq('month_key',mKey));
+        const templateTask=read('checklist_templates','store_id,tab,data',q=>q,['store_id','tab']);
+        const checksTask=read('checklist_checks','store_id,date,item_id',q=>q.eq('date',bizToday()),['store_id','date','item_id']);
+        const limitsTask=read('stores','id,food_ratio_threshold,labor_ratio_threshold',q=>q,['id'],'id');
+        const prevSalesTask=prevMonthKey===mKey?salesTask:read('sales_reports','id,store_id,total_sales',inPrev);
+        const taxTask=(async()=>{
+          if(!showTax) return {acked:new Set(),attendance:{}};
+          const ack=await read('tax_reminder_ack','id,store_id',q=>q.eq('month_key',curMonthKey));
+          if(!alive()) return {acked:new Set(),attendance:{}};
+          const acked=new Set(storeIds.filter(id=>ack[id]&&!ack[id].error&&ack[id].data.length));
+          const remaining=storeIds.filter(id=>!acked.has(id));
+          const attendance=prevMonthKey===mKey?await attendanceTask:await readDashboardRows(remaining,ids=>inPrev(db.from('attendance').select('id,store_id,crew_id,date,check_in,check_out,confirmed').in('store_id',ids)));
+          return {acked,attendance};
+        })();
+        const salesByStore=await salesTask;
+        if(!alive())return;
+        const salesRows=rows=>rows.map(r=>({date:r.date,totalSales:r.total_sales,discount:r.discount,refund:r.refund,deliveryBaemin:r.delivery_baemin,deliveryCoupang:r.delivery_coupang,deliveryYogiyo:r.delivery_yogiyo,deliverySum:(r.delivery_baemin||0)+(r.delivery_coupang||0)+(r.delivery_yogiyo||0)}));
+        const attendanceRows=rows=>rows.map(r=>({crewId:r.crew_id,date:r.date,checkInExact:r.check_in,checkOutExact:r.check_out,checkIn:(r.check_in||'').slice(0,5),checkOut:r.check_out?r.check_out.slice(0,5):null,confirmed:!!r.confirmed}));
+        const empty={data:[],error:new Error('Missing store scope')};
+        const get=(source,id)=>source[id]||empty;
+        if(!state.dashboardData&&state.role==='storeOwner'){
+          state.dashboardSalesPreview=storesToLoad.map(store=>{
+            const source=get(salesByStore,storeMap[store]), salesArr=salesRows(source.data), sales=summarizeSalesFigures(salesArr);
+            return {store,salesSum:sales.grossSales,salesReportCount: salesArr.length,loadFailures:source.error||sales.invalid.length?['매출']:[]};
+          });
+          render();
+        }
+        const [crewByStore,attByStore,expenseByStore,adjustmentByStore,payrollByStore,templatesByStore,checksByStore,limitsByStore,prevSalesByStore,tax]=await Promise.all([crewTask,attendanceTask,expenseTask,adjustmentTask,payrollTask,templateTask,checksTask,limitsTask,prevSalesTask,taxTask]);
+        if(!alive())return;
+        const results=storesToLoad.map(store=>{
+          const storeId=storeMap[store], failed=[];
+          const rows=(source,label)=>{const value=get(source,storeId);if(value.error&&label)failed.push(label);return value.data;};
+          const crewArr=rows(crewByStore,'직원').map(rowToCrew), attArr=attendanceRows(rows(attByStore,'근태'));
+          const salesArr=salesRows(rows(salesByStore,'매출')), expenseArr=rows(expenseByStore,'지출');
+          const adjustmentRows=rows(adjustmentByStore,'급여조정').map(adjustmentRow), payrollRows=rows(payrollByStore,'급여확정').map(payrollRow);
+          const items={}, checks={};
+          rows(templatesByStore).forEach(r=>{items[r.tab]=r.data;});
+          rows(checksByStore).forEach(r=>{checks[r.item_id]=true;});
+          const sales=summarizeSalesFigures(salesArr), salesSum=sales.grossSales, deliverySum=sales.delivery;
+          if(sales.invalid.length&&!failed.includes('매출'))failed.push('매출');
+          const payroll=summarizeNetPayroll(crewArr,attArr,adjustmentRows,payrollRows,y,m);
+          const laborPay=payroll.netPay;
+          if(payroll.unknownCount)failed.push('급여미확정');
+          const laborReadable = ['직원','근태','매출','급여조정','급여확정','급여미확정'].every(k=>!failed.includes(k));
+          const expenseReadable = failed.indexOf("지출")<0 && failed.indexOf("매출")<0;
+          const laborRatio = (laborReadable && salesSum>0) ? (laborPay/salesSum*100) : null;
+          // 지출비율 = 전체 지출(분류 무관) ÷ 매출.
+          let expenseSum = 0;
+          expenseArr.forEach(e=> expenseSum += Number(e.amount)||0);
+          const expenseRatio = (expenseReadable && salesSum>0) ? (expenseSum/salesSum*100) : null;
+
+          let total=0, done=0;
+          if(items){
+            Object.keys(items).forEach(tabId=>{
+              (items[tabId]||[]).forEach(cat=> (cat.items||[]).forEach(it=>{ total++; if(checks[it.id]) done++; }));
+            });
+          }
+          const checklistPct = total>0 ? Math.round(done/total*100) : null;
+
+          const yKey = yesterdayKey();
+          const hasYesterdayReport = salesArr.some(s=> s.date===yKey);
+
+          const todayD = new Date(todayKey());
+          const expiringCerts = crewArr
+            .filter(c=> !!c.healthCertExpiry)
+            .map(c=>{
+              const exp = new Date(c.healthCertExpiry);
+              const daysUntil = Math.round((exp - todayD) / 86400000);
+              return { name: c.name, expiry: c.healthCertExpiry, daysUntil };
+            })
+            .filter(item=> item.daysUntil <= 30)
+            .sort((a,b)=> a.daysUntil - b.daysUntil);
+
+          let taxInfo=null;
+          const previousAttendance=get(tax.attendance,storeId);
+          if(showTax&&storeId&&!tax.acked.has(storeId)&&!previousAttendance.error&&!failed.includes('직원')){
+            const prevAttArr=attendanceRows(previousAttendance.data);
+            let prevTotal=0;
+            crewArr.forEach(c=>{prevTotal+=calcCrewPayFrom(c,prevAttArr,prevY,prevM).pay;});
+            taxInfo={monthKey:curMonthKey,prevMonthLabel:prevY+'년 '+prevM+'월',total:prevTotal,isPastDeadline:day>10};
+          }
+          const limits=get(limitsByStore,storeId), limit=limits.data[0];
+          let foodThreshold=DEFAULT_FOOD_RATIO_LIMIT, laborThreshold=DEFAULT_LABOR_RATIO_LIMIT;
+          if(limits.error){failed.push('식자재 기준','인건비 기준');foodThreshold=null;laborThreshold=null;}
+          else if(!limit){failed.push('식자재 기준','인건비 기준');foodThreshold=null;laborThreshold=null;}
+          else{
+            if(limit.food_ratio_threshold!=null)foodThreshold=Number(limit.food_ratio_threshold);
+            if(limit.labor_ratio_threshold!=null)laborThreshold=Number(limit.labor_ratio_threshold);
+          }
+          const previousSales=get(prevSalesByStore,storeId), prevMonthFailed=!!previousSales.error;
+          const prevMonthSalesSum=previousSales.data.reduce((sum,r)=>sum+(Number(r.total_sales)||0),0);
+          const dailySales={};
+          salesArr.forEach(s=>{dailySales[s.date]=(dailySales[s.date]||0)+(Number(s.totalSales)||0);});
+          return { store, foodThreshold, laborThreshold, salesSum, salesReportCount: salesArr.length, deliverySum, laborPay, payrollEstimatedCount:payroll.estimatedCount, payrollConfirmedCount:payroll.confirmedCount, payrollUnknownCount:payroll.unknownCount, payrollIssues:[...new Set(payroll.people.filter(p=>p.unknown).flatMap(p=>p.reasons))], laborRatio, expenseSum, expenseRatio, checklistPct, crewCount: crewArr.length, hasYesterdayReport, expiringCerts, taxInfo, prevMonthSalesSum, prevMonthFailed, dailySales, loadFailures: failed };
+        });
+        results.sort((a,b)=>b.salesSum-a.salesSum);
+        state.dashboardData=results;state.dashboardSalesPreview=null;
+        const dailyTotals={};
+        results.forEach(d=>{
+          if(ownerSalesUnreadable(d))return;
+          Object.keys(d.dailySales||{}).forEach(date=>{dailyTotals[date]=(dailyTotals[date]||0)+d.dailySales[date];});
+        });
+        state.dashboardDailyTrend=dailyTotals;
+      }catch(e){
+        if(!alive())return;
+        // Unexpected parsing/calculation failures cannot leave a stale amount looking up to date.
+        const stores=(state.role==='hq'||state.role==='franchise')?state.storeList:state.myStores;
+        state.dashboardData=stores.map(store=>({store,salesSum:0,salesReportCount:0,laborPay:0,expenseSum:0,laborRatio:null,expenseRatio:null,foodThreshold:null,laborThreshold:null,expiringCerts:[],dailySales:{},prevMonthFailed:true,loadFailures:['매출','직원','근태','지출','급여조정','급여확정']}));
+        state.dashboardSalesPreview=null;state.dashboardDailyTrend={};
+      }finally{
+        if(alive()){state.dashboardLoading=false;render();loadDashboardReservations();}
+      }
+    })();
+    return request.promise;
   }
 
   async function loadDashboardReservations(){
@@ -5445,7 +5449,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.monthNum=m; state.monthYear=y;
     state.costEditKey=null;state.costLinkKey=null;state.costAddRequest=null;
     state.selectedDate = null;
-    state.dashboardData = null;
+    state.dashboardData = null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;
     // 직원 목록(직원 실패 상태 포함)은 달마다 다시 불러오지 않으므로 여기서 지우지 않는다 - 매출·지출·근태·고정지출은
     // 아래에서 다시 불러오는 대로 각자 성공/실패 상태를 스스로 갱신한다(clearReportDataFailures 주석 참고).
     Promise.all([ loadShifts(state.store, monthKey()), loadAttendance(state.store, monthKey()), loadSalesReports(state.store, monthKey()), loadExpenseEntries(state.store, monthKey()), loadFixedExpenses(state.store, monthKey()), loadChecklistLog(state.store, monthKey()), loadPayAdjustments(state.store, monthKey()), loadMonthlyNetPayroll(state.store, monthKey()), loadMonthlyCostReview(state.store,monthKey()) ]).then(render);
@@ -5878,7 +5882,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(!alive()||month!==monthKey())return;
       if(isVendor)state.vendors.push({id:row.id,name:row.name,defaultCategory:row.default_category});else state.fixedExpenses.push({id:row.id,name:row.name,amount:row.amount});
       delete state.ownerSetupDraft[isVendor?'setup-vendor':'setup-fixed-name'];if(!isVendor)delete state.ownerSetupDraft['setup-fixed-amount'];
-      state.dashboardData=null;
+      state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;
     });
   }
   async function nextOwnerSetup(skip){
@@ -5899,7 +5903,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const ok=await ownerSetupMutation(async(sid,alive)=>{
         const l=await db.rpc('manee_set_store_labor_ratio',{p_store_id:sid,p_threshold:labor});if(l.error||l.data?.ok!==true)throw Error('인건비율 기준 저장에 실패했어요.');if(!alive())return;state.storeLaborLimitMap[storeName]=labor;
         const f=await db.rpc('manee_set_store_food_ratio',{p_store_id:sid,p_threshold:food});if(f.error||f.data?.ok!==true)throw Error('지출비율 기준 저장에 실패했어요.');if(!alive())return;state.storeFoodLimitMap[storeName]=food;
-        await checkedBusinessMutation(db.from('stores').update({manager_dashboard_enabled:!!manager}).eq('id',sid).select('id'));if(!alive())return;state.storeManagerDashboardMap[storeName]=!!manager;state.dashboardData=null;
+        await checkedBusinessMutation(db.from('stores').update({manager_dashboard_enabled:!!manager}).eq('id',sid).select('id'));if(!alive())return;state.storeManagerDashboardMap[storeName]=!!manager;state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;
       });if(!ok)return;
     }
     if(!ownerSetupAlive(store,username))return;
@@ -6271,7 +6275,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html+='<div class="ow-list">';
     list.forEach(v=>{
       const open=!!w.expanded[v.store],esc=escapeHtml(v.store);
-      const d=(state.dashboardData||[]).find(x=>x.store===v.store);
+      const d=(state.dashboardData||state.dashboardSalesPreview||[]).find(x=>x.store===v.store);
       const bad=!v.sched.ok||!v.work.ok;
       const sched=!v.sched.ok?'오늘 예정 확인 불가':(v.sched.count===0?'스케줄 미등록':'오늘 예정 <b>'+v.sched.count+'명</b>');
       const live=!v.work.ok?'<span class="oh-live warn">근무 확인 불가</span>':'<span class="oh-live'+(v.work.workers.length?'':' none')+'">'+(v.work.workers.length?'<i class="oh-dot" aria-hidden="true"></i>':'')+'현재 근무 <b>'+v.work.workers.length+'명</b></span>';
@@ -6287,13 +6291,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       }
       if(bad) html+='<p class="ow-names none">조회하지 못한 항목이 있어요. <button type="button" class="owner-retry" data-ow-retry>다시 시도</button></p>';
       // month sales + one short reason for this store
-      if(!state.dashboardData||state.dashboardLoading){ html+='<div class="oh-sales"><span>'+state.monthNum+'월 누적 매출</span><strong class="oh-muted">불러오는 중</strong></div>'; }
+      if(!state.dashboardData&&!state.dashboardSalesPreview){ html+='<div class="oh-sales"><span>'+state.monthNum+'월 누적 매출</span><strong class="oh-muted">불러오는 중</strong></div>'; }
       else if(!d){ html+='<div class="oh-sales"><span>'+state.monthNum+'월 누적 매출</span><strong class="oh-muted">조회 실패</strong></div>'; }
       else{
-        const st=ownerStoreStatus(d), unreadable=ownerSalesUnreadable(d);
+        const st=state.dashboardData?ownerStoreStatus(d):null, unreadable=ownerSalesUnreadable(d);
         const amount=unreadable?'<strong class="oh-muted">조회 실패</strong>':((d.salesReportCount||0)===0?'<strong class="oh-muted">집계 전</strong>':'<strong>'+Math.round(d.salesSum/10000).toLocaleString()+'<small>만원</small></strong>');
         html+='<div class="oh-sales"><span>'+state.monthNum+'월 누적 매출</span>'+amount+'</div>';
-        if(st.kind==="attention") html+='<p class="oh-reason bad"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.8v5M12 16.2v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>관리 필요 · '+st.reasons.join(" · ")+'</p>'+(st.failures.length?'<p class="oh-reason warn">판정 불가 · 읽지 못한 항목: '+st.failures.join("·")+'</p>':'');
+        if(!st) html+='<p class="oh-reason">비용·근무 자료 확인 중</p>';
+        else if(st.kind==="attention") html+='<p class="oh-reason bad"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.8v5M12 16.2v.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>관리 필요 · '+st.reasons.join(" · ")+'</p>'+(st.failures.length?'<p class="oh-reason warn">판정 불가 · 읽지 못한 항목: '+st.failures.join("·")+'</p>':'');
         else if(st.failures.length) html+='<p class="oh-reason warn">판정 불가 · 읽지 못한 항목: '+st.failures.join("·")+'</p>';
         else if(st.kind==="pending"||st.kind==="norevenue") html+='<p class="oh-reason">'+(st.kind==="pending"?'매출 집계 전이라 비율은 판정하지 않아요':'매출이 없어 비율은 판정하지 않아요')+'</p>';
         else html+='<p class="oh-reason ok"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M8.3 12.4l2.5 2.5 4.9-5.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>기준 이내 · 인건비 '+(ownerLaborLimit(d)===null?'기준 확인 불가':formatLimit(ownerLaborLimit(d))+'%')+' · 지출 '+(d.foodThreshold==null?'기준 확인 불가':formatLimit(d.foodThreshold)+'%')+' 이내</p>';
@@ -6371,7 +6376,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const [y,m]=date.split("-").map(Number),alive=maneeLoadGuard("ownerWorkOpen");
     state.showOwnerSalesForm=false;state.salesEditingId=null;state.salesEditDate=null;state.expandedCrewIds={};
     const monthChanged=y!==state.monthYear||m!==state.monthNum;
-    if(monthChanged){state.monthYear=y;state.monthNum=m;state.dashboardData=null;}
+    if(monthChanged){state.monthYear=y;state.monthNum=m;state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;}
     state.section="schedule";state.scheduleTab="attendance";state.selectedDate=date;
     try{
       if(store!==state.store){ await switchOwnerStore(store); }
@@ -6439,14 +6444,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   // removes a store from the food ratio only, and every ratio says how many stores it is based on.
   function renderOwnerOverview(){
     const scope=ownerHomeScope();
-    if(state.dashboardLoading||!state.dashboardData) return '<section class="category oh-overview" aria-label="월 매출 요약"><p class="oh-muted">'+scope.length+'개 매장의 매출을 불러오는 중이에요…</p></section>';
-    const data=state.dashboardData.filter(d=>scope.includes(d.store));
+    const source=state.dashboardData||state.dashboardSalesPreview, costsPending=!state.dashboardData;
+    if(!source) return '<section class="category oh-overview" aria-label="월 매출 요약"><p class="oh-muted">'+scope.length+'개 매장의 매출을 불러오는 중이에요…</p></section>';
+    const data=source.filter(d=>scope.includes(d.store));
     const has=(d,k)=>(d.loadFailures||[]).indexOf(k)>=0;
     let total=0,readable=0,foodUnknown=false,laborUnknown=false;
     const lab={sales:0,pay:0,n:0,over:false}, food={sales:0,exp:0,n:0,over:false}, failedItems={};
     data.forEach(d=>{
       if(!ownerSalesUnreadable(d)){ total+=d.salesSum; readable++; }
-      const laborOk=!has(d,"직원")&&!has(d,"근태")&&!has(d,"매출"), foodOk=!has(d,"지출")&&!has(d,"매출");
+      const laborOk=!costsPending&&["직원","근태","매출","급여조정","급여확정","급여미확정"].every(k=>!has(d,k)), foodOk=!costsPending&&!has(d,"지출")&&!has(d,"매출");
       if(laborOk){
         lab.sales+=d.salesSum; lab.pay+=d.laborPay; lab.n++;
         const ll=ownerLaborLimit(d);
@@ -6468,11 +6474,13 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const laborCls=labor===null?'':(lab.over?'bad':(laborFull?'ok':''));
     const foodCls=foodR===null?'':(food.over?'bad':(foodFull?'ok':''));
     let html='<section class="category oh-overview" aria-label="월 매출 요약"><div class="oh-ov-head"><span class="oh-label">'+state.monthNum+'월 누적 매출 · '+(scope.length===(state.myStores||[]).length?'전체 '+scope.length+'곳':escapeHtml(scope[0]||''))+'</span>'+ownerRouteButton('상세 ›','sales','report',false)+'</div>';
+    if(state.dashboardLoading) html+='<p class="oh-note" role="status">'+(costsPending?'비용·근무 자료를 불러오는 중이에요…':'최신 자료로 업데이트 중이에요…')+'</p>';
     if(unknown) html+='<p class="oh-big oh-muted">— <small>조회 실패</small></p><p class="oh-note">매출을 조회하지 못했어요. <button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button></p>';
     else if(!entered) html+='<p class="oh-big oh-muted">집계 전</p><p class="oh-note">아직 입력된 매출보고가 없어요.</p>';
     else html+='<p class="oh-big">'+total.toLocaleString()+'<small>원</small></p>'+(partial?'<p class="owner-amount-partial oh-note">조회 성공 '+readable+'/'+data.length+'곳 합계 (조회 실패 매장 제외)</p>':'');
     const scopeNote=(n)=>(n<data.length?'<small class="oh-of">'+n+'/'+data.length+'곳</small>':'');
-    html+='<p class="oh-ratios"><span>인건비율 <b class="'+laborCls+'">'+(labor===null?'—':labor.toFixed(1)+'%')+'</b>'+(labor===null?'':scopeNote(lab.n))+'</span><span>지출비율 <b class="'+foodCls+'">'+(foodR===null?'—':foodR.toFixed(1)+'%')+'</b>'+(foodR===null?'':scopeNote(food.n))+'</span>'+(laborUnknown?'<span class="oh-note">인건비 기준 확인 불가</span>':'')+(foodUnknown?'<span class="oh-note">지출 기준 확인 불가</span>':'')+'</p>';
+    if(costsPending) html+='<p class="oh-ratios oh-muted">인건비율 · 지출비율 확인 중</p>';
+    else html+='<p class="oh-ratios"><span>인건비율 <b class="'+laborCls+'">'+(labor===null?'—':labor.toFixed(1)+'%')+'</b>'+(labor===null?'':scopeNote(lab.n))+'</span><span>지출비율 <b class="'+foodCls+'">'+(foodR===null?'—':foodR.toFixed(1)+'%')+'</b>'+(foodR===null?'':scopeNote(food.n))+'</span>'+(laborUnknown?'<span class="oh-note">인건비 기준 확인 불가</span>':'')+(foodUnknown?'<span class="oh-note">지출 기준 확인 불가</span>':'')+'</p>';
     const failKeys=Object.keys(failedItems);
     if(failKeys.length&&!unknown) html+='<p class="owner-status-fail oh-partial">일부 항목을 읽지 못했어요 · '+failKeys.map(k=>escapeHtml(k)+' 조회 실패('+failedItems[k].map(escapeHtml).join(", ")+')').join(" · ")+'. 위 비율은 읽은 매장만으로 계산했고, 기준을 읽지 못한 항목은 판정하지 않아요. <button type="button" class="owner-retry" data-retry-dashboard>다시 시도</button></p>';
     html+=renderOwnerTrend(scope)+'</section>';
@@ -6537,7 +6545,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(group==='home') html+='<option value="__all__"'+(state.homeStore==='__all__'||!state.myStores.includes(state.homeStore)?' selected':'')+'>내 매장 전체 · '+state.myStores.length+'곳</option>';
     state.myStores.forEach(s=>html+='<option value="'+escapeHtml(s)+'"'+((group!=='home'&&s===state.store)||(group==='home'&&s===state.homeStore)?' selected':'')+'>'+escapeHtml(s)+'</option>');
     html+='</select><svg class="owner-picker-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></label></header><main>';
-    if(!state.dashboardData&&!state.dashboardLoading) setTimeout(loadDashboardData,0);
+    if(!state.dashboardData&&!state.dashboardLoading) setTimeout(()=>{if(!state.dashboardData&&!state.dashboardLoading)loadDashboardData();},0);
     if(state.showAddStoreForm) html+=renderAddStoreForm();
     else if(state.showOwnerSalesForm) html+='<div class="owner-sales-form">'+renderSalesReportForm()+'</div>';
     else if(state.section==='ai') html+=renderAiChatSection();
@@ -6606,7 +6614,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
           state.scheduleTab=button.dataset.ownerTab||'attendance';
           if(state.scheduleTab==='attendance'){
             state.selectedDate=bizToday();const [year,month]=state.selectedDate.split('-').map(Number);
-            if(year!==state.monthYear||month!==state.monthNum){state.monthYear=year;state.monthNum=month;state.dashboardData=null;await loadAllForStore(state.store);}
+            if(year!==state.monthYear||month!==state.monthNum){state.monthYear=year;state.monthNum=month;state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;await loadAllForStore(state.store);}
           }
         }
         if(state.section==='sales')state.salesSectionTab=button.dataset.ownerTab||'sales';
@@ -6627,7 +6635,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const day=document.getElementById('owner-attendance-date');if(day)day.addEventListener('change',async()=>{
       if(!/^\d{4}-\d{2}-\d{2}$/.test(day.value))return;
       state.selectedDate=day.value;const [year,month]=day.value.split('-').map(Number);
-      if(year!==state.monthYear||month!==state.monthNum){state.monthYear=year;state.monthNum=month;state.dashboardData=null;await loadAllForStore(state.store);}else render();
+      if(year!==state.monthYear||month!==state.monthNum){state.monthYear=year;state.monthNum=month;state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;await loadAllForStore(state.store);}else render();
     });
     const alerts=document.getElementById('owner-alert-shortcut');if(alerts)alerts.addEventListener('click',()=>{const go=()=>{state.section='alerts';state.showOwnerSalesForm=false;state.showAddStoreForm=false;state.salesEditingId=null;state.salesEditDate=null;render();};if(state.showOwnerSalesForm)askConfirm('작성 중인 매출보고를 닫을까요? 저장하지 않은 입력은 반영되지 않아요.',go);else go();});
     app.querySelectorAll('[data-retry-dashboard]').forEach(btn=>btn.addEventListener('click',e=>{e.stopPropagation();retryDashboard();}));
@@ -6641,6 +6649,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
   // ---------- render ----------
   function render(){
+    clearStaleDashboard();
     app.classList.toggle("owner-ui",state.role === "storeOwner" || teamUiOn());
     app.classList.toggle("team-ui",teamUiOn());
     if(!state.splashDone){
@@ -6652,7 +6661,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       app.innerHTML = renderSplash();
       return;
     }
-    if(state.loading){ app.innerHTML = '<div class="loading">불러오는 중이에요…</div>'; app.classList.remove("has-bottom-nav"); return; }
+    if(state.loading&&!canShowOwnerHomeWhileLoading()){ app.innerHTML = '<div class="loading">불러오는 중이에요…</div>'; app.classList.remove("has-bottom-nav"); return; }
     if(tryMonthlyCostRoute())return;
     if(state.role === "landing"){
       app.classList.remove("has-bottom-nav");
@@ -6709,7 +6718,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(isHq){
       if(!state.hqDashboardStats && !state.hqDashboardStatsLoading) setTimeout(loadHqDashboardStats, 0);
     }else if(!isFranchise){
-      if(!state.dashboardData && !state.dashboardLoading) setTimeout(loadDashboardData, 0);
+      if(!state.dashboardData && !state.dashboardLoading) setTimeout(()=>{if(!state.dashboardData&&!state.dashboardLoading)loadDashboardData();},0);
     }
     if(!(isHq||isFranchise)) html += renderNotifSummaryBar();
     if(state.section === "ai"){
@@ -8691,7 +8700,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   function retryDashboard(){
     if(state.dashboardLoading) return;
-    state.dashboardData = null;
     loadDashboardData();
   }
   function renderOwnerReservations(){
@@ -8746,11 +8754,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function renderDashboard(){
     let html = "";
 
-    if(state.dashboardLoading || !state.dashboardData){
+    if(!state.dashboardData){
       html += '<div class="empty-note">매장 '+state.storeList.length+'곳 데이터를 불러오는 중이에요…</div>';
       return html;
     }
 
+    if(state.dashboardLoading) html+='<p class="oh-note" role="status">최신 자료로 업데이트 중이에요…</p>';
     const data = state.dashboardData;
     const ownerView = state.role==="storeOwner";
     let totalSales = 0, totalPay = 0, totalExpense = 0, totalDelivery = 0, totalPrevMonth = 0;
@@ -9045,7 +9054,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const cache=state.ownerReportHomeNotices,store=(state.myStores||[]).find(name=>state.storeIdMap[name]===storeId);
     if(state.role!=='storeOwner'||cache?.userId!==state.authProfile?.user_id||!store||!cache?.rows.some(row=>row.store_id===storeId&&row.month_key===key)||!/^\d{4}-(0[1-9]|1[0-2])$/.test(key||''))return;
     const [year,month]=key.split('-').map(Number),alive=maneeLoadGuard('openOwnerReportHomeNotice');
-    state.monthYear=year;state.monthNum=month;state.dashboardData=null;
+    state.monthYear=year;state.monthNum=month;state.dashboardData=null; state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;
     state.showOwnerSalesForm=false;state.showAddStoreForm=false;state.salesEditingId=null;state.salesEditDate=null;
     state.selectedDate=null;state.selectedSalesDate=null;state.expenseEditDraft=null;state.editingExpenseEntryId=null;state.expenseOpenGroups=[];
     state.store=store;state.homeStore=store;state.section='sales';state.salesSectionTab='report';state.showVatDetail=false;state.vatData=null;

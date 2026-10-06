@@ -160,7 +160,7 @@ test('every screen that judges labor reads the store\'s own limit: owner home ca
   assert.ok(fnText('renderOwnerWork').includes('ownerLaborLimit(d)'));
   assert.ok(fnText('loadAllForStore').includes('loadRatioLimits(store)')&&fnText('loadAuthStaffHome').includes('loadRatioLimits(store)'));
   // the dashboard reads each store's limit with its own lookup and its own failure entry
-  assert.ok(html.includes("db.from('stores').select('labor_ratio_threshold')")&&html.includes('failed.push("인건비 기준")'));
+  assert.ok(fnText('loadDashboardData').includes("read('stores','id,food_ratio_threshold,labor_ratio_threshold'")&&fnText('loadDashboardData').includes("failed.push('식자재 기준','인건비 기준')"));
 });
 test('settings card: one "비율 경고 기준" card, two independent rows, owner only, RPC only',()=>{
   const start=html.indexOf('<h3 style="margin:0 0 6px;">비율 경고 기준</h3>');assert.ok(start>0);
