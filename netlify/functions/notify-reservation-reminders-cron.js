@@ -5,6 +5,7 @@ const { blockExternalService } = require("./lib/manee-environment.cjs");
 // 현재 출근 중인 직원에게 1회만 리마인드 푸시를 보내요.
 
 const webpush = require('web-push');
+const {getVapidDetails}=require('./lib/push-vapid.cjs');
 const { createClient } = require('@supabase/supabase-js');
 
 function kstNow(){
@@ -27,11 +28,8 @@ exports.handler = async () => {
       process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
-    webpush.setVapidDetails(
-      'mailto:admin@example.com',
-      process.env.VAPID_PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
-    );
+    const vapid=getVapidDetails();
+    webpush.setVapidDetails(vapid.subject,vapid.publicKey,vapid.privateKey);
 
     const now = kstNow();
     const today = kstDateStr(now);

@@ -5,6 +5,7 @@ const { blockExternalService } = require("./lib/manee-environment.cjs");
 // 스케줄은 netlify.toml에서 설정합니다 (아무도 앱을 안 열어도 실행됨).
 
 const webpush = require('web-push');
+const {getVapidDetails}=require('./lib/push-vapid.cjs');
 const { createClient } = require('@supabase/supabase-js');
 
 function todayKstDateStr(){
@@ -22,11 +23,8 @@ exports.handler = async () => {
       process.env.SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
-    webpush.setVapidDetails(
-      'mailto:admin@example.com',
-      process.env.VAPID_PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
-    );
+    const vapid=getVapidDetails();
+    webpush.setVapidDetails(vapid.subject,vapid.publicKey,vapid.privateKey);
 
     const today = todayKstDateStr();
 
@@ -91,4 +89,3 @@ exports.handler = async () => {
     return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
   }
 };
-
