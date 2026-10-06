@@ -657,6 +657,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   let state = {
     role: "loading", // loading | landing | owner | staff
+    pushSubscribed: false,
+    pushBusy: false,
+    pushRegistrationError: null,
     store: DEFAULT_STORES[0],
     storeList: [],
     storeIdMap: {},
@@ -938,16 +941,33 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     for(let i=0;i<rawData.length;++i) outputArray[i] = rawData.charCodeAt(i);
     return outputArray;
   }
+  async function registerOwnerPush(sub, storeId){
+    const raw=sub.toJSON();
+    const {data,error}=await db.rpc("manee_register_owner_push",{
+      p_store_id:storeId,p_endpoint:raw.endpoint,p_p256dh:raw.keys?.p256dh,p_auth:raw.keys?.auth
+    });
+    if(error) throw error;
+    if(data!==true) throw new Error("Push registration was not confirmed");
+  }
   async function refreshPushSubStatus(){
+    if(state.pushBusy) return;
     if(MANEE_IS_STAGING){ state.pushSubscribed=false; return; }
     if(!("serviceWorker" in navigator) || !("PushManager" in window)){ state.pushSubscribed = false; return; }
+    const alive=maneeLoadGuard("pushSubscription"),role=state.role,storeId=currentStoreId();
+    state.pushBusy=true;state.pushSubscribed=false;state.pushRegistrationError=null;
     try{
       const reg = await navigator.serviceWorker.ready;
+      if(!alive()) return;
       const sub = await reg.pushManager.getSubscription();
+      if(!alive() || state.role!==role) return;
+      // A browser subscription alone does not prove that the server saved it.
+      // Retry a previously granted device without prompting for permission again.
+      if(sub && role==="storeOwner") await registerOwnerPush(sub,storeId);
+      if(!alive() || state.role!==role) return;
       state.pushSubscribed = !!sub;
-      if(sub && state.role==="storeOwner" && currentStoreId()){ await db.rpc("manee_bind_owner_push",{p_endpoint:sub.endpoint,p_store_id:currentStoreId()}); }
-    }catch(e){ state.pushSubscribed = false; }
-    render();
+    }catch(e){
+      if(alive()){state.pushSubscribed=false;state.pushRegistrationError="알림 연결을 완료하지 못했어요. 알림 켜기를 다시 눌러주세요.";}
+    }finally{if(alive()){state.pushBusy=false;render();}}
   }
   function isManagerTier(){
     if(state.role === "storeOwner" || state.role === "hq" || state.role === "franchise") return true;
@@ -960,6 +980,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }catch(e){ return false; }
   }
   async function subscribeToPush(){
+    if(state.pushBusy) return;
     if(MANEE_IS_STAGING){ state.pushSubscribed=false; showToast("테스트 환경에서는 알림 연결을 준비하고 있어요."); return; }
     if(!("serviceWorker" in navigator) || !("PushManager" in window)){ showToast("이 브라우저는 푸시 알림을 지원하지 않아요."); return; }
     if(typeof Notification !== "undefined" && Notification.permission === "denied"){
@@ -970,48 +991,79 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       }
       return;
     }
+    const alive=maneeLoadGuard("pushSubscription"),role=state.role,storeId=currentStoreId();
+    state.pushBusy=true;state.pushSubscribed=false;state.pushRegistrationError=null;
     try{
       const permission = await Notification.requestPermission();
+      if(!alive() || state.role!==role) return;
       if(permission !== "granted"){ showToast("알림 권한을 허용해야 알림을 받을 수 있어요."); return; }
       const reg = await navigator.serviceWorker.ready;
+      if(!alive() || state.role!==role) return;
       let sub = await reg.pushManager.getSubscription();
+      if(!alive() || state.role!==role) return;
       if(!sub){
         sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
       }
-      const raw = sub.toJSON();
-      const storeId = currentStoreId();
-      const { error: subError } = await db.from("push_subscriptions").upsert({
-        store_id: storeId, crew_id: state.myCrewId || null, role: state.role,
-        is_manager: isManagerTier(),
-        endpoint: raw.endpoint, p256dh: raw.keys.p256dh, auth: raw.keys.auth
-      }, { onConflict: "endpoint" });
-      if(subError){
-        console.error("푸시 구독 저장 실패:", subError);
-        showToast("알림 구독 저장에 실패했어요: "+(subError.message||"알 수 없는 오류"));
-        return;
+      if(!alive() || state.role!==role) return;
+      if(role==="storeOwner"){
+        try{await registerOwnerPush(sub,storeId);}
+        catch(e){
+          if(e.code!=="23505" || !alive() || state.role!==role) throw e;
+          // A shared browser must get a fresh subscription, never take over
+          // a device record that is already bound to another account.
+          await sub.unsubscribe();
+          if(!alive() || state.role!==role) return;
+          sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+          if(!alive() || state.role!==role) return;
+          await registerOwnerPush(sub,storeId);
+        }
+      }else{
+        const raw=sub.toJSON();
+        const {error}=await db.from("push_subscriptions").upsert({
+          store_id:storeId,crew_id:state.myCrewId||null,role,
+          is_manager:isManagerTier(),endpoint:raw.endpoint,p256dh:raw.keys.p256dh,auth:raw.keys.auth
+        },{onConflict:"endpoint"});
+        if(error) throw error;
       }
-      if(state.role==="storeOwner"){ const bound=await db.rpc("manee_bind_owner_push",{p_endpoint:raw.endpoint,p_store_id:storeId}); if(bound.error)throw bound.error; }
+      if(!alive() || state.role!==role) return;
       state.pushSubscribed = true;
-      showToast("출퇴근 알림이 와요.");
-      render();
+      showToast("알림 연결이 완료됐어요.");
     }catch(e){
-      console.error("알림 구독 실패:", e);
-      showToast("알림 구독에 실패했어요: "+(e && e.message ? e.message : ""));
-    }
+      if(alive()){
+        state.pushSubscribed=false;
+        state.pushRegistrationError="알림 연결을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.";
+        showToast(state.pushRegistrationError);
+      }
+    }finally{if(alive()){state.pushBusy=false;render();}}
   }
   async function unsubscribeFromPush(){
+    if(state.pushBusy) return;
     if(MANEE_IS_STAGING){ state.pushSubscribed=false; showToast("테스트 환경에서는 알림 연결을 준비하고 있어요."); return; }
+    const alive=maneeLoadGuard("pushSubscription"),role=state.role;
+    state.pushBusy=true;state.pushRegistrationError=null;
     try{
       const reg = await navigator.serviceWorker.ready;
+      if(!alive() || state.role!==role) return;
       const sub = await reg.pushManager.getSubscription();
+      if(!alive() || state.role!==role) return;
       if(sub){
-        try{ await db.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); }catch(e){}
+        if(role==="storeOwner"){
+          const raw=sub.toJSON();
+          const {data,error}=await db.rpc("manee_unregister_owner_push",{p_endpoint:raw.endpoint,p_p256dh:raw.keys?.p256dh,p_auth:raw.keys?.auth});
+          if(error) throw error;
+          if(data!==true) throw new Error("Push removal was not confirmed");
+        }else{
+          const {error}=await db.from("push_subscriptions").delete().eq("endpoint",sub.endpoint);
+          if(error) throw error;
+        }
+        if(!alive() || state.role!==role) return;
         await sub.unsubscribe();
       }
+      if(!alive() || state.role!==role) return;
       state.pushSubscribed = false;
-      showToast("출퇴근 알림이 꺼졌어요.");
-      render();
-    }catch(e){ showToast("해제에 실패했어요."); }
+      showToast("알림이 꺼졌어요.");
+    }catch(e){if(alive()){state.pushRegistrationError="알림 해제에 실패했어요. 다시 시도해 주세요.";showToast(state.pushRegistrationError);}}
+    finally{if(alive()){state.pushBusy=false;render();}}
   }
   async function sendAttendancePush(action, crewName){
     const storeId = currentStoreId();
@@ -1462,6 +1514,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   };
   function clearStaffAuthView(){
     maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
+    state.pushSubscribed=false;state.pushBusy=false;state.pushRegistrationError=null;
     state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__"; state.ownerStoreChoice=null; state.expenseEditDraft=null; state.editingExpenseEntryId=null; state.expenseOpenGroups=[];
     state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
     maneeRestoreSeq++;  // ...and so is an unfinished login/identity restore
@@ -9928,8 +9981,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '</div>';
       html += '<div class="day-panel" style="margin-bottom:12px;">';
       html += '<h3 style="margin:0 0 6px;">알림</h3>';
-      html += '<p class="crew-code-hint" style="margin-bottom:8px;">스텝 출퇴근, 오늘 예약이 등록되면 이 폰으로 알림이 와요.</p>';
-      if(state.pushSubscribed){
+      html += '<p class="crew-code-hint" style="margin-bottom:8px;">출퇴근·예약·월말 보고서 알림을 이 기기로 받아요.</p>';
+      if(state.pushRegistrationError) html += '<p class="crew-code-hint" role="status">'+escapeHtml(state.pushRegistrationError)+'</p>';
+      if(state.pushBusy){
+        html += '<button class="crew-code-btn" disabled>알림 연결 확인 중…</button>';
+      }else if(state.pushSubscribed){
         html += '<button class="crew-code-btn" id="owner-push-toggle-btn" style="background:var(--danger);color:#fff;border:none;">알림 끄기</button>';
       }else{
         html += '<button class="crew-code-btn" id="owner-push-toggle-btn" style="background:var(--brick);color:#fff;border:none;">알림 켜기</button>';

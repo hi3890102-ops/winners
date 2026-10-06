@@ -28,6 +28,7 @@ await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261003111913_pay
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261003114744_payroll_optional_hire_date.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261005113245_monthly_cost_reminders_report_details.sql',import.meta.url),'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261005115540_monthly_costs_compatibility.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/20261006064743_owner_push_registration.sql',import.meta.url),'utf8'));
 const id=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const owner=id(1),worker=id(2),stranger=id(3),store=id(101),otherStore=id(102),crew=id(201),otherCrew=id(202);
 await db.exec(`insert into auth.users(id) values('${owner}'),('${worker}'),('${stranger}');
@@ -38,6 +39,49 @@ insert into public.crew(id,store_id,name,join_code,wage) values('${crew}','${sto
 insert into public.store_memberships(user_id,store_id,role,crew_id) values('${owner}','${store}','owner',null),('${worker}','${store}','staff','${crew}'),('${stranger}','${otherStore}','staff','${otherCrew}');`);
 async function role(user){await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claim.role','authenticated',false),set_config('request.jwt.claims',$2,false)",[user,JSON.stringify({sub:user,session_id:user,role:'authenticated'})]);await db.exec('set role authenticated');}
 after(()=>db.close());
+
+const pushKeys=['A'.repeat(87),'B'.repeat(22)];
+const pushEndpoint=name=>'https://fcm.googleapis.com/fcm/send/synthetic-'+name;
+const registerPush=async(name,s=store,keys=pushKeys)=>(await db.query('select public.manee_register_owner_push($1,$2,$3,$4) ok',[s,pushEndpoint(name),...keys])).rows[0].ok;
+const unregisterPush=async(name,keys=pushKeys)=>(await db.query('select public.manee_unregister_owner_push($1,$2,$3) ok',[pushEndpoint(name),...keys])).rows[0].ok;
+
+test('owner can register/update/unregister with client table access still denied',async()=>{
+ await role(owner);
+ for(const sql of ['select * from public.push_subscriptions',"insert into public.push_subscriptions(endpoint,store_id) values('blocked',$1)",'delete from public.push_subscriptions'])
+  await assert.rejects(()=>db.query(sql,sql.includes('$1')?[store]:[]),e=>e.code==='42501');
+ assert.equal(await registerPush('new'),true);assert.equal(await registerPush('new'),true);
+ await db.exec('reset role');const rows=(await db.query('select * from public.push_subscriptions where endpoint=$1',[pushEndpoint('new')])).rows;
+ assert.equal(rows.length,1);assert.equal(rows[0].user_id,owner);assert.equal(rows[0].role,'storeOwner');assert.equal(rows[0].crew_id,null);
+ await role(owner);assert.equal(await unregisterPush('new'),true);assert.equal(await unregisterPush('new'),true);
+ await db.exec('reset role');assert.equal((await db.query('select count(*) n from public.push_subscriptions where endpoint=$1',[pushEndpoint('new')])).rows[0].n,0);
+});
+test('registration rejects staff, foreign stores, revoked sessions, banned users and anonymous callers',async()=>{
+ await role(worker);await assert.rejects(()=>registerPush('denied'),e=>e.code==='42501');
+ await role(owner);await assert.rejects(()=>registerPush('denied',otherStore),e=>e.code==='42501');
+ await db.exec('reset role');await db.query("update auth.sessions set not_after=now()-interval '1 minute' where user_id=$1",[owner]);
+ await role(owner);await assert.rejects(()=>registerPush('denied'),e=>e.code==='42501');
+ await db.exec('reset role');await db.query('update auth.sessions set not_after=null where user_id=$1',[owner]);await db.query("update auth.users set banned_until=now()+interval '1 day' where id=$1",[owner]);
+ await role(owner);await assert.rejects(()=>registerPush('denied'),e=>e.code==='42501');
+ await db.exec('reset role');await db.query('update auth.users set banned_until=null where id=$1',[owner]);await db.exec('set role anon');
+ await assert.rejects(()=>registerPush('denied'),e=>e.code==='42501');
+ await assert.rejects(()=>unregisterPush('denied'),e=>e.code==='42501');
+});
+test('registration recovers an unbound legacy device only with matching keys and never takes over a bound device',async()=>{
+ await db.exec('reset role');await db.query("insert into public.push_subscriptions(store_id,role,endpoint,p256dh,auth) values($1,'storeOwner',$2,$3,$4)",[id(999),pushEndpoint('legacy'),...pushKeys]);
+ await role(owner);await assert.rejects(()=>registerPush('legacy',store,['C'.repeat(87),pushKeys[1]]),e=>e.code==='23505');
+ assert.equal(await registerPush('legacy'),true);
+ await db.exec('reset role');await db.query("insert into public.store_memberships(user_id,store_id,role) values($1,$2,'owner')",[stranger,store]);
+ await role(stranger);await assert.rejects(()=>registerPush('legacy'),e=>e.code==='23505');assert.equal(await unregisterPush('legacy'),true);
+ await db.exec('reset role');assert.equal((await db.query('select user_id from public.push_subscriptions where endpoint=$1',[pushEndpoint('legacy')])).rows[0].user_id,owner);
+ await db.query("delete from public.store_memberships where user_id=$1 and store_id=$2 and role='owner'",[stranger,store]);
+ await role(owner);await unregisterPush('legacy');
+});
+test('registration rejects malformed keys and private, lookalike or non-HTTPS push destinations',async()=>{
+ await role(owner);
+ for(const endpoint of ['http://fcm.googleapis.com/test','https://127.0.0.1/test','https://fcm.googleapis.com.evil.test/a','https://fcm.googleapis.com@evil.test/a','https://fcm.googleapis.com:8080/a','https://fcm.googleapis.com/a\n'])
+  await assert.rejects(()=>db.query('select public.manee_register_owner_push($1,$2,$3,$4)',[store,endpoint,...pushKeys]),e=>e.code==='22023');
+ await assert.rejects(()=>registerPush('bad-keys',store,['bad','bad']),e=>e.code==='22023');
+});
 
 
 const cost=async(action,payload={},s=store,month='2026-09')=>(await db.query('select public.manee_cost_review($1,$2,$3,$4) r',[s,month,action,payload])).rows[0].r;
