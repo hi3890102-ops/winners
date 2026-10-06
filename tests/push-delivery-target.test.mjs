@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
+import {createRequire} from 'node:module';
+const {getVapidDetails}=createRequire(import.meta.url)('../netlify/functions/lib/push-vapid.cjs');
 const code=readFileSync(new URL('../netlify/functions/send-push.js',import.meta.url),'utf8');
 const user='00000000-0000-4000-8000-000000000001',store='00000000-0000-4000-8000-000000000101';
 const pair=crypto.createECDH('prime256v1');pair.generateKeys();
@@ -15,7 +17,7 @@ function handler({failure,env=environment}={}){
  const db={from:()=>({select(){const q={eq(k,v){filters.push([k,v]);return q;},then(resolve){resolve({data:rows.filter(r=>filters.every(([k,v])=>r[k]===v))});}};return q;},delete:()=>({eq:async(k,v)=>deleted.push([k,v])})})};
  const context={exports:{},process:{env},Buffer,require(name){
   if(name==='./lib/manee-environment.cjs')return {blockExternalService:()=>null};
-  if(name==='node:crypto')return crypto;
+  if(name==='./lib/push-vapid.cjs')return {getVapidDetails:()=>getVapidDetails(env)};
   if(name==='@supabase/supabase-js')return {createClient:()=>db};
   if(name==='web-push')return {setVapidDetails(){},sendNotification:async(sub,payload)=>{sends.push({sub,payload});if(failure)throw failure;}};
   throw Error(name);
@@ -45,5 +47,9 @@ test('client key or server key-pair mismatches fail before any push is attempted
  const a=handler();assert.equal(JSON.parse((await a.call({expectedVapidPublicKey:'different'})).body).error,'vapid_client_key_mismatch');assert.equal(a.sends.length,0);
  const other=crypto.createECDH('prime256v1');other.generateKeys();
  const b=handler({env:{...environment,VAPID_PRIVATE_KEY:other.getPrivateKey().toString('base64url')}});
- assert.equal(JSON.parse((await b.call()).body).error,'vapid_key_pair_mismatch');assert.equal(b.sends.length,0);
+ assert.equal(JSON.parse((await b.call()).body).error,'vapid_client_key_mismatch');assert.equal(b.sends.length,0);
+});
+test('a stale copied public-key setting cannot differ from the actual signing pair',async()=>{
+ const h=handler({env:{...environment,VAPID_PUBLIC_KEY:'outdated-copied-value'}});
+ assert.equal(JSON.parse((await h.call()).body).sent,1);assert.equal(h.sends.length,1);
 });

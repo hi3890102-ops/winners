@@ -5,7 +5,7 @@ const { blockExternalService } = require("./lib/manee-environment.cjs");
 
 const webpush = require('web-push');
 const { createClient } = require('@supabase/supabase-js');
-const { createECDH } = require('node:crypto');
+const { getVapidDetails } = require('./lib/push-vapid.cjs');
 
 // Never return provider bodies, subscription endpoints, or encryption keys.
 function failureReason(error) {
@@ -37,19 +37,17 @@ exports.handler = async (event) => {
         (!ownerOnly || !/^[0-9a-f-]{36}$/i.test(targetUserId||'') || !Number.isSafeInteger(targetSubscriptionId) || targetSubscriptionId<1)) {
       return {statusCode:400,body:JSON.stringify({error:'invalid_target'})};
     }
+    const vapid=getVapidDetails();
     if(expectedVapidPublicKey){
-      const configured=Buffer.from(process.env.VAPID_PUBLIC_KEY||'','base64url');
+      const configured=Buffer.from(vapid.publicKey,'base64url');
       const expected=Buffer.from(expectedVapidPublicKey,'base64url');
       if(!configured.equals(expected)) return {statusCode:503,body:JSON.stringify({error:'vapid_client_key_mismatch',sent:0,total:0})};
-      const pair=createECDH('prime256v1');
-      pair.setPrivateKey(Buffer.from(process.env.VAPID_PRIVATE_KEY||'','base64url'));
-      if(!pair.getPublicKey().equals(configured)) return {statusCode:503,body:JSON.stringify({error:'vapid_key_pair_mismatch',sent:0,total:0})};
     }
 
     webpush.setVapidDetails(
-      'mailto:admin@example.com',
-      process.env.VAPID_PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
+      vapid.subject,
+      vapid.publicKey,
+      vapid.privateKey
     );
 
     const supabase = createClient(

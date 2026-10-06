@@ -932,7 +932,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   // ---------- push notifications (출퇴근·예약 알림) ----------
-  const VAPID_PUBLIC_KEY = "BKIv1GiVTaXN7fjha_FJEBV6EGQ2xA6nEEJLtxJrZTsI0R80OuEESkS3-SYlpSEvY01-LRE9-DiwhDRk7ma0MoU";
   function urlBase64ToUint8Array(base64String){
     const padding = "=".repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -949,6 +948,27 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(error) throw error;
     if(data!==true) throw new Error("Push registration was not confirmed");
   }
+  async function getPushApplicationKey(){
+    const response=await fetch("/.netlify/functions/push-public-key",{cache:"no-store"});
+    if(!response.ok) throw new Error("Push configuration unavailable");
+    const data=await response.json();
+    if(typeof data.publicKey!=="string" || !/^[A-Za-z0-9_-]{87}=?$/.test(data.publicKey)) throw new Error("Invalid push configuration");
+    const key=urlBase64ToUint8Array(data.publicKey);
+    if(key.length!==65 || key[0]!==4) throw new Error("Invalid push configuration");
+    return key;
+  }
+  function pushSubscriptionUsesKey(sub,key){
+    const stored=sub?.options?.applicationServerKey;
+    if(!stored) return false;
+    const actual=new Uint8Array(stored);
+    return actual.length===key.length && actual.every((byte,i)=>byte===key[i]);
+  }
+  async function removeOwnerPush(sub){
+    const raw=sub.toJSON();
+    const {data,error}=await db.rpc("manee_unregister_owner_push",{p_endpoint:raw.endpoint,p_p256dh:raw.keys?.p256dh,p_auth:raw.keys?.auth});
+    if(error) throw error;
+    if(data!==true) throw new Error("Push removal was not confirmed");
+  }
   async function refreshPushSubStatus(){
     if(state.pushBusy) return;
     if(MANEE_IS_STAGING){ state.pushSubscribed=false; return; }
@@ -962,7 +982,16 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(!alive() || state.role!==role) return;
       // A browser subscription alone does not prove that the server saved it.
       // Retry a previously granted device without prompting for permission again.
-      if(sub && role==="storeOwner") await registerOwnerPush(sub,storeId);
+      if(sub && role==="storeOwner"){
+        const applicationKey=await getPushApplicationKey();
+        if(!alive() || state.role!==role) return;
+        if(!pushSubscriptionUsesKey(sub,applicationKey)){
+          await removeOwnerPush(sub);
+          if(alive() && state.role===role) state.pushRegistrationError="알림 연결을 갱신해 주세요. 알림 켜기를 누르면 다시 연결돼요.";
+          return;
+        }
+        await registerOwnerPush(sub,storeId);
+      }
       if(!alive() || state.role!==role) return;
       state.pushSubscribed = !!sub;
     }catch(e){
@@ -997,12 +1026,20 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const permission = await Notification.requestPermission();
       if(!alive() || state.role!==role) return;
       if(permission !== "granted"){ showToast("알림 권한을 허용해야 알림을 받을 수 있어요."); return; }
+      const applicationKey=await getPushApplicationKey();
+      if(!alive() || state.role!==role) return;
       const reg = await navigator.serviceWorker.ready;
       if(!alive() || state.role!==role) return;
       let sub = await reg.pushManager.getSubscription();
       if(!alive() || state.role!==role) return;
+      if(sub && !pushSubscriptionUsesKey(sub,applicationKey)){
+        if(role==="storeOwner") await removeOwnerPush(sub);
+        if(!alive() || state.role!==role) return;
+        await sub.unsubscribe();sub=null;
+        if(!alive() || state.role!==role) return;
+      }
       if(!sub){
-        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) });
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: applicationKey });
       }
       if(!alive() || state.role!==role) return;
       if(role==="storeOwner"){
@@ -1013,7 +1050,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
           // a device record that is already bound to another account.
           await sub.unsubscribe();
           if(!alive() || state.role!==role) return;
-          sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(VAPID_PUBLIC_KEY)});
+          sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:applicationKey});
           if(!alive() || state.role!==role) return;
           await registerOwnerPush(sub,storeId);
         }
@@ -1048,10 +1085,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(!alive() || state.role!==role) return;
       if(sub){
         if(role==="storeOwner"){
-          const raw=sub.toJSON();
-          const {data,error}=await db.rpc("manee_unregister_owner_push",{p_endpoint:raw.endpoint,p_p256dh:raw.keys?.p256dh,p_auth:raw.keys?.auth});
-          if(error) throw error;
-          if(data!==true) throw new Error("Push removal was not confirmed");
+          await removeOwnerPush(sub);
         }else{
           const {error}=await db.from("push_subscriptions").delete().eq("endpoint",sub.endpoint);
           if(error) throw error;
