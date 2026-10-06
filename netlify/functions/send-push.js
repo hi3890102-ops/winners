@@ -5,6 +5,17 @@ const { blockExternalService } = require("./lib/manee-environment.cjs");
 
 const webpush = require('web-push');
 const { createClient } = require('@supabase/supabase-js');
+const { createECDH } = require('node:crypto');
+
+// Never return provider bodies, subscription endpoints, or encryption keys.
+function failureReason(error) {
+  const detail=String(error?.body||error?.message||'').toLowerCase();
+  if ([404,410].includes(error?.statusCode)) return 'subscription_expired';
+  if (/vapid|jwt|signature|authorization|credential|key mismatch/.test(detail)) return 'push_authentication_rejected';
+  if (/public key|private key|p256dh|encrypt|curve/.test(detail)) return 'push_key_invalid';
+  if (['ETIMEDOUT','ECONNRESET','ENOTFOUND'].includes(error?.code)) return 'push_network_error';
+  return error?.statusCode ? 'push_service_rejected' : 'push_request_failed';
+}
 
 exports.handler = async (event) => {
   const blocked = blockExternalService();
@@ -14,9 +25,25 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { storeId, title, body, url, tag, excludeCrewId, managerOnly, ownerOnly } = JSON.parse(event.body || '{}');
+    const { storeId, title, body, url, tag, excludeCrewId, managerOnly, ownerOnly,
+      targetUserId, targetSubscriptionId, expectedVapidPublicKey } = JSON.parse(event.body || '{}');
     if (!storeId || !title) {
       return { statusCode: 400, body: JSON.stringify({ error: 'storeId, title 필요' }) };
+    }
+
+    // A named-account test must keep both the account and device filters.
+    const hasTarget=targetUserId!==undefined || targetSubscriptionId!==undefined;
+    if (hasTarget &&
+        (!ownerOnly || !/^[0-9a-f-]{36}$/i.test(targetUserId||'') || !Number.isSafeInteger(targetSubscriptionId) || targetSubscriptionId<1)) {
+      return {statusCode:400,body:JSON.stringify({error:'invalid_target'})};
+    }
+    if(expectedVapidPublicKey){
+      const configured=Buffer.from(process.env.VAPID_PUBLIC_KEY||'','base64url');
+      const expected=Buffer.from(expectedVapidPublicKey,'base64url');
+      if(!configured.equals(expected)) return {statusCode:503,body:JSON.stringify({error:'vapid_client_key_mismatch',sent:0,total:0})};
+      const pair=createECDH('prime256v1');
+      pair.setPrivateKey(Buffer.from(process.env.VAPID_PRIVATE_KEY||'','base64url'));
+      if(!pair.getPublicKey().equals(configured)) return {statusCode:503,body:JSON.stringify({error:'vapid_key_pair_mismatch',sent:0,total:0})};
     }
 
     webpush.setVapidDetails(
@@ -33,6 +60,7 @@ exports.handler = async (event) => {
     let query = supabase.from('push_subscriptions').select('*').eq('store_id', storeId);
     if (managerOnly) query = query.eq('is_manager', true);
     if (ownerOnly) query = query.eq('role', 'storeOwner');
+    if (targetUserId) query = query.eq('user_id', targetUserId).eq('id',targetSubscriptionId);
     const { data: subs, error } = await query;
     if (error) throw error;
 
@@ -44,7 +72,8 @@ exports.handler = async (event) => {
       targets.map(sub =>
         webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          payload
+          payload,
+          targetUserId ? {TTL:3600,timeout:10000} : {}
         ).catch(async (err) => {
           // 구독이 만료/취소된 경우(410/404) DB에서 정리
           if (err.statusCode === 410 || err.statusCode === 404) {
@@ -56,9 +85,12 @@ exports.handler = async (event) => {
     );
 
     const sent = results.filter(r => r.status === 'fulfilled').length;
-    return { statusCode: 200, body: JSON.stringify({ sent, total: targets.length }) };
+    const failures=results.filter(r=>r.status==='rejected').map(r=>({
+      statusCode:Number.isInteger(r.reason?.statusCode)?r.reason.statusCode:null,
+      reason:failureReason(r.reason)
+    }));
+    return { statusCode: 200, body: JSON.stringify({ sent, total: targets.length, failed:failures.length, failures }) };
   } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
+    return { statusCode: 500, body: JSON.stringify({ error: failureReason(e) }) };
   }
 };
-
