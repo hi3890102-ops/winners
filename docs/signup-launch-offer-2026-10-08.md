@@ -44,6 +44,9 @@ Official references checked on 2026-10-08:
 
 - Existing signup, login, username-check and interaction suites: 66 passed,
   0 failures. The login test harness includes the actual shared offer renderer.
+- The existing dark-mode scope test now inspects its media block only. It had
+  inspected all subsequent CSS and mistaken the unrelated signup contract note
+  for an HQ/franchise dark-mode rule. All 25 team-shell tests pass.
 - Production and staging builds, inline JavaScript syntax and git diff checks passed.
 - JSDOM: signup navigation, general/franchise offer, escaped input, one submit
   button, and owner-only login pricing passed without account/payment API calls.

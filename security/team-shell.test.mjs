@@ -55,7 +55,11 @@ test('T4: manager summary verdicts (22 / saved food limit, equal is not over, un
 test('dark mode exists for the owner, staff and manager shells and never targets HQ / franchise screens', ()=>{
   const css=readFileSync(new URL('../owner-ui.css',import.meta.url),'utf8');
   const i=css.indexOf('@media (prefers-color-scheme: dark){');assert.ok(i>0);
-  const dark=css.slice(i);
+  // Inspect the media block, not every unrelated rule appended after it.
+  const open=css.indexOf('{',i);let end=open+1,depth=1;
+  for(;end<css.length&&depth;end++){if(css[end]==='{')depth++;else if(css[end]==='}')depth--;}
+  assert.equal(depth,0,'dark media block closes');
+  const dark=css.slice(i,end);
   assert.ok(/.app.owner-ui{--ink:/.test(dark));
   assert.ok(!/.(hq|franchise)/i.test(dark));
 });
