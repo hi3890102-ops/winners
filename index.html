@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>매니</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/icon-32.png" sizes="32x32" type="image/png">
@@ -1545,6 +1545,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.ownerReportHomeNotices=null;
     state.pushSubscribed=false;state.pushBusy=false;state.pushRegistrationError=null;
     state.staffClockBusy=null;state.staffAttendanceBusy=null;
+    state.reservationSaving=null;state.checklistLoadFailed=false;state.homeChecklistFailed=false;
     state.salesReportSaving=null;
     state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__"; state.ownerStoreChoice=null; state.expenseEditDraft=null; state.editingExpenseEntryId=null; state.expenseOpenGroups=[];
     state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
@@ -1672,7 +1673,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return new Promise((resolve,reject)=>{
       if(!navigator.geolocation){ reject(new Error('이 기기는 위치 확인을 지원하지 않아요.')); return; }
       navigator.geolocation.getCurrentPosition(p=>resolve({current_lat:p.coords.latitude,current_lng:p.coords.longitude}),
-        ()=>reject(new Error('출퇴근 기록을 위해 위치 접근을 허용해 주세요.')),{enableHighAccuracy:true,timeout:10000});
+        error=>reject(new Error(error?.code===1?'출퇴근 기록을 위해 위치 접근을 허용해 주세요.':
+          error?.code===2?'현재 위치를 확인하지 못했어요. 휴대폰의 위치 기능을 켠 뒤 다시 시도해 주세요.':
+          error?.code===3?'위치 확인 시간이 초과됐어요. 매장 안에서 다시 시도해 주세요.':
+          '현재 위치를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.')),{enableHighAccuracy:true,timeout:10000});
     });
   }
   function staffAttendanceGuard(){
@@ -3211,7 +3215,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const alive=maneeLoadGuard('staffNavigation'),store=state.store,sid=currentStoreId();
     if(MANEE_STAFF_AUTH_ENABLED){
       try{ await staffPortal('crew',{store_id:sid}); }
-      catch(e){if(alive()){clearStaffAuthView();render();showToast(staffErrorMessage(e));}return;}
+      catch(e){if(alive()){if(['42501','PGRST301','PGRST302','PGRST303'].includes(e.code)){clearStaffAuthView();render();}showToast(staffErrorMessage(e));}return;}
     }
     if(!alive()||store!==state.store)return;
     if(tab === state.staffView && tab!=='home') return;
@@ -3219,6 +3223,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.showOwnerSalesForm = false;
     state.showVatDetail = false;
     state.loading = true; render();
+    try{
     if(tab === "checklist"){
       await Promise.all([ loadChecklist(state.store, bizToday()), loadChecklistLog(state.store, monthKey()) ]);
       { const me = state.crew.find(c=>c.id===state.myCrewId); if(state.teamTab==="sales" && me && me.salesAccess && !me.isManager) await loadSalesEntryData(); }   // coming back to 업무 with the sales tab remembered
@@ -3235,8 +3240,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }
     if(!alive()||store!==state.store)return;
     state.staffView = tab;
-    state.loading = false;
-    render();
+    }catch(e){
+      if(alive()){
+        if(['42501','PGRST301','PGRST302','PGRST303'].includes(e.code)){clearStaffAuthView();render();}
+        showToast(staffErrorMessage(e));
+      }
+    }finally{
+      if(alive()&&store===state.store){state.loading=false;render();}
+    }
   }
 
   // ---------- data loading ----------
@@ -3244,37 +3255,39 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const d = dateStr || bizToday();
     const storeId = state.storeIdMap[store];
     const alive = maneeLoadGuard("checklist");
+    let failed=false;
     let items = {};
     if(storeId){
       try{
         const { data, error } = await db.from('checklist_templates').select('tab,data').eq('store_id', storeId);
         if(error) throw error;
         (data||[]).forEach(r=>{ items[r.tab] = r.data; });
-      }catch(e){}
+      }catch(e){failed=true;}
     }
     if(!alive()) return;   // a stale run must not initialize/write default templates
-    if(!items.morning && !items.afternoon && !items.routine){
+    if(!failed && !items.morning && !items.afternoon && !items.routine){
       items = JSON.parse(JSON.stringify(DEFAULT_ITEMS));
       if(storeId){
         if(MANEE_STAFF_AUTH_ENABLED){
           if(canManageBusinessData()){
             try{await callAuthChecklist('initialize',storeId,d,{items});const {data,error}=await db.from('checklist_templates').select('tab,data').eq('store_id',storeId);if(error)throw error;items={};(data||[]).forEach(r=>{items[r.tab]=r.data;});}
-            catch(e){items={};businessError(e);}
+            catch(e){items={};failed=true;if(alive())businessError(e);}
           }else items={};
-        }else{try{ await db.from('checklist_templates').upsert(Object.keys(items).map(tab=>({ store_id:storeId, tab, data: items[tab] }))); }catch(e){}}
+        }else{try{ await db.from('checklist_templates').upsert(Object.keys(items).map(tab=>({ store_id:storeId, tab, data: items[tab] }))); }catch(e){failed=true;}}
       }
     }
     let checks = {};
-    if(storeId){
+    if(storeId&&!failed){
       try{
         const { data, error } = await db.from('checklist_checks').select('item_id').eq('store_id', storeId).eq('date', d);
         if(error) throw error;
         (data||[]).forEach(r=>{ checks[r.item_id] = true; });
-      }catch(e){}
+      }catch(e){failed=true;}
     }
     if(!alive()) return;
-    state.items = items;
-    state.checks = checks;
+    state.checklistLoadFailed=failed;
+    state.items = failed?{}:items;
+    state.checks = failed?{}:checks;
     state.checklistViewDate = d;
   }
   async function loadChecklistLog(store, mKey){
@@ -3880,7 +3893,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       state.upcomingReservations = (data||[]).map(r=>({ id:r.id, date:r.date, time:r.time||"", customerName:r.customer_name||"", phone:r.phone||"", partySize:r.party_size||0, memo:r.memo||"" }));
     }catch(e){ if(alive()) state.upcomingReservations = []; }
   }
+  function setReservationBusy(){
+    const pending=state.reservationSaving;
+    const busy=!!(pending&&pending.storeId===currentStoreId()&&pending.userId===state.authProfile?.user_id);
+    const button=document.getElementById('add-reservation-btn');
+    if(button){button.disabled=busy;button.textContent=busy?'등록 중…':'예약 등록';}
+  }
   async function addReservation(){
+    if(state.reservationSaving?.storeId===currentStoreId()&&state.reservationSaving?.userId===state.authProfile?.user_id)return;
     const dateInp = document.getElementById("res-date-input");
     const timeInp = document.getElementById("res-time-input");
     const partyInp = document.getElementById("res-party-input");
@@ -3893,17 +3913,26 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const storeId = currentStoreId();
     if(!storeId){ showToast("매장 정보를 불러오는 중이에요. 잠시 후 다시 시도해 주세요."); return; }
     const resDate = (dateInp && dateInp.value) ? dateInp.value : bizToday();
+    const time=timeInp?.value||'',partyRaw=String(partyInp?.value||'').trim();
+    if(!isAttendanceDate(resDate)||resDate<bizToday()){showToast('예약 날짜는 오늘 이후의 올바른 날짜로 입력해 주세요.');dateInp?.focus();return;}
+    if(time&&!isValidTimeStr(time)){showToast('예약 시간을 확인해 주세요.');timeInp?.focus();return;}
+    if(partyRaw&&(!/^\d+$/.test(partyRaw)||!Number.isSafeInteger(Number(partyRaw))||Number(partyRaw)<1||Number(partyRaw)>2147483647)){
+      showToast('예약 인원은 1명 이상의 정수로 입력해 주세요.');partyInp?.focus();return;
+    }
     const isToday = resDate === bizToday();
     const payload = {
-      store_id: storeId, date: resDate, time: timeInp.value||"",
+      store_id: storeId, date: resDate, time,
       customer_name: customerName, phone: (phoneInp.value||"").trim(),
-      party_size: parseInt(partyInp.value||"0",10) || null, memo: (memoInp.value||"").trim(),
+      party_size: partyRaw?Number(partyRaw):null, memo: (memoInp.value||"").trim(),
       created_by: (state.crew.find(c=>c.id===state.myCrewId)||{}).name || (state.role==="storeOwner"?state.store+" 사장님":""),
       notified: isToday
     };
+    const token={storeId,userId:state.authProfile?.user_id},alive=businessContextGuard();
+    state.reservationSaving=token;setReservationBusy();
     try{
       const { data, error } = await db.from('reservations').insert(payload).select().single();
-      if(error) throw error;
+      if(error||!data?.id) throw error||new Error('예약 저장 결과를 확인하지 못했어요.');
+      if(!alive())return;
       const res = { id:data.id, date:data.date, time:data.time||"", customerName:data.customer_name||"", phone:data.phone||"", partySize:data.party_size||0, memo:data.memo||"" };
       if(isToday){
         if(!state.reservations) state.reservations = [];
@@ -3921,9 +3950,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(isToday) sendReservationPush(res, storeId);
       if(state.role === "storeOwner" && state.myStores && state.myStores.length > 1) loadDashboardReservations();
     }catch(e){
-      console.error("예약 등록 실패:", e);
+      if(!alive())return;
       const detail = (e && (e.message || e.details || e.hint)) ? (e.message || e.details || e.hint) : "";
       showToast(detail ? ("예약 등록에 실패했어요: "+detail) : "예약 등록에 실패했어요.");
+    }finally{
+      if(state.reservationSaving===token){state.reservationSaving=null;setReservationBusy();}
     }
   }
   function cancelReservation(id){
@@ -4593,21 +4624,24 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   async function loadHomeChecklistPreview(store){
     const storeId = state.storeIdMap[store];
     const alive = maneeLoadGuard("homeChecklist");
-    let items = {}, checks = {};
+    let items = {}, checks = {}, failed=false;
     if(storeId){
       try{
-        const { data } = await db.from('checklist_templates').select('tab,data').eq('store_id', storeId);
+        const { data, error } = await db.from('checklist_templates').select('tab,data').eq('store_id', storeId);
+        if(error)throw error;
         (data||[]).forEach(r=>{ items[r.tab] = r.data; });
-      }catch(e){}
+      }catch(e){failed=true;}
       try{
-        const { data } = await db.from('checklist_checks').select('item_id').eq('store_id', storeId).eq('date', bizToday());
+        const { data, error } = await db.from('checklist_checks').select('item_id').eq('store_id', storeId).eq('date', bizToday());
+        if(error)throw error;
         (data||[]).forEach(r=>{ checks[r.item_id] = true; });
-      }catch(e){}
+      }catch(e){failed=true;}
     }
     if(!alive()) return;
     if(!items.morning && !items.afternoon && !items.routine) items = MANEE_STAFF_AUTH_ENABLED ? {} : DEFAULT_ITEMS;
-    state.homeChecklistItems = items;
-    state.homeChecklistChecks = checks;
+    state.homeChecklistFailed=failed;
+    state.homeChecklistItems = failed?null:items;
+    state.homeChecklistChecks = failed?{}:checks;
   }
 
   async function loadStaffHome(store, crewId){
@@ -4825,7 +4859,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function daysInMonth(y,m){ return new Date(y, m, 0).getDate(); }
   function timeSelectHtml(idPrefix, valueHHMM){
     const parts = (valueHHMM||"10:00").split(":");
-    const hh = parseInt(parts[0],10)||10, mm = parseInt(parts[1],10)||0;
+    const parsedHour=parseInt(parts[0],10);
+    const hh = Number.isInteger(parsedHour)&&parsedHour>=0&&parsedHour<=23?parsedHour:10, mm = parseInt(parts[1],10)||0;
     let hour12 = hh % 12; if(hour12===0) hour12 = 12;
     const ampm = hh < 12 ? "오전" : "오후";
     const roundedMin = [0,5,10,15,20,25,30,35,40,45,50,55].reduce((a,b)=> Math.abs(b-mm)<Math.abs(a-mm)?b:a, 0);
@@ -7445,10 +7480,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '<p class="crew-code-hint">등록된 거래처가 없어요. 사장님이 매출 탭에서 거래처를 먼저 등록해야 지출을 남길 수 있어요.</p>';
     }else{
       html += '<div class="add-row" style="padding:6px 0 0;background:transparent;">';
-      html += '<select id="quick-expense-vendor-select" class="field-input" style="flex:1;">';
+      html += '<select id="quick-expense-vendor-select" class="field-input" style="flex:1 1 100%;">';
       state.vendors.forEach(v=> html += '<option value="'+v.id+'">'+escapeHtml(v.name)+'</option>');
       html += '</select>';
-      html += '<select id="quick-expense-category-select" class="field-input" style="flex:0 0 92px;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select>';
+      html += '<select id="quick-expense-category-select" class="field-input" style="flex:1 1 100%;"><option value="">분류 선택</option>'+EXPENSE_CATEGORIES.map(c=>'<option value="'+c.value+'">'+c.label+'</option>').join('')+'</select>';
       html += expenseAmountInputHtml("quick-expense-amount-input", "");
       html += '<input id="quick-expense-memo-input" class="expense-memo-input" type="text" maxlength="1000" aria-label="비고 (선택)" placeholder="비고 (선택 · 예: 공병 반환)">';
       html += '<button id="add-quick-expense-btn">등록</button>';
@@ -7537,6 +7572,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return '<div class="owner-quick team-quick">'+items.map(([go,icon,label])=>'<button type="button" data-team-go="'+go+'">'+teamIcon(icon)+label+'</button>').join('')+'</div>';
   }
   function teamChecklistCard(){
+    if(state.homeChecklistFailed)return '<section class="category team-card" role="alert"><p class="team-card-title">체크리스트 확인 불가</p><p class="team-sub">완료 여부를 불러오지 못했어요.</p><button type="button" class="crew-code-btn" id="home-go-checklist-btn">다시 확인하기</button></section>';
     if(!state.homeChecklistItems) return '';
     const all = countAllFrom(state.homeChecklistItems, state.homeChecklistChecks);
     const pct = all.total>0 ? Math.round(all.done/all.total*100) : 0;
@@ -8932,6 +8968,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
 
   function renderChecklist(){
     const viewDate = state.checklistViewDate || bizToday();
+    if(state.checklistLoadFailed)return '<section class="day-panel" role="alert"><h3>체크리스트를 불러오지 못했어요</h3><p>완료 여부를 확인할 수 없어요. 연결 상태를 확인하고 다시 불러와 주세요.</p><button type="button" class="crew-code-btn" id="checklist-retry-btn">다시 불러오기</button></section>';
     const isToday = viewDate === bizToday();
     const logEntry = state.checklistLog ? state.checklistLog[viewDate] : null;
     const isClosed = !!(logEntry && logEntry.closedAt);
@@ -9638,13 +9675,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.expenseEntries.forEach(e=> totalExpenseMonth += Number(e.amount)||0);
     let totalSalesMonth = 0;
     state.salesReports.forEach(r=> totalSalesMonth += Number(r.totalSales)||0);
-    const expenseRatio = totalSalesMonth>0 ? (totalExpenseMonth/totalSalesMonth*100) : null;
+    const salesFailed=state.reportDataFailed?.has('매출');
+    const expenseRatio = !salesFailed&&totalSalesMonth>0 ? (totalExpenseMonth/totalSalesMonth*100) : null;
     let html = "";
 
     html += '<div class="pay-summary c-purple" style="margin-bottom:14px;">';
     html += '<p class="label">'+y+'년 '+m+'월 지출보고 합계</p>';
     html += '<p class="amount">'+totalExpenseMonth.toLocaleString()+'원</p>';
-    html += '<p class="meta">매출 대비 '+(expenseRatio!==null ? expenseRatio.toFixed(1) : "0.0")+'%</p>';
+    html += '<p class="meta">'+(salesFailed?'매출 조회 실패 · 지출비율 확인 불가':expenseRatio===null?'매출 미입력 또는 0원 · 지출비율 계산 불가':'매출 대비 '+expenseRatio.toFixed(1)+'%')+'</p>';
     html += '</div>';
 
     html += '<div class="day-panel" style="margin-bottom:14px;">';
@@ -10407,6 +10445,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function bindStaffEvents(){
+    setReservationBusy();
     bindTeamEvents();
     bindSalesSectionEvents();
     app.querySelectorAll("[data-ackedit]").forEach(btn=>{
@@ -10810,6 +10849,13 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function bindChecklistEvents(){
+    const retry=document.getElementById('checklist-retry-btn');
+    if(retry)retry.onclick=async()=>{
+      if(retry.disabled)return;retry.disabled=true;
+      const alive=maneeLoadGuard('checklistRetry');
+      try{await loadChecklist(state.store,state.checklistViewDate||bizToday());}
+      finally{if(alive())render();}
+    };
     app.querySelectorAll("[data-tab]").forEach(btn=>{
       btn.addEventListener("click", ()=>{ state.tab = btn.getAttribute("data-tab"); render(); });
     });
@@ -10969,6 +11015,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   function bindOwnerEvents(){
+    setReservationBusy();
     app.querySelectorAll('[data-owner-setup-resume]').forEach(el=>el.onclick=async()=>{
       const target=state.homeStore&&state.homeStore!=='__all__'?state.homeStore:state.store;
       if(!state.myStores.includes(target))return;

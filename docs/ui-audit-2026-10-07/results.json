@@ -1,0 +1,1576 @@
+{
+  "baseCommit": "a6b3cca99f7c48a6542c4a1d4a9f73dda90a8d7b",
+  "scope": "Isolated app HTML with fixture SDK/boot; remote traffic blocked. No live auth or production writes.",
+  "browser": "Chromium 134 / Playwright 1.51.1, Korean NanumGothic fallback font",
+  "fixtureTime": "2026-10-07T03:00:00Z",
+  "screenStates": 58,
+  "widths": [
+    320,
+    375,
+    430
+  ],
+  "renders": [
+    {
+      "name": "login-owner",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "login-staff",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "signup-owner",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "signup-staff",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "recovery",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-home",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-long-store",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-empty",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-all-stores",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-attendance",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-schedule",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-fixed-schedule",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-crew",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-crew-edit",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-pay",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-sales",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-sales-form",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-expenses",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-vendors",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-expense-edit",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-report",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-costs",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-fixed-costs",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-checklist",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-reservations",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-announcements",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-more",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-settings",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-alerts",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "owner-ai",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-home",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-schedule",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-checklist",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-reservations",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-expenses",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-announcements",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-me",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-connection",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-notifications",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-password",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-help",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-personal",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-sales",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "staff-sales-form",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-home",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-schedule",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-checklist",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-reservations",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-expenses",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-announcements",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-me",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-connection",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-notifications",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-password",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-help",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-personal",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-sales",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "manager-sales-form",
+      "width": 320,
+      "overflow": false,
+      "scrollWidth": 320,
+      "viewport": 320,
+      "errors": []
+    },
+    {
+      "name": "login-owner",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "login-staff",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "signup-owner",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "signup-staff",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "recovery",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-home",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-long-store",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-empty",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-all-stores",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-attendance",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-schedule",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-fixed-schedule",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-crew",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-crew-edit",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-pay",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-sales",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-sales-form",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-expenses",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-vendors",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-expense-edit",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-report",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-costs",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-fixed-costs",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-checklist",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-reservations",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-announcements",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-more",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-settings",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-alerts",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "owner-ai",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-home",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-schedule",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-checklist",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-reservations",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-expenses",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-announcements",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-me",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-connection",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-notifications",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-password",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-help",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-personal",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-sales",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "staff-sales-form",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-home",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-schedule",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-checklist",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-reservations",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-expenses",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-announcements",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-me",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-connection",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-notifications",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-password",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-help",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-personal",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-sales",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "manager-sales-form",
+      "width": 375,
+      "overflow": false,
+      "scrollWidth": 375,
+      "viewport": 375,
+      "errors": []
+    },
+    {
+      "name": "login-owner",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "login-staff",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "signup-owner",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "signup-staff",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "recovery",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-home",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-long-store",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-empty",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-all-stores",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-attendance",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-schedule",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-fixed-schedule",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-crew",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-crew-edit",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-pay",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-sales",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-sales-form",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-expenses",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-vendors",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-expense-edit",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-report",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-costs",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-fixed-costs",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-checklist",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-reservations",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-announcements",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-more",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-settings",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-alerts",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "owner-ai",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-home",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-schedule",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-checklist",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-reservations",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-expenses",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-announcements",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-me",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-connection",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-notifications",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-password",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-help",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-personal",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-sales",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "staff-sales-form",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-home",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-schedule",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-checklist",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-reservations",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-expenses",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-announcements",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-me",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-connection",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-notifications",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-password",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-help",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-personal",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-sales",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    },
+    {
+      "name": "manager-sales-form",
+      "width": 430,
+      "overflow": false,
+      "scrollWidth": 430,
+      "viewport": 430,
+      "errors": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "staff-transient-navigation-error",
+      "role": "staff",
+      "user": "qa-user",
+      "view": "home",
+      "loading": false,
+      "message": "연결이 불안정해요. 다시 시도해 주세요.",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "manager-transient-navigation-error",
+      "role": "staff",
+      "user": "qa-user",
+      "view": "home",
+      "loading": false,
+      "message": "연결이 불안정해요. 다시 시도해 주세요.",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "location-permission",
+      "message": "출퇴근 기록을 위해 위치 접근을 허용해 주세요.",
+      "buttonDisabled": false,
+      "rpcSent": false,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "location-unavailable",
+      "message": "현재 위치를 확인하지 못했어요. 휴대폰의 위치 기능을 켠 뒤 다시 시도해 주세요.",
+      "buttonDisabled": false,
+      "rpcSent": false,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "location-timeout",
+      "message": "위치 확인 시간이 초과됐어요. 매장 안에서 다시 시도해 주세요.",
+      "buttonDisabled": false,
+      "rpcSent": false,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "reservation-double-submit",
+      "writes": 1,
+      "reservations": 1,
+      "message": "예약을 등록했어요.",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "reservation-invalid-party--2",
+      "writes": 0,
+      "message": "예약 인원은 1명 이상의 정수로 입력해 주세요.",
+      "formOpen": true,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "reservation-invalid-party-1.5",
+      "writes": 0,
+      "message": "예약 인원은 1명 이상의 정수로 입력해 주세요.",
+      "formOpen": true,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "reservation-invalid-party-empty",
+      "writes": 1,
+      "message": "예약을 등록했어요.",
+      "formOpen": false,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "reservation-failure-retains-input",
+      "reservationName": "가상 예약자",
+      "party": "2",
+      "message": "예약 등록에 실패했어요: 연결이 불안정해요. 다시 시도해 주세요.",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "reservation-late-save-after-store-change",
+      "store": "가상 송파직영점",
+      "reservations": 0,
+      "draft": {
+        "name": "다른 매장 입력"
+      },
+      "formOpen": true,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "reservation-zero-row-response",
+      "reservationName": "가상 예약자",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "cost-entry-open",
+      "title": "수도요금 입력",
+      "focused": true,
+      "costName": "수도요금",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "expense-failure-retains-input",
+      "amount": "12345",
+      "memo": "가상 메모",
+      "writes": 1,
+      "message": "지출 저장에 실패했어요.",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "expense-ratio-with-no-sales",
+      "text": "2026년 10월 지출보고 합계\n\n206,000원\n\n매출 미입력 또는 0원 · 지출비율 계산 불가",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "expense-ratio-with-failed-sales",
+      "text": "2026년 10월 지출보고 합계\n\n206,000원\n\n매출 조회 실패 · 지출비율 확인 불가",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "login-validation-and-password-toggle",
+      "message": "아이디를 입력해 주세요.",
+      "passwordRetained": true,
+      "type": "text",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "zoom-setting",
+      "viewport": "width=device-width, initial-scale=1.0, viewport-fit=cover",
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "checklist-read-failure-checklist_templates",
+      "body": "매장 운영\n체크리스트\n예약\n공지\n체크리스트를 불러오지 못했어요\n\n완료 여부를 확인할 수 없어요. 연결 상태를 확인하고 다시 불러와 주세요.\n\n다시 불러오기",
+      "initialized": false,
+      "retry": true,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "checklist-read-failure-checklist_checks",
+      "body": "매장 운영\n체크리스트\n예약\n공지\n체크리스트를 불러오지 못했어요\n\n완료 여부를 확인할 수 없어요. 연결 상태를 확인하고 다시 불러와 주세요.\n\n다시 불러오기",
+      "initialized": false,
+      "retry": true,
+      "errors": [],
+      "pass": true
+    },
+    {
+      "name": "staff-regular-permissions",
+      "hasDelete": 0,
+      "hasReset": 0,
+      "nav": "홈\n내 근무\n업무\n공지1\n내 정보",
+      "errors": [],
+      "pass": true
+    }
+  ]
+}
