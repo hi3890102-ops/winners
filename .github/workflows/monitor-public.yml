@@ -1,0 +1,33 @@
+name: Monitor public availability
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/monitor-public.yml'
+      - 'scripts/check-public-sites.mjs'
+      - 'config/public-sites.json'
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: public-monitor-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  availability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check public pages and required assets (read only, retries included)
+        run: node scripts/check-public-sites.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-monitor-results
+          path: monitoring-results.json
+          retention-days: 7
