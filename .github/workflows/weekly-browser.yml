@@ -1,0 +1,35 @@
+name: Weekly public browser checks
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/weekly-browser.yml'
+      - 'scripts/check-public-browser.mjs'
+  workflow_dispatch:
+  schedule:
+    # Monday 08:10 Asia/Seoul.
+    - cron: '10 23 * * 0'
+permissions:
+  contents: read
+concurrency:
+  group: weekly-browser-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --package-lock=false --ignore-scripts playwright@1.56.0
+      - run: npx playwright install --with-deps chromium
+      - name: Public login page on mobile and desktop (no login or data writes)
+        run: node scripts/check-public-browser.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-browser-results
+          path: browser-results/
+          retention-days: 14
