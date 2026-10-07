@@ -1,15 +1,18 @@
 name: Verify store-code release
 on:
   push:
-    branches: [security-v2]
-    paths: ['.github/workflows/finalize-store-code.yml', 'index.html', 'security/**']
+    branches: [main, security-v2]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    # Every day at 07:17 Asia/Seoul (22:17 UTC on the previous day).
+    - cron: '17 22 * * *'
 permissions:
   contents: read
 concurrency:
-  group: store-code-verify-${{ github.ref }}
-  cancel-in-progress: true
+  group: store-code-verify-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -37,7 +40,7 @@ jobs:
       - name: All security and concurrent connection tests
         run: |
           set -o pipefail
-          # Both suites create cluster-wide roles. Keep setup sequential;
+          # These suites create cluster-wide roles. Keep setup sequential;
           # competing requests within each suite still run concurrently.
           node --test security/store-code-concurrency.test.mjs | tee /tmp/store-code-tests.txt
           node --test security/new-staff-self-profile-concurrency.test.mjs | tee -a /tmp/store-code-tests.txt
@@ -52,8 +55,29 @@ jobs:
           }
           console.log('Inline script syntax verified:',count);
           JS
+      - name: Verify staging and production builds
+        run: |
+          CONTEXT=deploy-preview node scripts/build-environment.mjs
+          CONTEXT=production BRANCH=main node scripts/build-environment.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: store-code-tests
           path: /tmp/store-code-tests.txt
+          retention-days: 14
+  public-site:
+    name: Public app availability (read only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/check-public-sites.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-app-check
+          path: monitoring-results.json
+          retention-days: 14
