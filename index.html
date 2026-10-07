@@ -5783,6 +5783,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
 
   // Owner signup keeps its draft in memory only; passwords never enter browser storage.
+  // Launch offer copy only. Store-confirmed billing/entitlements are not connected yet.
+  // Do not turn this display into a client-side trial timer or a payment confirmation.
+  function renderOwnerSignupOffer(hasFranchise=false,compact=false){
+    const offer='1개월 무료체험 후, 매장당 월 9,900원(부가세 포함)';
+    if(compact) return '<p class="signup-offer-compact">출시 요금 안내<br>'+offer+'</p>';
+    let html='<aside class="signup-offer" aria-label="출시 요금 안내"><span class="signup-offer-label">출시 요금 안내 · 일반 매장</span><strong>'+offer+'</strong>';
+    html+='<p>매장을 추가하면 매장당 월 9,900원이 추가돼요.<br>매장 2개는 월 19,800원, 3개는 월 29,700원이에요.</p>';
+    html+='<p class="signup-offer-franchise">'+(hasFranchise?'입력한 프랜차이즈 코드가 확인되면 계약된 별도 요금이 적용돼요. 위 금액은 일반 매장 기준이에요.':'프랜차이즈 계약 매장은 별도 요금이 적용될 수 있어요.')+'</p>';
+    html+='<p class="signup-offer-notice">현재 회원가입만으로는 결제되지 않아요. 유료 서비스 시작 전 결제수단 등록과 유료 전환 동의를 별도로 안내해 드립니다.</p></aside>';
+    return html;
+  }
   function ownerSignupDraft(){
     if(!state.ownerSignupDraft) state.ownerSignupDraft={step:0,name:'',username:'',password:'',confirm:'',store:'',franchise:''};
     return state.ownerSignupDraft;
@@ -5791,11 +5802,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const d=ownerSignupDraft(), titles=['매니와 함께 시작해요','사장님을 어떻게 불러드릴까요?','로그인 정보를 만들어 주세요','어떤 매장을 운영하세요?','가입 정보를 확인해 주세요'];
     const input=(key,id,label,type='text',extra='')=>'<label class="setup-field">'+label+'<input id="'+id+'" data-signup-field="'+key+'" type="'+type+'" value="'+escapeHtml(d[key])+'" '+extra+'></label>';
     let html='<div class="owner-setup signup-setup"><p class="setup-eyebrow">사장님 가입 · '+(d.step+1)+' / 5</p><progress max="5" value="'+(d.step+1)+'" aria-label="가입 진행"></progress><h2>'+titles[d.step]+'</h2>';
-    html+='<section'+(d.step===0?'':' hidden')+'><p>계정을 만든 뒤 매장 위치, 거래처, 고정비를 하나씩 준비해요. 직원은 직접 가입하고 매장코드로 연결합니다.</p><div class="setup-note">계정 만들기 → 매장 준비 → 매니 시작</div></section>';
+    html+='<section'+(d.step===0?'':' hidden')+'><p>계정을 만든 뒤 매장 위치, 거래처, 고정비를 하나씩 준비해요. 직원은 직접 가입하고 매장코드로 연결합니다.</p>'+renderOwnerSignupOffer()+'<div class="setup-note">계정 만들기 → 매장 준비 → 매니 시작</div></section>';
     html+='<section'+(d.step===1?'':' hidden')+'>'+input('name','owner-request-name-input','사장님 이름','text','autocomplete="name" maxlength="80"')+'</section>';
     html+='<section'+(d.step===2?'':' hidden')+'>'+input('username','owner-request-username-input','아이디','text','autocomplete="username" maxlength="30" autocapitalize="none"')+'<button type="button" class="crew-code-btn" id="check-owner-username-btn">아이디 중복확인</button><p id="owner-request-username-status" role="status">'+(state.ownerRequestUsernameCheck?.username===d.username.normalize('NFKC').trim().toLowerCase()?(state.ownerRequestUsernameCheck.available?'사용할 수 있는 아이디예요.':'이미 사용 중인 아이디예요.'):'')+'</p>'+input('password','owner-request-password-input','비밀번호 · 8자 이상','password','autocomplete="new-password"')+input('confirm','owner-request-password-confirm-input','비밀번호 확인','password','autocomplete="new-password"')+'</section>';
     html+='<section'+(d.step===3?'':' hidden')+'>'+input('store','owner-request-store-input','매장 이름','text','maxlength="100"')+input('franchise','owner-request-franchise-code-input','프랜차이즈 코드 · 선택','text','maxlength="40"')+'<p>코드가 있는 경우 프랜차이즈 요금제가 적용돼요.</p></section>';
-    html+='<section'+(d.step===4?'':' hidden')+'><div class="setup-note">사장님: '+escapeHtml(d.name)+'<br>아이디: '+escapeHtml(d.username)+'<br>매장: '+escapeHtml(d.store)+(d.franchise?'<br>프랜차이즈 코드: '+escapeHtml(d.franchise):'')+'</div><p>가입 후 위치·거래처·고정비 설정을 이어서 안내해 드려요.</p></section>';
+    html+='<section'+(d.step===4?'':' hidden')+'><div class="setup-note">사장님: '+escapeHtml(d.name)+'<br>아이디: '+escapeHtml(d.username)+'<br>매장: '+escapeHtml(d.store)+(d.franchise?'<br>프랜차이즈 코드: '+escapeHtml(d.franchise):'')+'</div>'+renderOwnerSignupOffer(!!d.franchise.trim())+'<p>가입 후 위치·거래처·고정비 설정을 이어서 안내해 드려요.</p></section>';
     html+='<div class="setup-actions"><button type="button" data-signup-back>이전</button>'+(d.step===4?'<button type="button" id="submit-owner-request-btn" class="setup-primary">가입하고 매장 준비하기</button>':'<button type="button" data-signup-next class="setup-primary">'+(d.step===0?'차근차근 시작하기':'다음')+'</button>')+'</div><button type="button" id="landing-back-btn" class="switch-link">로그인 화면으로</button></div>';
     return html;
   }
@@ -7309,6 +7320,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       html += '<p>매장 사장님이시군요. 처음이시면 회원가입, 기존 계정이 있으시면 로그인해 주세요.</p>';
       html += '<button class="landing-btn primary" id="store-login-btn">로그인</button>';
       html += '<button class="landing-btn secondary" id="store-signup-btn">회원가입하기</button>';
+      html += renderOwnerSignupOffer(false,true);
       html += '<button class="switch-link" id="landing-back-btn">‹ 뒤로</button>';
     }else if(state.landingMode === "store-login"){
       html += '<p>아이디와 비밀번호로 로그인해 주세요.</p>';
@@ -7427,6 +7439,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(staffTab) html += '<button type="button" class="ml-signup-button" data-staff-auth-action="signup-screen">직원 계정 만들기'+loginIcon('chevron')+'</button>';
       else html += '<button type="button" class="ml-signup-button" id="store-signup-btn">회원가입'+loginIcon('chevron')+'</button>';
       html += '</div></div>';
+      if(!staffTab) html += renderOwnerSignupOffer(false,true);
     }
 
     html += '<p class="ml-footer">매장과 사람을 잇는, 매니</p>';
