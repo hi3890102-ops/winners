@@ -2,7 +2,8 @@
 .app.owner-ui{--ink:#18342C;--ink-soft:#66736E;--brick:#16774C;--brick-dim:#EAF5ED;--olive:#237B51;--danger:#C23B40;--line:#E1E8E3;--cream:#F5F7F4;max-width:480px;font-size:15px;line-height:1.55;letter-spacing:-.02em}
 .owner-ui button,.owner-ui input,.owner-ui select,.owner-ui textarea{font-family:inherit}
 .owner-ui button:focus-visible,.owner-ui input:focus-visible,.owner-ui select:focus-visible,.owner-ui textarea:focus-visible{outline:3px solid #80BDA0;outline-offset:3px}
-.owner-ui button{touch-action:manipulation}
+.app.owner-ui button{touch-action:manipulation;min-height:44px;min-width:44px}
+.app:not(.owner-ui) button{min-height:44px;min-width:44px}
 .owner-ui input,.owner-ui select,.owner-ui textarea{font-size:16px!important;min-height:46px;border-radius:12px!important}
 .owner-ui input[type=checkbox],.owner-ui input[type=radio]{min-height:24px;width:24px;height:24px;accent-color:var(--brick)}
 .owner-ui input[readonly]{background:#EDF2EE!important;color:#52615A!important}
@@ -56,7 +57,9 @@
 .owner-pending{display:inline-block;background:#FFF2D7;color:#805715;font-size:12px;font-weight:700;border-radius:6px;padding:3px 7px;margin-top:6px}
 .owner-warning{padding:12px;background:#FFF2D7;color:#755012;border-radius:10px;margin:10px 0;font-size:13px}
 .owner-ui .month-nav{margin:16px 0}.owner-ui .cal-grid{gap:5px}.owner-ui .cal-day{border-radius:12px;min-height:45px;cursor:pointer}
-.owner-ui .row2{gap:10px}.owner-ui .row2>div{min-width:0}.owner-ui .time-selects{gap:4px}.owner-ui .time-selects select{min-width:0;padding-left:5px;padding-right:2px}
+.owner-ui .row2{gap:10px}.owner-ui .row2>div{min-width:0}
+.owner-ui .row2:has(.time-select-row){display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.owner-ui .time-select-row{gap:8px}.owner-ui .time-select-row select{min-width:0;flex:1;padding:10px 6px}
 .owner-ui #notif-summary-toggle-btn{padding:12px 14px!important;background:#FFF9F1!important;border-color:#EDDFC9!important}
 .owner-ui .owner-alerts{margin:0 0 16px}.owner-ui .owner-alerts #notif-summary-toggle-btn>p:last-child{display:none}
 .owner-ui .owner-sales-form .s-label{font-size:16px;font-weight:750;color:var(--ink);margin-bottom:14px}
@@ -254,7 +257,7 @@
 .owner-ui .oh-fortune{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:52px;min-height:52px;padding:4px 6px;border:0;border-radius:13px;background:#FBF4E8;color:#8A5A1F;font-size:11px;font-weight:650;cursor:pointer}
 .owner-ui .oh-fortune-text{margin:-4px 0 14px;padding:12px 14px;border-radius:12px;background:#FBF4E8;color:#7A4E18;font-size:13px;line-height:1.55}
 .owner-ui .oh-overview{padding:16px;margin-bottom:18px}
-.owner-ui .oh-ov-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.owner-ui .oh-ov-head>button{min-height:34px;border:0;background:none;color:var(--ink-soft);font-size:12px;font-weight:650;cursor:pointer;padding:0}
+.owner-ui .oh-ov-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.owner-ui .oh-ov-head>button{min-height:44px;border:0;background:none;color:var(--ink-soft);font-size:12px;font-weight:650;cursor:pointer;padding:0}
 .owner-ui .oh-label{font-size:12px;color:var(--ink-soft)}
 .owner-ui .oh-big{margin:4px 0 8px;font-size:29px;line-height:1.2;font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.owner-ui .oh-big small{font-size:17px;font-weight:650;margin-left:2px}
 .owner-ui .oh-muted{color:var(--ink-soft)}
