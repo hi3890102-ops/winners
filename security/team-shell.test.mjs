@@ -35,7 +35,7 @@ test('T2: work->sales (staff with sales access) runs the same lookups as the leg
   for(const l of ['loadSalesReports','loadCrew','loadAttendance','loadExpenseEntries','loadVendors','loadFixedExpenses']) assert.ok(loader.includes(l+'('),l);
   const tabHandler=slice('    app.querySelectorAll("[data-team-tab]")','    if(state.teamScroll)');
   assert.ok(tabHandler.includes('await loadSalesEntryData()')&&tabHandler.includes('maneeLoadGuard("teamSalesTab")'));
-  assert.ok(slice('    }else if(tab === "sales"){','    }\n    state.staffView = tab;').includes('await loadSalesEntryData()'));
+  assert.ok(slice('    }else if(tab === "sales"){','    state.staffView = tab;').includes('await loadSalesEntryData()'));
 });
 test('T3: "이어서 하기" always opens the checklist tab', ()=>{
   assert.ok(/home-go-checklist-btn[\s\S]{0,200}state\.teamTab = "check";\s*goToStaffTab\("checklist"\)/.test(html));

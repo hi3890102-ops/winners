@@ -7,7 +7,7 @@ const code=html.slice(html.indexOf('  // BEGIN MANEE_STORE_PERMISSIONS'),html.in
 function harness(options={}){
  const calls=[];const state={store:'Store',checks:{other:true},checklistLog:{},items:{morning:[]},tab:'morning',authMemberships:[],crew:[],...options.state};
  const context=createContext({MANEE_STAFF_AUTH_ENABLED:true,state,console,
-  currentStoreId:()=>state.store==='Store'?'store':'other-store',bizToday:()=> '2026-09-11',
+  monthKey:()=> '2026-09',invalidateFinancialViews(){},currentStoreId:()=>state.store==='Store'?'store':'other-store',bizToday:()=> '2026-09-11',
   render:()=>calls.push('render'),showToast:t=>calls.push({toast:t}),
   staffErrorMessage:e=>e?.message||'권한 오류',clearStaffAuthView:()=>{calls.push('clear');state.role='landing';state.crew=[];state.checks={};},
   document:{getElementById:()=>({value:options.input||''})},
@@ -15,7 +15,7 @@ function harness(options={}){
   db:{rpc:async(name,args)=>{calls.push({name,args});if(options.onRpc)options.onRpc(state);return {error:options.error,data:options.result||{ok:true,checks:{other:true,clicked:true},log:null}};},
    from:table=>{const q={delete(){calls.push({delete:table});return q;},update(x){calls.push({update:table,payload:x});return q;},upsert(x){calls.push({upsert:table,payload:x});return q;},eq(){return q;},select:async()=>({data:options.rows??[{id:'row',read_at:'2026-09-11T12:00:00Z'}],error:options.error})};return q;}}
  });
- new Script(code).runInContext(context);return {context,calls,state};
+ new Script('let maneeViewEpoch=0;\n'+code).runInContext(context);return {context,calls,state};
 }
 test('Manager controls use current membership rather than the old employee flag',()=>{
  const h=harness({state:{myCrewId:'crew',crew:[{id:'crew',isManager:true}],authMemberships:[{store_id:'store',role:'staff'}]}});
