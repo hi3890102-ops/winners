@@ -5,29 +5,112 @@ on:
     paths:
       - '.github/workflows/monitor-public.yml'
       - 'scripts/check-public-sites.mjs'
+      - 'scripts/public-monitor-incidents.mjs'
+      - 'scripts/restore-public-monitor-state.mjs'
       - 'config/public-sites.json'
+      - 'config/environments.json'
   workflow_dispatch:
+    inputs:
+      initialize_state:
+        description: 'Initialize a NEW incident history only when no checkpoint exists (first use or intentional history reset)'
+        type: boolean
+        default: false
   schedule:
     - cron: '*/5 * * * *'
 permissions:
   contents: read
+  actions: read
 concurrency:
-  group: public-monitor-${{ github.ref }}
+  # One writer, including manual dispatches and reruns. Never cancel a writer.
+  group: public-monitor-state-v1
   cancel-in-progress: false
 jobs:
   availability:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    # Nine assets can consume ~230s if every attempt times out, before state I/O.
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Locate latest trusted checkpoint (including failed runs and reruns)
+        id: locate
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          MONITOR_INITIALIZE: ${{ inputs.initialize_state == true }}
+        with:
+          script: |
+            const { findPreviousCheckpoint } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/restore-public-monitor-state.mjs`);
+            const checkpoint = await findPreviousCheckpoint({ github, ...context.repo,
+              runId: context.runId, attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              branch: context.payload.repository.default_branch,
+              initialize: process.env.MONITOR_INITIALIZE === 'true' });
+            core.setOutput('mode', checkpoint.mode);
+            core.setOutput('artifact-id', checkpoint.artifactId ?? '');
+            core.setOutput('run-id', checkpoint.runId ?? '');
+            core.setOutput('attempt', checkpoint.attempt ?? '');
+      - name: Restore exact checkpoint
+        id: restore
+        if: steps.locate.outputs.mode == 'restored'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ steps.locate.outputs.artifact-id }}
+          run-id: ${{ steps.locate.outputs.run-id }}
+          github-token: ${{ github.token }}
+          path: previous-monitor
+          merge-multiple: true
       - name: Check public pages and required assets (read only, retries included)
+        id: check
+        continue-on-error: true
+        env:
+          MONITOR_MANAGED: 'true'
+          MONITOR_INITIALIZE: ${{ inputs.initialize_state == true }}
+          MONITOR_STATE_MODE: ${{ steps.locate.outputs.mode == 'initialized' && 'initialized' || (steps.restore.outcome == 'success' && 'restored' || 'unavailable') }}
+          MONITOR_STATE_PATH: previous-monitor/monitoring-state.json
+          MONITOR_SOURCE_RUN_ID: ${{ steps.locate.outputs.run-id }}
+          MONITOR_SOURCE_RUN_ATTEMPT: ${{ steps.locate.outputs.attempt }}
+          MONITOR_SOURCE_ARTIFACT_ID: ${{ steps.locate.outputs.artifact-id }}
         run: node scripts/check-public-sites.mjs
+      - name: Commit incident state and events
+        id: checkpoint
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          # Immutable per attempt; an old run's rerun cannot overwrite its history.
+          name: public-monitor-state-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            monitoring-state.json
+            monitoring-results.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Evaluate committed incident notifications
+        if: ${{ !cancelled() }}
+        env:
+          CHECKPOINT_SAVED: ${{ steps.checkpoint.outcome == 'success' }}
+        run: |
+          node --input-type=module - <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { committedAlertExitCode } from './scripts/public-monitor-incidents.mjs';
+          if (process.env.CHECKPOINT_SAVED !== 'true') {
+            console.error('Monitoring state continuity failed. No site incident notifications are authorized.');
+            process.exit(1);
+          }
+          const report = JSON.parse(readFileSync('monitoring-results.json', 'utf8'));
+          for (const event of report.notifications) console.log(`${event.transition}: ${event.site} ${event.path} ${event.reason} event=${event.eventId}`);
+          console.log(`Public assets healthy: ${report.ok}; notification events: ${report.notifications.length}`);
+          process.exitCode = committedAlertExitCode(report, true);
+          JS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: public-monitor-results
           path: monitoring-results.json
+          # Diagnostics only; checkpoint artifacts above are authoritative.
+          overwrite: true
           retention-days: 7
