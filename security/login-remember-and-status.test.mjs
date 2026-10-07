@@ -180,7 +180,7 @@ test('Logging out clears everything cached for the previous account (owner home 
 function renderLogin(tab,{staffAuth=true,remember}={}){
   const ctx=vm.createContext({state:{landingTab:tab,rememberMeChecked:remember},MASCOT_IMG_DATA:'data:logo',MASCOT2_IMG_DATA:'data:mascot',
     MANEE_STAFF_AUTH_ENABLED:staffAuth,maneeRememberLogin:()=>true});
-  vm.runInContext(fn('loginIcon')+fn('renderLoginScreen'),ctx);return ctx.renderLoginScreen();
+  vm.runInContext(fn('loginIcon')+fn('renderOwnerSignupOffer')+fn('renderLoginScreen'),ctx);return ctx.renderLoginScreen();
 }
 test('Login screen offers 사장님 / 직원·매니저 and keeps the existing element ids and staff-auth actions',()=>{
   const owner=renderLogin('owner');
