@@ -920,16 +920,13 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return true;
   }
   function currentStoreId(){ return state.storeIdMap[state.store]; }
-  function setStoreCutoffHour(store, hour){
-    const h = Math.max(0, Math.min(23, Number(hour)||0));
-    if(!state.storeCutoffMap) state.storeCutoffMap = {};
-    state.storeCutoffMap[store] = h;
-    const storeId = state.storeIdMap[store];
-    if(!storeId) return;
-    (async ()=>{
-      try{ await db.from('stores').update({ business_day_cutoff_hour: h }).eq('id', storeId); }
-      catch(e){ showToast("설정 저장에 실패했어요."); }
-    })();
+  async function setStoreCutoffHour(store, hour){
+    const h=Number(hour),storeId=state.storeIdMap[store];
+    if(!storeId||!canManageBusinessData())return false;
+    if(!Number.isInteger(h)||h<0||h>23){showToast('영업일 기준 시각은 0~23시로 입력해 주세요.');render();return false;}
+    return runBusinessMutation('cutoff:'+storeId,()=>db.from('stores').update({business_day_cutoff_hour:h}).eq('id',storeId).select('id,business_day_cutoff_hour'),row=>{
+      state.storeCutoffMap=state.storeCutoffMap||{};state.storeCutoffMap[store]=row.business_day_cutoff_hour;
+    });
   }
 
   // ---------- push notifications (출퇴근·예약 알림) ----------
@@ -1150,15 +1147,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function managerDashboardEnabled(store){
     return !!(state.storeManagerDashboardMap && state.storeManagerDashboardMap[store]);
   }
-  function setManagerDashboardEnabled(store, val){
-    if(!state.storeManagerDashboardMap) state.storeManagerDashboardMap = {};
-    state.storeManagerDashboardMap[store] = val;
-    const storeId = state.storeIdMap[store];
-    if(!storeId) return;
-    (async ()=>{
-      try{ await db.from('stores').update({ manager_dashboard_enabled: val }).eq('id', storeId); }
-      catch(e){ showToast("설정 저장에 실패했어요."); }
-    })();
+  async function setManagerDashboardEnabled(store, val){
+    const storeId=state.storeIdMap[store];if(!storeId||!canManageBusinessData())return false;
+    return runBusinessMutation('manager-dashboard:'+storeId,()=>db.from('stores').update({manager_dashboard_enabled:!!val}).eq('id',storeId).select('id,manager_dashboard_enabled'),row=>{
+      state.storeManagerDashboardMap=state.storeManagerDashboardMap||{};state.storeManagerDashboardMap[store]=!!row.manager_dashboard_enabled;
+    });
   }
   // Warning thresholds (label only; pay, wage and amounts are never touched). Both are set per store by that store's owner and read by the
   // owner, manager and staff screens of the store: labor stores.labor_ratio_threshold (default 22% while not set), food
@@ -1551,6 +1544,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     maneeViewEpoch++;   // in-flight lookups of the previous account are discarded when they arrive
     state.ownerReportHomeNotices=null;
     state.pushSubscribed=false;state.pushBusy=false;state.pushRegistrationError=null;
+    state.staffClockBusy=null;state.staffAttendanceBusy=null;
+    state.salesReportSaving=null;
     state.teamProfile=null; state.teamEdit=null; state.ownerProfileChanges=null; state.teamPage=null; state.homeStore="__all__"; state.ownerStoreChoice=null; state.expenseEditDraft=null; state.editingExpenseEntryId=null; state.expenseOpenGroups=[];
     state.ownerWork={ stores:{}, expanded:{}, loadedOnce:false, lastStartAt:0, wasHome:false, inflight:0 };   // the 60 s timer stops itself on its next tick (no owner home)
     maneeRestoreSeq++;  // ...and so is an unfinished login/identity restore
@@ -1662,11 +1657,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       if(me && (me.salesAccess || me.isManager)) tasks.push(loadSalesReports(store,monthKey()),loadExpenseEntries(store,monthKey()),loadVendors(store));
       else { state.salesReports=[]; state.expenseEntries=[]; state.vendors=[]; }
       await Promise.all(tasks);
-      // Keep a shift started in the previous month available for clock-out.
-      const {data:open,error}=await db.from('attendance').select('*').eq('store_id',currentStoreId()).eq('crew_id',state.myCrewId).is('check_out',null).limit(1);
-      if(error) throw error;
       if(!alive()) return;
-      if(open && open[0]) applyStaffAttendance(open[0]);
       state.loading=false; render();
     }catch(e){ if(!alive()) return; clearStaffAuthView(); render(); throw e; }
   }
@@ -1684,39 +1675,65 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         ()=>reject(new Error('출퇴근 기록을 위해 위치 접근을 허용해 주세요.')),{enableHighAccuracy:true,timeout:10000});
     });
   }
+  function staffAttendanceGuard(){
+    const epoch=maneeViewEpoch,uid=state.authProfile?.user_id,crewId=state.myCrewId,storeId=currentStoreId();
+    return ()=>epoch===maneeViewEpoch && uid===state.authProfile?.user_id && crewId===state.myCrewId && storeId===currentStoreId();
+  }
+  function setStaffClockBusy(busy){
+    for(const [id,label] of [['clock-in-btn','출근하기'],['clock-out-btn','퇴근하기']]){
+      const button=document.getElementById(id);
+      if(button){button.disabled=busy;button.textContent=busy?'위치·출퇴근 확인 중…':label;}
+    }
+  }
   async function clockAuthStaff(direction){
     if(state.staffClockBusy) return;
-    state.staffClockBusy=true;
+    const token={},alive=staffAttendanceGuard(),storeId=currentStoreId(),crewId=state.myCrewId;
+    state.staffClockBusy=token;setStaffClockBusy(true);
     try{
-      const rec=direction==='out'?findOpenAttendance(state.myCrewId):null;
+      const rec=direction==='out'?findOpenAttendance(crewId):null;
       if(direction==='out' && !rec) throw new Error('출근 중인 기록을 찾지 못했어요. 새로 확인해 주세요.');
       const coordinates=await staffCoordinates();
-      const args=direction==='in'?{target_store_id:currentStoreId(),...coordinates}:{target_attendance_id:rec.id,...coordinates};
+      if(!alive())return;
+      const args=direction==='in'?{target_store_id:storeId,...coordinates}:{target_attendance_id:rec.id,...coordinates};
       const {data,error}=await db.rpc(direction==='in'?'clock_in':'clock_out',args);
+      if(!alive())return;
       if(error) throw error;
       const saved=Array.isArray(data)?data[0]:data;
-      if(!saved || saved.crew_id!==state.myCrewId) throw new Error('출퇴근 결과를 확인하지 못했어요.');
+      if(!saved || saved.crew_id!==crewId || (saved.store_id && saved.store_id!==storeId)) throw new Error('출퇴근 결과를 확인하지 못했어요.');
       const record=applyStaffAttendance(saved);
       if(direction==='out') state.attConfirmPrompt={attId:record.id,checkIn:record.checkIn,checkOut:record.checkOut,editing:false};
       render(); showToast(direction==='in'?'출근 처리됐어요':'퇴근 처리됐어요');
-    }catch(e){ if(e.code==='42501'){ clearStaffAuthView(); render(); } showToast(staffErrorMessage(e)); }
-    finally{ state.staffClockBusy=false; }
+    }catch(e){ if(!alive())return;if(e.code==='42501'){ clearStaffAuthView(); render(); } showToast(staffErrorMessage(e)); }
+    finally{ if(state.staffClockBusy===token){state.staffClockBusy=false;if(alive())setStaffClockBusy(false);} }
   }
   async function confirmAuthAttendance(attId){
+    if(state.staffAttendanceBusy)return false;
+    const token={},alive=staffAttendanceGuard();state.staffAttendanceBusy=token;
     try{
       const {data,error}=await db.rpc('confirm_my_attendance',{target_attendance_id:attId});
+      if(!alive())return false;
       if(error) throw error;
       const saved=Array.isArray(data)?data[0]:data;
-      if(!saved || saved.crew_id!==state.myCrewId) throw new Error('확인 결과를 다시 조회해 주세요.');
-      applyStaffAttendance(saved); state.attConfirmPrompt=null; render(); showToast('근무 시간을 확인했어요');
-    }catch(e){ showToast(staffErrorMessage(e)); }
+      if(!saved || saved.id!==attId || saved.crew_id!==state.myCrewId) throw new Error('확인 결과를 다시 조회해 주세요.');
+      applyStaffAttendance(saved);if(state.attConfirmPrompt?.attId===attId)state.attConfirmPrompt=null;
+      render();showToast('근무 시간을 확인했어요');return true;
+    }catch(e){if(alive())showToast(staffErrorMessage(e));return false;}
+    finally{if(state.staffAttendanceBusy===token)state.staffAttendanceBusy=null;}
   }
   async function requestAuthAttendanceEdit(attId,ci,co){
+    if(state.staffAttendanceBusy)return false;
+    if(!isValidTimeStr(ci)||!isValidTimeStr(co)||ci===co){showToast('시작·종료 시간을 HH:MM 형식으로 확인해 주세요.');return false;}
+    const token={},alive=staffAttendanceGuard();state.staffAttendanceBusy=token;
     try{
-      const {error}=await db.rpc('request_attendance_edit',{target_attendance_id:attId,new_check_in:ci,new_check_out:co,request_reason:'직원이 근무 시간 확인 후 수정 요청'});
+      const {data,error}=await db.rpc('request_attendance_edit',{target_attendance_id:attId,new_check_in:ci,new_check_out:co,request_reason:'직원이 근무 시간 확인 후 수정 요청'});
+      if(!alive())return false;
       if(error) throw error;
-      state.attConfirmPrompt=null; render(); showToast('시간 수정 요청을 보냈어요. 사장님 승인 후 반영돼요.');
-    }catch(e){ showToast(staffErrorMessage(e)); }
+      const saved=Array.isArray(data)?data[0]:data;
+      if(!saved?.id||saved.attendance_id!==attId)throw new Error('수정 요청 결과를 확인하지 못했어요.');
+      if(state.attConfirmPrompt?.attId===attId)state.attConfirmPrompt=null;
+      render();showToast('시간 수정 요청을 보냈어요. 사장님 승인 후 반영돼요.');return true;
+    }catch(e){if(alive())showToast(staffErrorMessage(e));return false;}
+    finally{if(state.staffAttendanceBusy===token)state.staffAttendanceBusy=null;}
   }
   function staffAuthButton(action,label,extra){
     return '<button type="button" class="crew-code-btn" data-staff-auth-action="'+action+'" '+(extra||'')+'>'+label+'</button>';
@@ -2088,11 +2105,27 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!Array.isArray(data) || data.length!==1) throw new Error('저장 결과를 확인하지 못했어요. 권한이나 변경된 내용을 새로 확인해 주세요.');
     return data[0];
   }
-  async function deleteAuthBusinessRow(table,id,after){
+  const businessMutationLocks=new Set();
+  function businessContextGuard(){
+    const epoch=maneeViewEpoch,uid=state.authProfile?.user_id,sid=currentStoreId(),role=state.role,month=monthKey();
+    return ()=>epoch===maneeViewEpoch && uid===state.authProfile?.user_id && sid===currentStoreId() && role===state.role && month===monthKey();
+  }
+  async function runBusinessMutation(key,write,after){
+    const alive=businessContextGuard(),lock=maneeViewEpoch+':'+currentStoreId()+':'+key;
+    if(businessMutationLocks.has(lock))return false;
+    businessMutationLocks.add(lock);
     try{
-      await checkedBusinessMutation(db.from(table).delete().eq('id',id).select('id'));
-      after();render();return true;
-    }catch(e){businessError(e);return false;}
+      const row=await checkedBusinessMutation(write());
+      if(!alive())return false;
+      after(row);render();return true;
+    }catch(e){if(alive()){businessError(e);render();}return false;}
+    finally{businessMutationLocks.delete(lock);}
+  }
+  async function deleteAuthBusinessRow(table,id,after,storeOverride){
+    const sid=storeOverride||currentStoreId();if(!sid)return false;
+    return runBusinessMutation(table+':'+id,()=>db.from(table).delete().eq('store_id',sid).eq('id',id).select('id'),()=>{
+      after();if(['expense_entries','fixed_expenses'].includes(table))invalidateFinancialViews();
+    });
   }
   async function callAuthChecklist(action,storeId,date,payload){
     const {data,error}=await db.rpc('manee_checklist',{p_action:action,p_store_id:storeId,p_date:date,p_payload:payload||{}});
@@ -2141,11 +2174,12 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }catch(e){businessError(e);}
   }
   async function updateAuthFixedExpense(id,value){
-    try{
-      const amount=parseInt(value,10)||0;
-      const r=await checkedBusinessMutation(db.from('fixed_expenses').update({amount}).eq('id',id).select('id,amount'));
-      const row=state.fixedExpenses.find(f=>f.id===id);if(row)row.amount=r.amount;render();
-    }catch(e){businessError(e);render();}
+    if(!canManageBusinessData())return false;
+    const raw=String(value??'').trim(),amount=Number(raw),sid=currentStoreId();
+    if(!raw||!Number.isSafeInteger(amount)||Math.abs(amount)>2147483647){showToast('고정비 금액은 정수로 입력해 주세요.');render();return false;}
+    return runBusinessMutation('fixed_expenses:'+id,()=>db.from('fixed_expenses').update({amount}).eq('store_id',sid).eq('id',id).select('id,amount'),saved=>{
+      const row=state.fixedExpenses.find(f=>f.id===id);if(row)row.amount=saved.amount;invalidateFinancialViews();
+    });
   }
   // END MANEE_STORE_PERMISSIONS
 
@@ -3174,11 +3208,13 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     state.salesSectionTab = "sales";
   }
   async function goToStaffTab(tab){
+    const alive=maneeLoadGuard('staffNavigation'),store=state.store,sid=currentStoreId();
     if(MANEE_STAFF_AUTH_ENABLED){
-      try{ await staffPortal('crew',{store_id:currentStoreId()}); }
-      catch(e){clearStaffAuthView();render();showToast(staffErrorMessage(e));return;}
+      try{ await staffPortal('crew',{store_id:sid}); }
+      catch(e){if(alive()){clearStaffAuthView();render();showToast(staffErrorMessage(e));}return;}
     }
-    if(tab === state.staffView) return;
+    if(!alive()||store!==state.store)return;
+    if(tab === state.staffView && tab!=='home') return;
     state.teamPage = null; tpCancelEdit(); state.teamProfile = null;
     state.showOwnerSalesForm = false;
     state.showVatDetail = false;
@@ -3193,10 +3229,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }else if(tab === "announcements"){
       await Promise.all([ loadAnnouncements(state.store), loadCrew(state.store) ]);
     }else if(tab === "home"){
-      await loadHomeChecklistPreview(state.store);
+      await Promise.all([loadHomeChecklistPreview(store),loadAttendance(store,monthKey()),loadShifts(store,monthKey())]);
     }else if(tab === "sales"){
       await loadSalesEntryData();
     }
+    if(!alive()||store!==state.store)return;
     state.staffView = tab;
     state.loading = false;
     render();
@@ -3396,13 +3433,25 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     });
   }
 
+  const crewMutationQueue=new Map();
   async function updateCrewRow(id, patch){
-    try{
-      const { data, error } = await db.from('crew').update(patch).eq('id', id).select('id');
-      if(error) throw error;
-      if(!data || data.length===0){ showToast("저장 권한이 없어서 반영되지 않았어요."); return false; }
-      return true;
-    }catch(e){ showToast("저장에 실패했어요."); return false; }
+    if(!canManageBusinessData()||!state.crew.some(c=>c.id===id))return false;
+    const sid=currentStoreId(),alive=businessContextGuard(),key=maneeViewEpoch+':'+sid+':'+id;
+    const prepare=typeof patch==='function'?patch:()=>JSON.parse(JSON.stringify(patch));
+    const previous=crewMutationQueue.get(key)||Promise.resolve();
+    const task=previous.then(async()=>{
+      if(!alive())return false;
+      try{
+        const current=state.crew.find(c=>c.id===id);if(!current)return false;
+        const payload=prepare(current);
+        const saved=await checkedBusinessMutation(db.from('crew').update(payload).eq('store_id',sid).eq('id',id).select('*'));
+        if(!alive())return false;
+        const row=state.crew.find(c=>c.id===id);if(row)Object.assign(row,rowToCrew(saved));
+        invalidateFinancialViews();render();return true;
+      }catch(e){if(alive()){showToast('직원 정보를 저장하지 못했어요. 기존 설정은 유지돼요.');render();}return false;}
+    });
+    crewMutationQueue.set(key,task);
+    try{return await task;}finally{if(crewMutationQueue.get(key)===task)crewMutationQueue.delete(key);}
   }
 
   function monthDateRange(mKey){
@@ -3425,14 +3474,19 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   async function loadAttendance(store, mKey){
     const storeId = state.storeIdMap[store];
+    const crewId=state.role==='staff'?state.myCrewId:null;
     const alive = maneeLoadGuard("attendance");
     state.attendance = [];
     if(!storeId) return;
     try{
       const { start, end } = monthDateRange(mKey);
-      const { data, error } = await db.from('attendance').select('*').eq('store_id', storeId).gte('date', start).lte('date', end);
+      const requests=[db.from('attendance').select('*').eq('store_id',storeId).gte('date',start).lte('date',end)];
+      // Month navigation must never hide today's record or an overnight/open shift from the clock buttons.
+      if(crewId)requests.push(db.from('attendance').select('*').eq('store_id',storeId).eq('crew_id',crewId).or('date.eq.'+bizToday()+',check_out.is.null'));
+      const results=await Promise.all(requests),error=results.find(r=>r.error)?.error;
       if(error) throw error;
       if(!alive()) return;
+      const data=[...new Map(results.flatMap(r=>r.data||[]).map(r=>[r.id,r])).values()];
       state.attendance = (data||[]).map(r=>({
         id:r.id, date:r.date, crewId:r.crew_id,
         checkInExact:r.check_in, checkOutExact:r.check_out,
@@ -3722,23 +3776,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       clearReportDataFailed("고정지출");
     }catch(e){ if(alive()){ state.fixedExpenses = []; markReportDataFailed("고정지출"); } }
   }
-  function addFixedExpense(){
+  async function addFixedExpense(){
     const nameInput = document.getElementById("new-fixedexpense-name-input");
     const amtInput = document.getElementById("new-fixedexpense-amount-input");
-    const name = (nameInput.value||"").trim();
-    const amount = parseInt(amtInput.value||"0",10);
-    if(!name || !amount){ showToast("항목과 금액을 입력해 주세요."); return; }
+    if(!nameInput||!amtInput||!canManageBusinessData())return false;
+    const name=(nameInput.value||'').trim(),raw=String(amtInput.value??'').trim(),amount=Number(raw);
+    if(!name||!raw||!Number.isSafeInteger(amount)||Math.abs(amount)>2147483647){showToast('항목과 정수 금액을 입력해 주세요.');return false;}
     const storeId = currentStoreId();
     const mKey = monthKey();
-    (async ()=>{
-      try{
-        const { data, error } = await db.from('fixed_expenses').insert({ store_id: storeId, month_key: mKey, name, amount }).select().single();
-        if(error) throw error;
-        state.fixedExpenses.push({ id:data.id, name, amount });
-        nameInput.value = ""; amtInput.value = "";
-        render();
-      }catch(e){ showToast("고정지출 저장에 실패했어요."); }
-    })();
+    return runBusinessMutation('add-fixed-expense',()=>db.from('fixed_expenses').insert({store_id:storeId,month_key:mKey,name,amount}).select('id,name,amount'),saved=>{
+      state.fixedExpenses.push({id:saved.id,name:saved.name,amount:saved.amount});nameInput.value='';amtInput.value='';invalidateFinancialViews();
+    });
   }
   function deleteFixedExpense(id){
     if(MANEE_STAFF_AUTH_ENABLED) return deleteAuthBusinessRow('fixed_expenses',id,()=>{state.fixedExpenses=state.fixedExpenses.filter(f=>f.id!==id);});
@@ -3884,7 +3932,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(!res) res = (state.upcomingReservations||[]).find(r=>String(r.id)===String(id));
     if(!res) return;
     if(MANEE_STAFF_AUTH_ENABLED) return askConfirm('이 예약을 취소할까요?',async()=>{
-      const ok=await deleteAuthBusinessRow('reservations',id,()=>{state.reservations=(state.reservations||[]).filter(r=>String(r.id)!==String(id));state.dashboardReservations=(state.dashboardReservations||[]).filter(r=>String(r.id)!==String(id));state.upcomingReservations=(state.upcomingReservations||[]).filter(r=>String(r.id)!==String(id));});
+      const ok=await deleteAuthBusinessRow('reservations',id,()=>{state.reservations=(state.reservations||[]).filter(r=>String(r.id)!==String(id));state.dashboardReservations=(state.dashboardReservations||[]).filter(r=>String(r.id)!==String(id));state.upcomingReservations=(state.upcomingReservations||[]).filter(r=>String(r.id)!==String(id));},res.storeName?state.storeIdMap[res.storeName]:currentStoreId());
       if(ok)showToast('예약을 취소했어요.');
     });
     const storeIdForPush = res.storeName ? state.storeIdMap[res.storeName] : currentStoreId();
@@ -4396,6 +4444,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     render();
   }
   async function submitSalesReport(){
+    if(state.salesReportSaving)return;
     const person = state.crew.find(c=>c.id===state.myCrewId);
     let managerName = person ? person.name : "";
     if(!managerName){
@@ -4441,13 +4490,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       note_photos: (d.notePhotos||[]).slice(),
       submitted_at: new Date().toISOString()
     };
+    const alive=businessContextGuard(),saving={};state.salesReportSaving=saving;
     try{
       const { data, error } = await db.from('sales_reports').upsert(payload, { onConflict:'store_id,date' }).select().single();
-      if(error) throw error;
+      if(!alive())return;
+      if(error||!data) throw error||new Error('Saved report unavailable');
       const obj = rowToSalesReport(data);
       const idx = state.salesReports.findIndex(r=>r.date===dateStr);
       if(idx>=0) state.salesReports[idx] = obj; else state.salesReports.push(obj);
-    }catch(e){ showToast("매출보고 저장에 실패했어요. 사진 용량이 너무 클 수 있어요."); return; }
+    }catch(e){if(alive())showToast("매출보고 저장에 실패했어요. 입력 내용과 연결 상태를 확인해 주세요.");return;}
+    finally{if(state.salesReportSaving===saving)state.salesReportSaving=null;}
+    invalidateFinancialViews();
     state.salesDraft = freshSalesDraft();
     state.salesEditingId = null;
     state.salesEditDate = null;
@@ -5410,10 +5463,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       showToast("고정 근무 패턴을 저장했어요");
     }catch(e){ showToast("저장에 실패했어요."); }
   }
-  function deleteFixedPattern(id){
-    state.fixedSchedules = state.fixedSchedules.filter(p=>p.id!==id);
-    render();
-    (async ()=>{ try{ await db.from('fixed_schedules').delete().eq('id', id); }catch(e){} })();
+  async function deleteFixedPattern(id){
+    if(!canEditStoreSchedule())return false;
+    return deleteAuthBusinessRow('fixed_schedules',id,()=>{state.fixedSchedules=state.fixedSchedules.filter(p=>p.id!==id);});
   }
   async function applyFixedToMonth(){
     if(state.fixedSchedules.length===0){ showToast("저장된 고정 근무 패턴이 없어요."); return; }
@@ -5518,28 +5570,21 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       showToast(name+"님을 추가했어요.");
     }catch(e){ showToast("스텝 저장에 실패했어요."); }
   }
-  function toggleProbation(id, val){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c) return;
-    c.probation = val;
-    render();
-    updateCrewRow(id, { probation: val });
+  async function toggleProbation(id, val){
+    return updateCrewRow(id,{probation:!!val});
   }
-  function updateCrewDate(id, field, value){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c) return;
-    c[field] = value;
+  async function updateCrewDate(id, field, value){
+    if(!['hireDate','resignDate'].includes(field))return false;
+    if(value&&!isAttendanceDate(value)){showToast('날짜를 확인해 주세요.');render();return false;}
     const col = field === "hireDate" ? "hire_date" : "resign_date";
-    updateCrewRow(id, { [col]: value || null });
+    return updateCrewRow(id, { [col]: value || null });
   }
-  function updateCrewExtraField(id, field, value){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c) return;
-    c[field] = value;
+  async function updateCrewExtraField(id, field, value){
     const colMap = { workCondition:"work_condition", weeklyHours:"weekly_hours", residentNumber:"resident_number", bankAccount:"bank_account", notes:"notes" };
     const col = colMap[field];
     if(!col) return;
-    updateCrewRow(id, { [col]: field==="weeklyHours" ? (value===""?null:Number(value)) : value });
+    if(field==='weeklyHours'&&value!==''&&(!Number.isFinite(Number(value))||Number(value)<0||Number(value)>168)){showToast('주 근로시간은 0~168시간으로 입력해 주세요.');render();return false;}
+    return updateCrewRow(id, { [col]: field==="weeklyHours" ? (value===""?null:Number(value)) : value });
   }
   function addCrewCustomField(id){
     const c = state.crew.find(c=>c.id===id);
@@ -5548,38 +5593,26 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     c.customFields.push({ label:"", value:"" });
     render();
   }
-  function updateCrewCustomField(id, idx, key, value){
+  async function updateCrewCustomField(id, idx, key, value){
     const c = state.crew.find(c=>c.id===id);
-    if(!c || !c.customFields || !c.customFields[idx]) return;
-    c.customFields[idx][key] = value;
-    updateCrewRow(id, { custom_fields: c.customFields });
+    if(!c || !c.customFields || !c.customFields[idx]||!['label','value'].includes(key)) return;
+    return updateCrewRow(id,current=>{const fields=current.customFields.map(f=>({...f}));if(fields[idx])fields[idx][key]=value;return {custom_fields:fields};});
   }
-  function removeCrewCustomField(id, idx){
+  async function removeCrewCustomField(id, idx){
     const c = state.crew.find(c=>c.id===id);
     if(!c || !c.customFields) return;
-    c.customFields.splice(idx,1);
-    render();
-    updateCrewRow(id, { custom_fields: c.customFields });
+    return updateCrewRow(id,current=>({custom_fields:current.customFields.filter((_,i)=>i!==idx)}));
   }
-  function updateCrewHealthCert(id, value){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c) return;
-    c.healthCertExpiry = value;
-    updateCrewRow(id, { health_cert_expiry: value || null });
+  async function updateCrewHealthCert(id, value){
+    if(value&&!isAttendanceDate(value)){showToast('날짜를 확인해 주세요.');render();return false;}
+    return updateCrewRow(id, { health_cert_expiry: value || null });
   }
-  function toggleContractSigned(id, val){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c) return;
-    c.contractSigned = val;
-    render();
-    updateCrewRow(id, { contract_signed: val });
+  async function toggleContractSigned(id, val){
+    return updateCrewRow(id, { contract_signed: !!val });
   }
-  function updateCrewWageType(id, wageType){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c) return;
-    c.wageType = wageType;
-    render();
-    updateCrewRow(id, { wage_type: wageType });
+  async function updateCrewWageType(id, wageType){
+    if(!['hourly','monthly'].includes(wageType))return false;
+    return updateCrewRow(id, { wage_type: wageType });
   }
   async function saveCrewInfo(id){
     const c = state.crew.find(c=>c.id===id);
@@ -5591,26 +5624,21 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const name = c.selfServiceProfile ? c.name : String(nameInp ? nameInp.value : c.name).trim();
     if(!name){ showToast("이름을 입력해주세요."); return; }
     const position = posSel ? posSel.value : c.position;
-    const wage = Math.max(0, Number(wageInp ? wageInp.value : c.wage) || 0);
+    const rawWage=String(wageInp?wageInp.value:c.wage).trim(),wage=Number(rawWage);
+    if(!rawWage||!Number.isSafeInteger(wage)||wage<0||wage>2147483647){showToast('급여는 0원 이상의 정수로 입력해 주세요.');return;}
     const phone = c.selfServiceProfile ? (c.phone||"") : String(phoneInp ? phoneInp.value : (c.phone||"")).trim();
     if(c.employmentSetupRequired && wage<=0){ showToast("급여 금액을 입력한 뒤 저장해 주세요."); return; }
-    const prev = { name:c.name, position:c.position, wage:c.wage, phone:c.phone };
-    c.name = name; c.position = position; c.wage = wage; c.phone = phone;
-    render();
     const patch={ name, position, wage, phone };
     if(c.selfServiceProfile){delete patch.name;delete patch.phone;}
     if(c.employmentSetupRequired) patch.employment_setup_required=false;
     const ok = await updateCrewRow(id, patch);
-    if(!ok){ Object.assign(c, prev); render(); return; }
-    if(c.employmentSetupRequired){c.employmentSetupRequired=false;render();}
+    if(!ok)return;
     showToast("정보를 수정했어요.");
   }
-  function togglePayrollFlag(id, flag, checked){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c) return;
-    c[flag] = checked;
+  async function togglePayrollFlag(id, flag, checked){
+    if(!['weeklyAllowance','tax33','insurance4','insurance2'].includes(flag))return false;
     const col = flag === "weeklyAllowance" ? "weekly_allowance" : flag;
-    updateCrewRow(id, { [col]: checked });
+    return updateCrewRow(id, { [col]: !!checked });
   }
   function isCrewActive(c){
     return !(c.resignDate && c.resignDate <= todayKey());
@@ -5618,21 +5646,17 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   function resignCrew(id){
     const c = state.crew.find(c=>c.id===id);
     if(!c) return;
+    const alive=businessContextGuard();
     askConfirm(c.name+"님을 퇴사 처리할까요? 스케줄에는 더 이상 표시되지 않지만, 기존 근무·출퇴근·급여 기록은 그대로 보존돼요.", async ()=>{
+      if(!alive())return;
       const today = todayKey();
-      c.resignDate = today;
-      render();
-      await updateCrewRow(id, { resign_date: today });
-      showToast(c.name+"님을 퇴사 처리했어요. 기록은 보존됩니다.");
+      if(await updateCrewRow(id, { resign_date: today }))showToast(c.name+"님을 퇴사 처리했어요. 기록은 보존됩니다.");
     });
   }
-  function reactivateCrew(id){
+  async function reactivateCrew(id){
     const c = state.crew.find(c=>c.id===id);
     if(!c) return;
-    c.resignDate = "";
-    render();
-    updateCrewRow(id, { resign_date: null });
-    showToast(c.name+"님을 다시 재직 상태로 돌렸어요.");
+    if(await updateCrewRow(id, { resign_date: null }))showToast(c.name+"님을 다시 재직 상태로 돌렸어요.");
   }
   function deleteCrew(id){
     const c = state.crew.find(c=>c.id===id);
@@ -5649,10 +5673,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const c = state.crew.find(c=>c.id===id);
     if(!c) return;
     const newCode = await genUniqueCode();
-    c.joinCode = newCode;
-    render();
-    updateCrewRow(id, { join_code: newCode });
-    showToast("새 코드를 발급했어요");
+    if(await updateCrewRow(id, { join_code: newCode }))showToast("새 코드를 발급했어요");
   }
   async function toggleManager(id, checked){
     const c = state.crew.find(c=>c.id===id);
@@ -5673,13 +5694,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }catch(e){ c.isManager = prev; render(); showToast("저장에 실패했어요."); return; }
     showToast(checked ? (c.name+"님에게 매니저 권한을 줬어요") : (c.name+"님의 매니저 권한을 뺐어요"));
   }
-  function toggleSalesAccess(id, checked){
+  async function toggleSalesAccess(id, checked){
     const c = state.crew.find(c=>c.id===id);
     if(!c) return;
-    c.salesAccess = checked;
-    render();
-    updateCrewRow(id, { sales_access: checked });
-    showToast(checked ? (c.name+"님에게 매출 권한을 줬어요") : (c.name+"님의 매출 권한을 뺐어요"));
+    if(await updateCrewRow(id, { sales_access: checked }))showToast(checked ? (c.name+"님에게 매출 권한을 줬어요") : (c.name+"님의 매출 권한을 뺐어요"));
   }
   function copyCode(code){
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -6070,7 +6088,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const wrongBtn = document.getElementById("att-confirm-wrong");
     if(wrongBtn) wrongBtn.addEventListener("click", ()=>{ state.attConfirmPrompt.editing = true; render(); });
     const rightBtn = document.getElementById("att-confirm-right");
-    if(rightBtn) rightBtn.addEventListener("click", ()=>{ confirmMyAttendance(state.attConfirmPrompt.attId); state.attConfirmPrompt = null; render(); });
+    if(rightBtn) rightBtn.addEventListener("click", async ()=>{
+      const prompt=state.attConfirmPrompt;if(!prompt)return;
+      if(MANEE_STAFF_AUTH_ENABLED){await confirmMyAttendance(prompt.attId);return;}
+      confirmMyAttendance(prompt.attId);state.attConfirmPrompt=null;render();
+    });
     const cancelEditBtn = document.getElementById("att-confirm-cancel-edit");
     if(cancelEditBtn) cancelEditBtn.addEventListener("click", ()=>{ state.attConfirmPrompt.editing = false; render(); });
     const saveEditBtn = document.getElementById("att-confirm-save-edit");
@@ -6090,16 +6112,38 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       showToast("수정한 시간이 매니저한테 전달됐어요");
     });
   }
-  function toggleAttendanceConfirm(attId){
-    const rec = state.attendance.find(a=>a.id===attId);
-    if(!rec) return;
-    rec.confirmed = !rec.confirmed;
-    render();
-    (async ()=>{ try{ await db.from('attendance').update({ confirmed: rec.confirmed }).eq('id', attId); }catch(e){} })();
+  const attendanceMutationLocks=new Set();
+  function attendanceMutationGuard(){
+    const epoch=maneeViewEpoch,uid=state.authProfile?.user_id,sid=currentStoreId(),month=monthKey(),rows=state.attendance;
+    return ()=>epoch===maneeViewEpoch && uid===state.authProfile?.user_id && sid===currentStoreId() && month===monthKey() && rows===state.attendance;
+  }
+  function invalidateFinancialViews(){
+    state.dashboardData=null;state.dashboardRequest=null;state.dashboardSalesPreview=null;state.dashboardLoading=false;state.vatData=null;
+    if(state.ownerWork){state.ownerWork.loadedOnce=false;state.ownerWork.lastStartAt=0;}
+  }
+  async function mutateAttendance(key,write,apply){
+    if(!canManageBusinessData()||!currentStoreId())return false;
+    const lock=maneeViewEpoch+':'+currentStoreId()+':'+key,alive=attendanceMutationGuard();
+    if(attendanceMutationLocks.has(lock))return false;
+    attendanceMutationLocks.add(lock);
+    try{
+      const saved=await checkedBusinessMutation(write());
+      if(!alive())return false;
+      apply(saved);invalidateFinancialViews();render();return true;
+    }catch(e){if(alive()){showToast('근태를 저장하지 못했어요. 기존 기록은 유지돼요. 권한과 연결 상태를 확인해 주세요.');render();}return false;}
+    finally{attendanceMutationLocks.delete(lock);}
+  }
+  async function toggleAttendanceConfirm(attId){
+    const rec=state.attendance.find(a=>a.id===attId),sid=currentStoreId();
+    if(!rec||!rec.checkOut)return false;
+    return mutateAttendance(attId,()=>db.from('attendance').update({confirmed:!rec.confirmed}).eq('store_id',sid).eq('id',attId).select('*'),applyStaffAttendance);
   }
 
   function isValidTimeStr(v){
     return /^([01]\d|2[0-3]):[0-5]\d$/.test(v||"");
+  }
+  function isAttendanceDate(value){
+    return /^\d{4}-\d{2}-\d{2}$/.test(value||'') && !Number.isNaN(Date.parse(value+'T12:00:00Z')) && new Date(value+'T12:00:00Z').toISOString().slice(0,10)===value;
   }
   async function addManualAttendance(){
     const crewSel = document.getElementById("manual-att-crew-select");
@@ -6108,39 +6152,28 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const checkIn = readTimeSelect("manual-att-in");
     const checkOut = readTimeSelect("manual-att-out");
     const storeId = currentStoreId();
-    try{
-      const { data, error } = await db.from('attendance').insert({ store_id: storeId, crew_id: crewId, date: state.selectedDate, check_in: checkIn, check_out: checkOut, confirmed: true }).select().single();
-      if(error) throw error;
-      state.attendance.push({ id:data.id, date:data.date, crewId, checkIn, checkOut, confirmed:true });
-      render();
-      showToast("수기로 출퇴근을 추가하고 확정했어요");
-    }catch(e){ showToast("저장에 실패했어요."); }
+    if(!state.crew.some(c=>c.id===crewId)||!isAttendanceDate(state.selectedDate)||!isValidTimeStr(checkIn)||!isValidTimeStr(checkOut)||checkIn===checkOut){showToast('직원, 근무일과 시작·종료 시간을 확인해 주세요.');return false;}
+    const date=state.selectedDate;
+    return mutateAttendance('manual',()=>db.from('attendance').insert({store_id:storeId,crew_id:crewId,date,check_in:checkIn,check_out:checkOut,confirmed:true}).select('*'),saved=>{
+      applyStaffAttendance(saved);showToast('수기로 출퇴근을 추가하고 확정했어요');
+    });
   }
-  function updateAttendanceField(attId, field, value){
+  async function updateAttendanceField(attId, field, value){
     const rec = state.attendance.find(a=>a.id===attId);
-    if(!rec) return;
+    if(!rec||!['checkIn','checkOut'].includes(field)) return false;
     if(!isValidTimeStr(value)){ showToast("시간은 HH:MM 형식으로 입력해 주세요 (예: 09:30)."); render(); return; }
-    const changed = rec[field] !== value;
-    rec[field] = value;
-    let updatePayload = {};
+    if(rec[field]===value)return true;
+    if(value===rec[field==='checkIn'?'checkOut':'checkIn']){showToast('시작·종료 시간을 다르게 입력해 주세요.');render();return false;}
     const col = field === "checkIn" ? "check_in" : "check_out";
-    updatePayload[col] = value;
-    if(changed){
-      rec.timeEdited = true;
-      rec.staffAckEdit = false;
-      rec.staffConfirmed = false;
-      updatePayload.time_edited = true;
-      updatePayload.staff_ack_edit = false;
-      updatePayload.staff_confirmed = false;
-    }
-    render();
-    (async ()=>{ try{ await db.from('attendance').update(updatePayload).eq('id', attId); }catch(e){ showToast("저장에 실패했어요."); } })();
+    const updatePayload={[col]:value,time_edited:true,staff_ack_edit:false,staff_confirmed:false},sid=currentStoreId();
+    return mutateAttendance(attId,()=>db.from('attendance').update(updatePayload).eq('store_id',sid).eq('id',attId).select('*'),applyStaffAttendance);
   }
   function deleteAttendanceRecord(attId){
+    if(!canManageBusinessData()||!state.attendance.some(a=>a.id===attId))return;
+    const sid=currentStoreId(),alive=attendanceMutationGuard();
     askConfirm("이 출퇴근 기록을 삭제할까요?", async ()=>{
-      try{ await db.from('attendance').delete().eq('id', attId); }catch(e){}
-      state.attendance = state.attendance.filter(a=>a.id!==attId);
-      render();
+      if(!alive())return;
+      return mutateAttendance(attId,()=>db.from('attendance').delete().eq('store_id',sid).eq('id',attId).select('id'),()=>{state.attendance=state.attendance.filter(a=>a.id!==attId);});
     });
   }
 
@@ -10385,6 +10418,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     if(clockInBtn) clockInBtn.addEventListener("click", clockIn);
     const clockOutBtn = document.getElementById("clock-out-btn");
     if(clockOutBtn) clockOutBtn.addEventListener("click", clockOut);
+    if(MANEE_STAFF_AUTH_ENABLED)setStaffClockBusy(!!state.staffClockBusy);
     bindVendorExpenseDefault('quick-');
     const addQuickExpenseBtn = document.getElementById("add-quick-expense-btn");
     if(addQuickExpenseBtn) addQuickExpenseBtn.addEventListener("click", addQuickExpenseEntry);

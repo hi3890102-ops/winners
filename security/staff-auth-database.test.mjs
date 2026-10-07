@@ -207,6 +207,20 @@ scenario('Server attendance requires location and rejects invalid coordinates an
   await denied(()=>db.query('select public.clock_out($1,37.5,127)',[a.id]));
   const confirm=await scalar('select to_jsonb(public.confirm_my_attendance($1))',[a.id]);assert.equal(confirm.staff_confirmed,true);
 });
+scenario('Owner correction and confirmation are the same records the employee reads and acknowledges',async()=>{
+  await connect();await role(owner);
+  await db.query("update public.attendance set check_in='09:45:00',check_out='18:15:00',confirmed=true,time_edited=true,staff_confirmed=false,staff_ack_edit=false where id=$1",[historic]);
+  await role(worker);const row=(await db.query('select * from public.attendance where id=$1',[historic])).rows[0];
+  assert.equal(row.check_in,'09:45:00');assert.equal(row.confirmed,true);assert.equal(row.staff_ack_edit,false);
+  await db.query('select public.confirm_my_attendance($1)',[historic]);
+  await role(owner);assert.equal(await scalar('select staff_ack_edit from public.attendance where id=$1',[historic]),true);
+  await role(otherOwner);assert.equal(await scalar('select count(*)::int from public.attendance where id=$1',[historic]),0);
+});
+scenario('Employee clocks out an open shift from a prior business month without changing its original date',async()=>{
+  await connect();await postgres();await db.query('update public.attendance set check_out=null where id=$1',[historic]);await role(worker);
+  const closed=await scalar('select to_jsonb(public.clock_out($1,37.5,127))',[historic]);
+  assert.equal(closed.date,'2026-01-15');assert.ok(closed.check_out);assert.equal(closed.crew_id,crew);
+});
 scenario('Membership revoke cannot be undone by clearing resignation or changing legacy manager flags',async()=>{
   const linked=await connect();await portal('revoke',{membership_id:linked.membership});await postgres();
   await db.query('update public.crew set resign_date=null,is_manager=true,sales_access=true where id=$1',[crew]);
