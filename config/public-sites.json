@@ -1,0 +1,15 @@
+[
+  {
+    "name": "사장님·직원 앱",
+    "origin": "https://winners-staffapp.netlify.app",
+    "title": "매니",
+    "authFlag": "MANEE_STAFF_AUTH_ENABLED",
+    "assets": [
+      {"path": "/owner-ui.css", "type": "css"},
+      {"path": "/report-assets/monthly-report.js", "type": "js"},
+      {"path": "/report-assets/pdf-lib.min.js", "type": "js"},
+      {"path": "/report-assets/fontkit.umd.min.js", "type": "js"},
+      {"path": "/report-assets/NanumGothic-Regular.ttf", "type": "font"}
+    ]
+  }
+]
