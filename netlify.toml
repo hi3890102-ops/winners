@@ -1,3 +1,4 @@
+# Repository: https://github.com/unionconnect-kr/winners
 [build]
   command = "node scripts/build-environment.mjs"
   publish = "dist"
