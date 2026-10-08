@@ -1,0 +1,4 @@
+# Public monitoring outputs belong in Actions artifacts, not source control.
+/monitoring-results.json
+/monitoring-state.json
+/previous-monitor/
