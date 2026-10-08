@@ -1756,16 +1756,14 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       '<p id="staff-signup-username-status" class="crew-code-hint" style="margin:4px 0 0;color:'+statusColor+';">'+statusText+'</p>'+
       '<label for="staff-signup-password">비밀번호</label><input id="staff-signup-password" type="password" minlength="8" maxlength="72" autocomplete="new-password" placeholder="8자 이상">'+
       '<label for="staff-signup-confirm">비밀번호 확인</label><input id="staff-signup-confirm" type="password" maxlength="72" autocomplete="new-password">'+
-      '<div class="staff-personal-fields"><h3>매장에 전달할 내 정보</h3><p>사장님이 신규 직원으로 승인하면 연락처와 급여 계좌가 함께 등록돼요. 급여·근무조건은 사장님이 설정해요.</p>'+ 
-      '<label for="staff-signup-phone">연락처</label><input id="staff-signup-phone" type="tel" maxlength="24" autocomplete="tel" placeholder="010-0000-0000">'+
-      '<label for="staff-signup-bank">은행</label><input id="staff-signup-bank" maxlength="50" placeholder="은행명">'+
-      '<label for="staff-signup-account">계좌번호</label><input id="staff-signup-account" inputmode="numeric" maxlength="40" autocomplete="off" placeholder="계좌번호">'+
-      '<label for="staff-signup-holder">예금주</label><input id="staff-signup-holder" maxlength="50" autocomplete="name" placeholder="통장에 표시된 이름"></div>'+
+      '<div class="staff-personal-fields"><h3>매장에 전달할 내 정보</h3><p>연락처는 선택 입력이에요. 신규 직원으로 승인되면 매장에 전달돼요. 급여·근무조건은 사장님이 설정해요.</p>'+
+      '<label for="staff-signup-phone">연락처 (선택)</label><input id="staff-signup-phone" type="tel" maxlength="24" autocomplete="tel" placeholder="010-0000-0000">'+
+      '</div>'+
       staffAuthButton('signup','가입하기')+'</div>'+staffAuthButton('login-screen','로그인 화면으로');
   }
   function renderStaffPersonalSummary(personal){
     if(!personal) return '';
-    return '<div class="staff-personal-summary"><div><span>연락처</span>'+escapeHtml(personal.phone||'')+'</div><div><span>급여 계좌</span>'+escapeHtml(personal.bank_name||'')+' '+escapeHtml(personal.bank_account||'')+'</div><div><span>예금주</span>'+escapeHtml(personal.account_holder||'')+'</div></div>';
+    return '<div class="staff-personal-summary"><div><span>연락처 (선택)</span>'+escapeHtml(personal.phone||'미입력')+'</div></div>';
   }
   async function openApprovedEmployee(crewId,storeId){
     const store=state.store;
@@ -1949,8 +1947,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         const normalizedUsername=username.normalize('NFKC').trim().toLowerCase();
         const usernameCheck=state.staffSignupUsernameCheck;
         if(!usernameCheck || usernameCheck.username!==normalizedUsername || !usernameCheck.available) throw new Error('아이디 중복확인을 먼저 해주세요.');
-        const personal={phone:read('staff-signup-phone').trim(),bank_name:read('staff-signup-bank').trim(),bank_account:read('staff-signup-account').trim(),account_holder:read('staff-signup-holder').trim()};
-        if(!/^[+0-9 ()-]{7,24}$/.test(personal.phone)||!/^[0-9 -]{5,40}$/.test(personal.bank_account)||personal.phone.replace(/[^0-9]/g,'').length<7||personal.phone.replace(/[^0-9]/g,'').length>15||personal.bank_account.replace(/[^0-9]/g,'').length<5||personal.bank_account.replace(/[^0-9]/g,'').length>30||!personal.bank_name||!personal.account_holder) throw new Error('연락처·은행·계좌번호·예금주를 확인해 주세요.');
+        const personal={phone:read('staff-signup-phone').trim()};
+        if(personal.phone && (!/^[+0-9 ()-]{7,24}$/.test(personal.phone)||personal.phone.replace(/[^0-9]/g,'').length<7||personal.phone.replace(/[^0-9]/g,'').length>15)) throw new Error('연락처를 확인해 주세요.');
         const data=await callManeeAuthApi('manee-staff-signup',{username,display_name,password,personal});
         const session=data.session || (await callManeeAuthApi('manee-login',{username,password})).session;
         await applyManeeAuthSession(session); await restoreManeeAuthIdentity(null,true); showToast('스텝 계정을 만들었어요. 매장 연결코드를 입력해 주세요.');
@@ -3344,9 +3342,8 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       tax33: !!r.tax33, weeklyAllowance: !!r.weekly_allowance, insurance4: !!r.insurance4, insurance2: !!r.insurance2,
       probation: !!r.probation, hireDate: r.hire_date||"", resignDate: r.resign_date||"",
       selfServiceProfile: !!r.self_service_profile, employmentSetupRequired: !!r.employment_setup_required,
-      workCondition: r.work_condition||"", weeklyHours: r.weekly_hours!=null?String(r.weekly_hours):"", residentNumber: r.resident_number||"", bankAccount: r.bank_account||"",
-      healthCertExpiry: r.health_cert_expiry||"", contractSigned: !!r.contract_signed, notes: r.notes||"",
-      customFields: Array.isArray(r.custom_fields) ? r.custom_fields : []
+      workCondition: r.work_condition||"", weeklyHours: r.weekly_hours!=null?String(r.weekly_hours):"",
+      healthCertExpiry: r.health_cert_expiry||"", contractSigned: !!r.contract_signed, notes: r.notes||""
     };
   }
   // onFail: optional, called (never thrown) on a real query/network error - existing callers that don't pass it keep
@@ -5328,11 +5325,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       showToast("엑셀 기능을 불러오는 중이에요. 잠시 후 다시 눌러주세요.");
       return;
     }
-    const rows = [["이름","포지션","매니저여부","급여방식","급여","전화번호","입사일","퇴사일","근무조건","주민번호","계좌번호","보건증만료일","근로계약서작성","3.3%","주휴수당포함","4대보험","2대보험","수습적용","비고"]];
+    const rows = [["이름","포지션","매니저여부","급여방식","급여","전화번호","입사일","퇴사일","근무조건","보건증만료일","근로계약서작성","3.3%","주휴수당포함","4대보험","2대보험","수습적용","비고"]];
     state.crew.forEach(c=>{
       rows.push([
         c.name, c.position||"홀", c.isManager?"O":"", c.wageType==="monthly"?"월급":"시급", c.wage,
-        c.phone||"", c.hireDate||"", c.resignDate||"", c.workCondition||"", c.residentNumber||"", c.bankAccount||"",
+        c.phone||"", c.hireDate||"", c.resignDate||"", c.workCondition||"",
         c.healthCertExpiry||"", c.contractSigned?"O":"X",
         c.tax33?"O":"", c.weeklyAllowance?"O":"", c.insurance4?"O":"", c.insurance2?"O":"", c.probation?"O":"",
         c.notes||""
@@ -5559,8 +5556,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const resignDateInput = document.getElementById("crew-resigndate-input");
     const workConditionSelect = document.getElementById("crew-workcondition-select");
     const weeklyHoursInput = document.getElementById("crew-weeklyhours-input");
-    const residentInput = document.getElementById("crew-resident-input");
-    const bankInput = document.getElementById("crew-bank-input");
     const healthCertInput = document.getElementById("crew-healthcert-input");
     const contractSignedBtn = document.getElementById("crew-contract-yes");
     const notesInput = document.getElementById("crew-notes-input");
@@ -5580,8 +5575,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const resignDate = resignDateInput ? resignDateInput.value : "";
     const workCondition = workConditionSelect ? workConditionSelect.value : "";
     const weeklyHours = weeklyHoursInput && weeklyHoursInput.value!=="" ? Number(weeklyHoursInput.value) : null;
-    const residentNumber = residentInput ? residentInput.value.trim() : "";
-    const bankAccount = bankInput ? bankInput.value.trim() : "";
     const healthCertExpiry = healthCertInput ? healthCertInput.value : "";
     const contractSigned = contractSignedBtn ? contractSignedBtn.classList.contains("active") : false;
     const notes = notesInput ? notesInput.value.trim() : "";
@@ -5592,7 +5585,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       store_id: storeId, name, wage, wage_type: wageType, phone, position, is_manager: isManager, sales_access: salesAccess,
       tax33, weekly_allowance: weeklyAllowance, insurance4, insurance2, probation,
       hire_date: hireDate || null, resign_date: resignDate || null, join_code: uniqueJoinCode,
-      work_condition: workCondition, weekly_hours: weeklyHours, resident_number: residentNumber, bank_account: bankAccount,
+      work_condition: workCondition, weekly_hours: weeklyHours,
       health_cert_expiry: healthCertExpiry || null, contract_signed: contractSigned, notes
     };
     try{
@@ -5615,28 +5608,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     return updateCrewRow(id, { [col]: value || null });
   }
   async function updateCrewExtraField(id, field, value){
-    const colMap = { workCondition:"work_condition", weeklyHours:"weekly_hours", residentNumber:"resident_number", bankAccount:"bank_account", notes:"notes" };
+    const colMap = { workCondition:"work_condition", weeklyHours:"weekly_hours", notes:"notes" };
     const col = colMap[field];
     if(!col) return;
     if(field==='weeklyHours'&&value!==''&&(!Number.isFinite(Number(value))||Number(value)<0||Number(value)>168)){showToast('주 근로시간은 0~168시간으로 입력해 주세요.');render();return false;}
     return updateCrewRow(id, { [col]: field==="weeklyHours" ? (value===""?null:Number(value)) : value });
-  }
-  function addCrewCustomField(id){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c) return;
-    if(!c.customFields) c.customFields = [];
-    c.customFields.push({ label:"", value:"" });
-    render();
-  }
-  async function updateCrewCustomField(id, idx, key, value){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c || !c.customFields || !c.customFields[idx]||!['label','value'].includes(key)) return;
-    return updateCrewRow(id,current=>{const fields=current.customFields.map(f=>({...f}));if(fields[idx])fields[idx][key]=value;return {custom_fields:fields};});
-  }
-  async function removeCrewCustomField(id, idx){
-    const c = state.crew.find(c=>c.id===id);
-    if(!c || !c.customFields) return;
-    return updateCrewRow(id,current=>({custom_fields:current.customFields.filter((_,i)=>i!==idx)}));
   }
   async function updateCrewHealthCert(id, value){
     if(value&&!isAttendanceDate(value)){showToast('날짜를 확인해 주세요.');render();return false;}
@@ -7700,43 +7676,15 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   const TEAM_PAGE_TITLES={work:'내 근무·예상 급여',personal:'내 개인정보','personal-edit':'내 정보 수정',connection:'내 매장 연결',notifications:'알림 설정',password:'비밀번호 변경',settings:'매장 설정',help:'사용법·문의'};
   // ---------- 내 개인정보 (self-managed basic profile) ----------
-  // Server side: public.manee_my_profile_state / manee_save_my_profile (security/self-profile-management.sql + -v2.sql). The person's own profile
-  // is the source of truth for name, phone, bank, account and holder. A store's existing value is replaced only after the person confirmed
-  // exactly what they saw (the server re-checks it); bank / account / holder move as one bundle.
-  const TP_FIELDS = [["name","이름","person_name"],["phone","연락처","phone"],["bank","은행","bank_name"],["account","계좌번호","bank_account"],["holder","예금주","account_holder"]];
-  const TP_LABEL = { name:"이름", phone:"연락처", bank:"은행", account:"계좌번호", holder:"예금주", bank_account:"계좌" };
-  // Split a stored "은행 / 계좌 / 예금주" text only when it is EXACTLY three non-empty parts and the middle part is a plausible number.
-  function tpParseBank(t){
-    const p=String(t||"").split(" / ");
-    if(p.length!==3) return null;
-    const [bank,account,holder]=p.map(x=>x.trim());
-    if(!bank||!account||!holder||/\//.test(bank)||/\//.test(holder)) return null;
-    if(!/^[0-9 -]{5,40}$/.test(account)) return null;
-    const n=account.replace(/[^0-9]/g,"").length;
-    return (n>=5&&n<=30)?{bank,account,holder}:null;
-  }
-  function tpParseMasked(t){
-    const p=String(t||"").split(" / ");
-    if(p.length!==3||!p[0].trim()||!p[2].trim()||/\//.test(p[0])||/\//.test(p[2])) return null;
-    return /^[0-9*\- ]{5,40}$/.test(p[1].trim())?{bank:p[0].trim(),account_masked:p[1].trim(),holder:p[2].trim()}:null;
-  }
-  // same rule as the server (private.mask_account): never leave a short number readable
-  function tpMask(a){ const d=String(a||"").replace(/[^0-9]/g,""); return d.length>=12 ? d.slice(0,3)+"-***-"+d.slice(-4) : (d.length>=8 ? "***-"+d.slice(-3) : (d.length ? "*****" : "")); }
-  function tpMaskText(t){ const p=tpParseBank(t); return p ? p.bank+" / "+tpMask(p.account)+" / "+p.holder : String(t||"").replace(/[0-9]/g,"*"); }
+  const TP_FIELDS = [["name","이름","person_name"],["phone","연락처 (선택)","phone"]];
+  const TP_LABEL = { name:"이름", phone:"연락처" };
   function tpCheck(f){
     const digits=s=>String(s).replace(/[^0-9]/g,"").length, bad=/[<>\x00-\x1f\x7f]/;
     const e={};
     if(f.name && (f.name.length>50||bad.test(f.name))) e.name="이름을 확인해 주세요.";
     if(f.phone && (!/^[+0-9 ()-]{7,24}$/.test(f.phone)||digits(f.phone)<7||digits(f.phone)>15)) e.phone="연락처는 숫자 7~15자리로 입력해 주세요.";
-    if(f.bank && (f.bank.length>50||bad.test(f.bank))) e.bank="은행 이름을 확인해 주세요.";
-    if(f.account && (!/^[0-9 -]{5,40}$/.test(f.account)||digits(f.account)<5||digits(f.account)>30)) e.account="계좌번호는 숫자와 - 만 입력해 주세요. (가려진 번호는 저장되지 않아요)";
-    if(f.holder && (f.holder.length>50||bad.test(f.holder))) e.holder="예금주를 확인해 주세요.";
     return e;
   }
-  // the bank text of a store changes only when all three parts are present (server rule); a partial bundle is "held"
-  function tpBankComplete(f){ return !!(f.bank&&f.account&&f.holder); }
-  function tpBankAny(f){ return !!(f.bank||f.account||f.holder); }
-  function tpBankComposed(f){ return tpBankComplete(f) ? [f.bank,f.account,f.holder].join(" / ") : null; }
   function tpCancelEdit(){ maneeLoadGuard("teamEdit"); state.teamEdit=null; }   // leaving the screen invalidates every pending edit answer
   async function teamProfileLoad(){
     const alive=maneeLoadGuard("teamProfile");
@@ -7764,14 +7712,11 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
   }
   function tpBuildEdit(data){
     const prof=data.profile, stores=data.stores||[];
-    const base={name:(prof&&prof.person_name)||"",phone:(prof&&prof.phone)||"",bank:(prof&&prof.bank_name)||"",account:(prof&&prof.bank_account)||"",holder:(prof&&prof.account_holder)||""};
-    const cand={name:[],phone:[]}, raw=[], bundles=[];
+    const base={name:(prof&&prof.person_name)||"",phone:(prof&&prof.phone)||""};
+    const cand={name:[],phone:[]};
     stores.forEach(s=>{
-      const p=tpParseBank(s.bank_text);
       if(s.name) cand.name.push({store:s.store_name,value:s.name});
       if(s.phone) cand.phone.push({store:s.store_name,value:s.phone});
-      if(p) bundles.push({store:s.store_name,bank:p.bank,account:p.account,holder:p.holder});
-      else if(s.bank_text) raw.push({store:s.store_name,text:s.bank_text});
     });
     const form={}, conflict={}, fromStore={}, chips={};
     ["name","phone"].forEach(k=>{
@@ -7781,26 +7726,19 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       else if(vals.length===1){ form[k]=vals[0]; fromStore[k]=true; }
       else { form[k]=""; if(vals.length>1) conflict[k]=true; }
     });
-    // bank / account / holder: one source. The person's own (even partial) bundle is kept as it is; a store's bundle is only ever taken as a whole.
-    const keyOf=b=>[b.bank,b.account,b.holder].join("\u0001");
-    const uniq=bundles.filter((b,i,a)=>a.findIndex(x=>keyOf(x)===keyOf(b))===i);
-    if(tpBankAny(base)){ form.bank=base.bank; form.account=base.account; form.holder=base.holder; }
-    else if(uniq.length===1){ form.bank=uniq[0].bank; form.account=uniq[0].account; form.holder=uniq[0].holder; fromStore.bank=true; }
-    else { form.bank=""; form.account=""; form.holder=""; if(uniq.length>1) conflict.bank=true; }
     // per store: apply-by-confirmation choice (default on for stores whose stored value would be replaced; the review screen shows every difference)
     const confirm={}; stores.forEach(s=>{ confirm[s.crew_id]=true; });
-    return {step:"form",data,base,form,conflict,fromStore,chips,bundles,raw,confirm,revision:prof?prof.revision:0,source:prof?prof.source:null,stores,error:null,fieldErrors:{}};
+    return {step:"form",data,base,form,conflict,fromStore,chips,confirm,revision:prof?prof.revision:0,source:prof?prof.source:null,stores,error:null,fieldErrors:{}};
   }
-  // What saving would do to each connected store (mirrors the server: only the person's non-empty fields, bank as one complete bundle).
+  // Preview name and optional phone changes for connected stores.
   function tpStoreChanges(ed){
-    const f=ed.form, composed=tpBankComposed(f), partial=tpBankAny(f)&&!tpBankComplete(f);
+    const f=ed.form;
     return ed.stores.map(s=>{
-      const diffs=[], ad=s.adopted||{name:!!s.self_managed,phone:!!s.self_managed,bank_account:!!s.self_managed};   // per field: taken over before?
+      const diffs=[], ad=s.adopted||{name:!!s.self_managed,phone:!!s.self_managed};   // per field: taken over before?
       if(f.name && f.name!==s.name) diffs.push({field:"name",label:"이름",from:s.name||"미입력",to:f.name,replaces:true,needs:!ad.name});
       if(f.phone && f.phone!==(s.phone||"")) diffs.push({field:"phone",label:"연락처",from:s.phone||"미입력",to:f.phone,replaces:!!s.phone,needs:!!s.phone&&!ad.phone});
-      if(composed && composed!==(s.bank_text||"")) diffs.push({field:"bank_account",label:"계좌",from:s.bank_text?tpMaskText(s.bank_text):"미입력",to:tpMaskText(composed),replaces:!!s.bank_text,needs:!!s.bank_text&&!ad.bank_account});
       const needsConfirm = diffs.some(d=>d.needs);
-      return {store:s.store_name,crew_id:s.crew_id,diffs,held:partial,needsConfirm,managed:!!s.self_managed,row:s};
+      return {store:s.store_name,crew_id:s.crew_id,diffs,needsConfirm,managed:!!s.self_managed,row:s};
     });
   }
   async function teamEditSave(){
@@ -7808,9 +7746,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const alive=maneeLoadGuard("teamEdit");
     ed.saving=true; ed.error=null; render();
     const f=ed.form;
-    const confirmPayload=tpStoreChanges(ed).filter(c=>c.needsConfirm&&ed.confirm[c.crew_id]).map(c=>({crew_id:c.crew_id,seen:{name:c.row.name||"",phone:c.row.phone||"",bank_account:c.row.bank_text||""}}));
+    const confirmPayload=tpStoreChanges(ed).filter(c=>c.needsConfirm&&ed.confirm[c.crew_id]).map(c=>({crew_id:c.crew_id,seen:{name:c.row.name||"",phone:c.row.phone||""}}));
     try{
-      const {data,error}=await db.rpc("manee_save_my_profile",{p_profile:{person_name:f.name,phone:f.phone,bank_name:f.bank,bank_account:f.account,account_holder:f.holder},p_expected_revision:ed.revision,p_confirm:confirmPayload});
+      const {data,error}=await db.rpc("manee_save_my_profile",{p_profile:{person_name:f.name,phone:f.phone},p_expected_revision:ed.revision,p_confirm:confirmPayload});
       if(error) throw error;
       if(!data||data.ok!==true) throw new Error("not confirmed");
       if(!alive()||state.teamEdit!==ed) return;
@@ -7847,31 +7785,21 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     render();
   }
   function tpInput(k,label,val,extra){
-    return '<label class="field-label" for="tp-'+k+'">'+label+'</label><input id="tp-'+k+'" data-tp-field="'+k+'" value="'+escapeHtml(val||"")+'" maxlength="'+(k==="account"?40:(k==="phone"?24:50))+'" '+(extra||"")+'>';
+    return '<label class="field-label" for="tp-'+k+'">'+label+'</label><input id="tp-'+k+'" data-tp-field="'+k+'" value="'+escapeHtml(val||"")+'" maxlength="'+(k==="phone"?24:50)+'" '+(extra||"")+'>';
   }
   function teamPersonalPage(person, mgr){
     const tp=state.teamProfile;
     if(!tp||tp.status==="loading") return '<section class="category team-card"><p class="team-sub">불러오는 중이에요…</p></section>';
     if(tp.status==="fail") return '<section class="team-notice"><p class="team-notice-title">조회 실패</p><p class="team-notice-line">내 정보를 불러오지 못했어요. 미입력이 아니에요. 잠시 후 다시 시도해 주세요.</p><div class="team-actions"><button type="button" class="crew-action-btn crew-code-btn" data-tp-action="retry">다시 시도</button></div></section>';
     const prof=tp.data.profile, stores=tp.data.stores||[];
-    const P=stores.map(s=>tpParseMasked(s.bank_text));
     const one=vals=>[...new Set(vals.filter(Boolean))];
-    // bank / account / holder come from ONE source: the person's own bundle (even a partial one) or, only when they have none, the stores' bundle
-    const ownBank=!!(prof&&(prof.bank_name||prof.bank_account||prof.account_holder));
-    const bundleKeys=one(P.map(p=>p&&[p.bank,p.account_masked,p.holder].join("\u0001")));
-    const bs=(!ownBank&&bundleKeys.length===1)?P.find(Boolean):null;
-    const bst=f=>(ownBank||!P.some(Boolean))?[]:(bundleKeys.length===1?[bs[f]]:bundleKeys.length>1?[bs&&bs[f],"x"].filter(Boolean):[]);
-    const many=(!ownBank&&bundleKeys.length>1);
-    const rows=[["이름",prof&&prof.person_name,one(stores.map(s=>s.name))],["연락처",prof&&prof.phone,one(stores.map(s=>s.phone))],
-      ["은행",prof&&prof.bank_name,many?["a","b"]:bst("bank")],["계좌번호",prof&&prof.bank_account,many?["a","b"]:bst("account_masked")],["예금주",prof&&prof.account_holder,many?["a","b"]:bst("holder")]];
+    const rows=[["이름",prof&&prof.person_name,one(stores.map(s=>s.name))],["연락처 (선택)",prof&&prof.phone,one(stores.map(s=>s.phone))]];
     let body=rows.map(([k,own,st])=>{
       if(own) return teamInfoRow(k,own);
       if(st.length===1) return '<div class="team-info-row"><span>'+escapeHtml(k)+'</span><b>'+escapeHtml(st[0])+'<small class="team-src">매장 입력값 · 확인 필요</small></b></div>';
       if(st.length>1) return '<div class="team-info-row"><span>'+escapeHtml(k)+'</span><b>매장마다 달라요<small class="team-src">수정에서 확인해 주세요</small></b></div>';
       return teamInfoRow(k,"미입력");
     }).join("");
-    const unparsed=stores.filter((s,i)=>s.bank_text&&!P[i]).length;
-    if(unparsed) body+='<p class="team-sub">매장에 저장된 계좌 정보 중 은행·계좌·예금주로 나눌 수 없는 것이 있어요. 수정에서 원문을 보고 직접 입력해 주세요.</p>';
     let h='<section class="category team-card"><div class="team-me">'+renderAvatarBadge(person,48)+'<div><strong>'+escapeHtml((prof&&prof.person_name)||person.name)+'</strong><span>'+(mgr?'매니저':'직원')+' · '+escapeHtml(state.store||'')+'</span></div></div>'+body+'</section>';
     const needReview=stores.filter(s=>Array.isArray(s.pending)?s.pending.length>0:(s.differs&&!s.self_managed));
     if(!prof||prof.source!=="self") h+='<section class="team-notice"><p class="team-notice-title">아직 내가 관리하는 정보로 저장하지 않았어요</p><p class="team-notice-line">\'내 정보 수정\'에서 확인하고 저장하면 연결된 매장이 이 정보를 가져가요.</p></section>';
@@ -7887,19 +7815,19 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       const r=ed.result, list=r.stores||[];
       let h='<section class="category team-card"><p class="team-card-title team-title-lg">내 정보를 저장했어요</p><p class="team-sub">이제 이 정보는 내가 관리해요. 연결된 매장의 결과는 아래와 같아요.</p>';
       list.forEach(s=>{
-        const upd=(s.updated_fields||[]).map(x=>TP_LABEL[x]||x), held=(s.held_fields||[]).map(x=>TP_LABEL[x]||x), need=(s.needs_confirmation||[]).map(x=>TP_LABEL[x]||x);
-        const parts=[]; if(upd.length) parts.push(upd.join(", ")+" 반영됨"); if(need.length) parts.push(need.join(", ")+" 확인 전이라 바꾸지 않았어요"); if(held.length) parts.push(held.join(", ")+" 은행·계좌·예금주가 모두 있어야 반영돼요(기존 값 유지)");
+        const upd=(s.updated_fields||[]).map(x=>TP_LABEL[x]||x), need=(s.needs_confirmation||[]).map(x=>TP_LABEL[x]||x);
+        const parts=[]; if(upd.length) parts.push(upd.join(", ")+" 반영됨"); if(need.length) parts.push(need.join(", ")+" 확인 전이라 바꾸지 않았어요");
         h+='<div class="team-info-row"><span>'+escapeHtml(s.store_name)+'</span><b>'+(parts.length?parts.map(escapeHtml).join(" · "):'바뀐 항목 없음')+'</b></div>';
       });
       h+='</section>';
-      if(list.some(s=>(s.updated_fields||[]).length)) h+='<section class="team-notice"><p class="team-notice-line">사장님 화면에 변경된 항목 이름과 시각이 표시돼요. 계좌번호 같은 내용은 전달되지 않아요.</p></section>';
+      if(list.some(s=>(s.updated_fields||[]).length)) h+='<section class="team-notice"><p class="team-notice-line">사장님 화면에 변경된 항목 이름과 시각이 표시돼요. 개인정보 내용은 전달되지 않아요.</p></section>';
       return h+'<button type="button" class="owner-primary" data-tp-action="done">내 개인정보로 돌아가기</button>';
     }
     const f=ed.form;
     let err='';
     if(ed.error) err='<section class="team-notice" role="alert"><p class="team-notice-line">'+escapeHtml(ed.error.text)+'</p>'+(ed.error.kind==="conflict"?'<div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="reload">최신 정보 불러오기</button></div>':'')+'</section>';
     if(ed.step==="confirm"){
-      const rows=TP_FIELDS.filter(([k])=>f[k]!==(ed.base[k]||"")).map(([k,label])=>{ const old=ed.base[k]||"미입력", nw=f[k]||"미입력"; return '<div class="team-info-row"><span>'+label+'</span><b>'+escapeHtml(k==="account"&&ed.base[k]?tpMask(old):old)+' → '+escapeHtml(k==="account"&&f[k]?tpMask(nw):nw)+'</b></div>'; }).join("");
+      const rows=TP_FIELDS.filter(([k])=>f[k]!==(ed.base[k]||"")).map(([k,label])=>{ const old=ed.base[k]||"미입력", nw=f[k]||"미입력"; return '<div class="team-info-row"><span>'+label+'</span><b>'+escapeHtml(old)+' → '+escapeHtml(nw)+'</b></div>'; }).join("");
       const impact=tpStoreChanges(ed);
       let h=err+'<section class="category team-card"><p class="team-card-title team-title-lg">변경 내용 확인</p>'+(rows||'<p class="team-sub">내가 관리하는 정보와 같은 내용이에요.</p>')+'</section>';
       h+='<section class="category team-card"><p class="team-card-title">반영될 매장</p>';
@@ -7907,7 +7835,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
         h+='<div class="team-store-diff"><strong>'+escapeHtml(s.store)+'</strong>';
         if(!s.diffs.length) h+='<p class="team-sub">바뀌는 항목 없음</p>';
         s.diffs.forEach(d=>{ h+='<p class="team-diff"><span>'+d.label+'</span> '+escapeHtml(d.from)+' → '+escapeHtml(d.to)+'</p>'; });
-        if(s.held) h+='<p class="team-src">은행·계좌번호·예금주를 모두 입력해야 계좌 정보가 반영돼요. 이 매장의 기존 계좌 정보는 그대로 둬요.</p>';
         if(s.needsConfirm) h+='<label class="team-check"><input type="checkbox" data-tp-store="'+escapeHtml(s.crew_id)+'"'+(ed.confirm[s.crew_id]?' checked':'')+'> 이 매장에 저장된 값을 위 내용으로 바꿀게요</label>';
         else if(s.managed) h+='<p class="team-sub">본인 관리 정보라서 확인 후 바로 맞춰져요.</p>';
         h+='</div>';
@@ -7916,26 +7843,16 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
       return h+'<div class="team-actions"><button type="button" class="crew-code-btn" data-tp-action="back-form"'+(ed.saving?' disabled':'')+'>수정으로 돌아가기</button><button type="button" class="owner-primary" data-tp-action="save"'+(ed.saving?' disabled aria-busy="true"':'')+'>'+(ed.saving?'저장 중…':'저장')+'</button></div>';
     }
     let h=err+'<section class="category team-card">';
-    const isBank=k=>k==="bank"||k==="account"||k==="holder";
     TP_FIELDS.forEach(([k,label])=>{
-      h+=tpInput(k,label,f[k],(k==="phone"?'inputmode="tel" autocomplete="tel"':(k==="account"?'inputmode="numeric" autocomplete="off"':'autocomplete="off"')));
+      h+=tpInput(k,label,f[k],(k==="phone"?'inputmode="tel" autocomplete="tel"':'autocomplete="off"'));
       if(ed.fieldErrors&&ed.fieldErrors[k]) h+='<p class="team-field-error" role="alert">'+escapeHtml(ed.fieldErrors[k])+'</p>';
-      if(!isBank(k)){
+      {
         if(ed.conflict[k]) h+='<p class="team-sub">매장마다 값이 달라요. 맞는 값을 골라 주세요.</p>';
         else if(ed.fromStore[k]) h+='<p class="team-sub">매장에 저장된 값이에요. 맞는지 확인해 주세요.</p>';
         const differing=(ed.chips[k]||[]).filter(c=>c.value!==f[k]);
         if(differing.length||ed.conflict[k]) h+='<div class="team-chips">'+(ed.chips[k]||[]).map((c,i)=>'<button type="button" class="team-chip" data-tp-chip="'+k+':'+i+'">'+escapeHtml(c.store)+' · '+escapeHtml(c.value)+'</button>').join("")+'</div>';
       }
-      if(k==="holder"){   // the three bank fields are one bundle: hint + whole-bundle choices, never a field-by-field mix
-        if(ed.conflict.bank) h+='<p class="team-sub">매장마다 계좌 정보가 달라요. 맞는 계좌 정보를 하나 골라 주세요. (은행·계좌번호·예금주가 함께 입력돼요)</p>';
-        else if(ed.fromStore.bank) h+='<p class="team-sub">매장에 저장된 계좌 정보예요. 맞는지 확인해 주세요.</p>';
-        const cur=[f.bank,f.account,f.holder].join("\u0001");
-        const opts=(ed.bundles||[]).map((b,i)=>({b,i})).filter(o=>[o.b.bank,o.b.account,o.b.holder].join("\u0001")!==cur);
-        if(opts.length) h+='<div class="team-chips">'+opts.map(o=>'<button type="button" class="team-chip" data-tp-bundle="'+o.i+'">'+escapeHtml(o.b.store)+' 계좌 정보 전체 가져오기 · '+escapeHtml(o.b.bank)+' / '+escapeHtml(tpMask(o.b.account))+' / '+escapeHtml(o.b.holder)+'</button>').join("")+'</div>';
-      }
     });
-    if(tpBankAny(f)&&!tpBankComplete(f)) h+='<div class="team-notice" style="margin:12px 0 0"><p class="team-notice-line">은행·계좌번호·예금주 중 일부만 입력했어요. 세 항목이 모두 있어야 매장의 계좌 정보가 바뀌어요. 지금은 매장의 기존 계좌 정보를 그대로 둬요.</p></div>';
-    if(ed.raw.length) h+='<div class="team-notice" style="margin:14px 0 0"><p class="team-notice-title">나눌 수 없는 계좌 원문</p>'+ed.raw.map(r=>'<p class="team-notice-line">'+escapeHtml(r.store)+': '+escapeHtml(r.text)+'</p>').join("")+'<p class="team-notice-line">위 원문은 그대로 보관돼요. 은행·계좌번호·예금주는 직접 입력해 주세요.</p></div>';
     h+='</section>';
     return h+'<button type="button" class="owner-primary" data-tp-action="review">변경 내용 확인</button>';
   }
@@ -7943,10 +7860,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const ed=()=>state.teamEdit;
     app.querySelectorAll("[data-tp-field]").forEach(inp=>inp.addEventListener("input",()=>{ if(ed()&&ed().form) ed().form[inp.getAttribute("data-tp-field")]=inp.value.trim(); }));
     app.querySelectorAll("[data-tp-store]").forEach(cb=>cb.addEventListener("change",()=>{ if(ed()&&ed().confirm) ed().confirm[cb.getAttribute("data-tp-store")]=cb.checked; }));
-    app.querySelectorAll("[data-tp-bundle]").forEach(b=>b.addEventListener("click",()=>{   // a store's bank bundle is taken as a whole, by the person's choice
-      const c=ed()&&(ed().bundles||[])[Number(b.getAttribute("data-tp-bundle"))]; if(!c) return;
-      ed().form.bank=c.bank; ed().form.account=c.account; ed().form.holder=c.holder; delete ed().conflict.bank; render();
-    }));
     app.querySelectorAll("[data-tp-chip]").forEach(b=>b.addEventListener("click",()=>{
       const [k,i]=b.getAttribute("data-tp-chip").split(":"); const c=(ed().chips[k]||[])[Number(i)]; if(!c) return;
       ed().form[k]=c.value; delete ed().conflict[k]; render();
@@ -8007,9 +7920,9 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     const refresh='<button type="button" class="crew-code-btn" data-op-refresh>'+(c.status==="loading"?'불러오는 중…':'새로고침')+'</button>';
     if(c.status==="fail") return '<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보</h3><p class="crew-code-hint">불러오지 못했어요. 잠시 후 다시 시도해 주세요.</p>'+refresh+'</div>';
     if(!c.list.length) return c.status==="loading"?"":'<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보</h3><p class="crew-code-hint">최근 30일 동안 수정한 직원이 없어요.</p>'+refresh+'</div>';
-    const lab={name:"이름",phone:"연락처",bank_account:"계좌"};
+    const lab={name:"이름",phone:"연락처"};
     const when=iso=>{const d=new Date(iso);return (d.getMonth()+1)+"월 "+d.getDate()+"일 "+pad(d.getHours())+":"+pad(d.getMinutes());};
-    return '<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보 (최근 30일)</h3>'+c.list.map(x=>'<div class="team-info-row"><span>'+escapeHtml(x.crew_name||"")+'</span><b>'+escapeHtml((x.fields||[]).map(f=>lab[f]||f).join(", "))+' · '+escapeHtml(when(x.changed_at))+'</b></div>').join("")+'<p class="crew-code-hint" style="margin-top:8px;">변경된 항목 이름과 시각만 보여요. 계좌·연락처의 내용은 전달되지 않아요.</p>'+refresh+'</div>';
+    return '<div class="day-panel" style="margin-bottom:12px;"><h3 style="margin:0 0 6px;">직원이 직접 수정한 정보 (최근 30일)</h3>'+c.list.map(x=>'<div class="team-info-row"><span>'+escapeHtml(x.crew_name||"")+'</span><b>'+escapeHtml((x.fields||[]).map(f=>lab[f]||f).join(", "))+' · '+escapeHtml(when(x.changed_at))+'</b></div>').join("")+'<p class="crew-code-hint" style="margin-top:8px;">변경된 항목 이름과 시각만 보여요. 연락처 내용은 전달되지 않아요.</p>'+refresh+'</div>';
   }
   function teamMe(person, mgr){
     const page=state.teamPage;
@@ -8020,7 +7933,7 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html+='<section class="category team-card"><div class="team-me">'+renderAvatarBadge(person,48)+'<div><strong>'+escapeHtml(person.name)+'</strong><span>'+escapeHtml(state.store||'')+' · '+(mgr?'매니저':((person.position?person.position+' ':'')+'직원'))+'</span></div></div></section>';
     html+='<div class="owner-menu team-menu">';
     if(mgr) html+=teamMenuRow('work','calendar','내 근무·예상 급여','내 스케줄과 출퇴근 기록');
-    html+=teamMenuRow('personal','user','내 개인정보','이름·연락처·계좌 관리')+teamMenuRow('connection','store','내 매장 연결','소속 매장·연결 상태·매장코드')+teamMenuRow('notifications','bell','알림 설정','출퇴근·예약 알림')+teamMenuRow('password','lock','비밀번호 변경','계정 보안 관리');
+    html+=teamMenuRow('personal','user','내 개인정보','이름·연락처 관리')+teamMenuRow('connection','store','내 매장 연결','소속 매장·연결 상태·매장코드')+teamMenuRow('notifications','bell','알림 설정','출퇴근·예약 알림')+teamMenuRow('password','lock','비밀번호 변경','계정 보안 관리');
     if(mgr) html+=teamMenuRow('settings','settings','매장 설정','매장 위치·영업일 기준 시간');
     html+=teamMenuRow('help','help','사용법·문의','근무 기록과 사용 안내')+'</div>';
     html+='<button type="button" class="team-logout" id="switch-user-btn">로그아웃</button>';
@@ -10063,11 +9976,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     html += '</select></div>';
     html += '<div style="margin-top:10px;"><label class="field-label">주당 근무시간</label><input class="field-input" type="number" min="0" step="0.5" placeholder="예: 40" '+(c?('data-weeklyhours="'+c.id+'" value="'+escapeHtml(c.weeklyHours||"")+'"'):'id="crew-weeklyhours-input"')+'></div>';
 
-    html += '<div class="row2" style="margin-top:10px;">';
-    html += '<div><label class="field-label">주민번호</label><input class="field-input" type="text" placeholder="000000-0000000" '+(c?('data-resident="'+c.id+'" value="'+escapeHtml(c.residentNumber||"")+'"'):'id="crew-resident-input"')+'></div>';
-    html += '<div><label class="field-label">계좌번호</label><input class="field-input" type="text" placeholder="은행 000-000-000000" '+(c?('data-bank="'+c.id+'" value="'+escapeHtml(c.bankAccount||"")+'"'):'id="crew-bank-input"')+'></div>';
-    html += '</div>';
-
     html += '<div style="margin-top:10px;"><label class="field-label">보건증 만료일</label><input class="field-input" type="date" '+(c?('data-healthcert="'+c.id+'" value="'+(c.healthCertExpiry||"")+'"'):'id="crew-healthcert-input"')+'></div>';
 
     if(c){
@@ -10077,18 +9985,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     }
 
     html += '<div style="margin-top:10px;"><label class="field-label">비고</label><textarea class="field-input" rows="2" style="resize:vertical;" placeholder="메모"'+(c?(' data-notes="'+c.id+'"'):' id="crew-notes-input"')+'>'+(c?escapeHtml(c.notes||""):'')+'</textarea></div>';
-    if(c){
-      html += '<div style="margin-top:10px;"><label class="field-label">추가 항목 (유니폼보증금, 비자종류, 신고가능기간 등)</label>';
-      (c.customFields||[]).forEach((f,idx)=>{
-        html += '<div class="row2" style="margin-top:6px;">';
-        html += '<input class="field-input" type="text" placeholder="항목명" data-customfieldlabel="'+c.id+':'+idx+'" value="'+escapeHtml(f.label||"")+'">';
-        html += '<input class="field-input" type="text" placeholder="값" data-customfieldvalue="'+c.id+':'+idx+'" value="'+escapeHtml(f.value||"")+'">';
-        html += '</div>';
-        html += '<button type="button" class="shift-del" data-customfielddel="'+c.id+':'+idx+'" style="margin-top:2px;">이 항목 삭제</button>';
-      });
-      html += '<button type="button" class="crew-code-btn" data-customfieldadd="'+c.id+'" style="margin-top:8px;">+ 항목 추가</button>';
-      html += '</div>';
-    }
     return html;
   }
 
@@ -10228,10 +10124,10 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
             if(c.employmentSetupRequired) html+='<span class="owner-pending">근무조건 설정 필요</span>';
             if(isOpen){
               html += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">';
-              if(c.selfServiceProfile) html+='<p class="owner-note">이름·전화번호·계좌정보는 직원이 가입할 때 입력한 정보예요. 사장님은 급여와 근무조건을 설정해 주세요.</p>';
+              if(c.selfServiceProfile) html+='<p class="owner-note">이름과 선택 입력한 연락처는 직원이 가입할 때 입력한 정보예요. 사장님은 급여와 근무조건을 설정해 주세요.</p>';
               if(c.employmentSetupRequired) html+='<p class="owner-warning">급여를 입력하고 수정 저장을 눌러 설정을 완료해 주세요.</p>';
               html += '<div class="row2"><div><label class="field-label">이름</label><input class="field-input" type="text" value="'+escapeHtml(c.name)+'" data-editname="'+c.id+'"></div><div class="narrow"><label class="field-label">근무 파트</label><select class="field-input" data-editposition="'+c.id+'"><option value="홀"'+((c.position||"홀")==="홀"?' selected':'')+'>홀</option><option value="주방"'+(c.position==="주방"?' selected':'')+'>주방</option><option value="그 외"'+(c.position==="그 외"?' selected':'')+'>그 외</option></select></div></div>';
-              html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">금액 (원)</label><input class="field-input" type="number" min="0" step="100" value="'+c.wage+'" data-editwage="'+c.id+'"></div><div><label class="field-label">전화번호</label><input class="field-input" type="text" value="'+escapeHtml(c.phone||"")+'" placeholder="전화번호" data-editphone="'+c.id+'"></div></div>';
+              html += '<div class="row2" style="margin-top:8px;"><div><label class="field-label">금액 (원)</label><input class="field-input" type="number" min="0" step="100" value="'+c.wage+'" data-editwage="'+c.id+'"></div><div><label class="field-label">전화번호 (선택)</label><input class="field-input" type="text" value="'+escapeHtml(c.phone||"")+'" placeholder="전화번호" data-editphone="'+c.id+'"></div></div>';
               html += '<div style="margin-top:12px;"><select class="field-input" data-wagetype="'+c.id+'"><option value="hourly"'+(c.wageType!=="monthly"?' selected':'')+'>시급</option><option value="monthly"'+(c.wageType==="monthly"?' selected':'')+'>월급 (일할 계산)</option></select></div>';
               if(!MANEE_STAFF_AUTH_ENABLED) html += '<div class="crew-code-row"><span class="crew-code">'+(c.joinCode||"------")+'</span><button class="crew-code-btn" data-copycode="'+c.joinCode+'">복사</button><button class="crew-code-btn" data-regencode="'+c.id+'">재발급</button></div>';
               html += '<div class="mgr-toggle-row" style="margin-top:10px;"><input type="checkbox" data-toggle-manager="'+c.id+'"'+(c.isManager?' checked':'')+' id="mgr-toggle-'+c.id+'"><label for="mgr-toggle-'+c.id+'">매니저 권한 부여 (매출보고 작성·체크리스트·스케줄 편집 가능)</label></div>';
@@ -10741,33 +10637,6 @@ body:has(> .environment-banner:not([hidden])){flex-direction:column;align-items:
     });
     app.querySelectorAll("[data-weeklyhours]").forEach(inp=>{
       inp.addEventListener("change", ()=> updateCrewExtraField(inp.getAttribute("data-weeklyhours"), "weeklyHours", inp.value.trim()));
-    });
-    app.querySelectorAll("[data-customfieldlabel]").forEach(inp=>{
-      inp.addEventListener("change", ()=>{
-        const [id, idx] = inp.getAttribute("data-customfieldlabel").split(":");
-        updateCrewCustomField(id, Number(idx), "label", inp.value.trim());
-      });
-    });
-    app.querySelectorAll("[data-customfieldvalue]").forEach(inp=>{
-      inp.addEventListener("change", ()=>{
-        const [id, idx] = inp.getAttribute("data-customfieldvalue").split(":");
-        updateCrewCustomField(id, Number(idx), "value", inp.value.trim());
-      });
-    });
-    app.querySelectorAll("[data-customfielddel]").forEach(btn=>{
-      btn.addEventListener("click", ()=>{
-        const [id, idx] = btn.getAttribute("data-customfielddel").split(":");
-        removeCrewCustomField(id, Number(idx));
-      });
-    });
-    app.querySelectorAll("[data-customfieldadd]").forEach(btn=>{
-      btn.addEventListener("click", ()=> addCrewCustomField(btn.getAttribute("data-customfieldadd")));
-    });
-    app.querySelectorAll("[data-resident]").forEach(inp=>{
-      inp.addEventListener("change", ()=> updateCrewExtraField(inp.getAttribute("data-resident"), "residentNumber", inp.value.trim()));
-    });
-    app.querySelectorAll("[data-bank]").forEach(inp=>{
-      inp.addEventListener("change", ()=> updateCrewExtraField(inp.getAttribute("data-bank"), "bankAccount", inp.value.trim()));
     });
     app.querySelectorAll("[data-healthcert]").forEach(inp=>{
       inp.addEventListener("change", ()=> updateCrewHealthCert(inp.getAttribute("data-healthcert"), inp.value));

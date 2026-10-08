@@ -3,8 +3,8 @@
   "submitSalesReport": "1d8a62a35d5adf691cb563a01f5804043748d6685464632b31b6fde40ad7c67f",
   "calcCrewPayFrom": "ff70d2bc639c2109b7069f7e4ec6e82d41cbcb71ff2e9950863cd8b399b5796a",
   "calcCrewPay": "63a5a92eb8ca1ed1b2655e3c68fec00160c816a7e2ea029e53da7edc50c0044f",
-  "addCrewMember": "19960cc0f6d9176d53ecde0633817d2966e8ccc0c6b45c465b00adb727951e09",
-  "renderExtraCrewFields": "bc8aa208c19d93a509e4f48fc0ef11d279d62d931c6ddf9c1fe87d108ff8d136",
+  "addCrewMember": "ea08c8baf77bef24fc9975a719a337988ca6b5b505dbdf1445f24d535d76933e",
+  "renderExtraCrewFields": "3d89f5fb6952d83b155cb88552d382344cbdda55e33e86145dcd853a94955ff2",
   "renderPayrollFlags": "cf3340c68ba0d22b653271dcbcfcba1ea4a436b1ff6986a021190e57ed18f23b",
   "renderHireDates": "51dcd8aec35084d6e89a2306f17e93797a6f5b4b1b541393612d5d846193e10d",
   "renderProbationToggle": "d498bce0c49e307434c4acd1585c3fbe620fb126d59700b6137604caa991b133"

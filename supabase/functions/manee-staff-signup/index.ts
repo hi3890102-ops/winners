@@ -79,16 +79,12 @@ Deno.serve(async (req) => {
     let personal: Record<string, string> | null = null
     if (Object.hasOwn(body, 'personal')) {
       if (!body.personal || typeof body.personal !== 'object' || Array.isArray(body.personal)) {
-        return json({ error: 'invalid_personal_profile', message: '연락처와 계좌정보를 확인해주세요.' }, 400)
+        return json({ error: 'invalid_personal_profile', message: '연락처를 확인해주세요.' }, 400)
       }
-      personal = Object.fromEntries(['phone', 'bank_name', 'bank_account', 'account_holder']
-        .map(key => [key, String(body.personal[key] ?? '').normalize('NFKC').trim()]))
-      if (!/^[+0-9 ()-]{7,24}$/.test(personal.phone) || !/^[0-9 -]{5,40}$/.test(personal.bank_account) ||
-          personal.phone.replace(/[^0-9]/g, '').length < 7 || personal.phone.replace(/[^0-9]/g, '').length > 15 ||
-          personal.bank_account.replace(/[^0-9]/g, '').length < 5 || personal.bank_account.replace(/[^0-9]/g, '').length > 30 ||
-          !personal.bank_name || personal.bank_name.length > 50 || unsafeDisplayText(personal.bank_name) ||
-          !personal.account_holder || personal.account_holder.length > 50 || unsafeDisplayText(personal.account_holder)) {
-        return json({ error: 'invalid_personal_profile', message: '연락처·은행·계좌번호·예금주를 확인해주세요.' }, 400)
+      personal = { phone: String(body.personal.phone ?? '').normalize('NFKC').trim() }
+      if (personal.phone && (!/^[+0-9 ()-]{7,24}$/.test(personal.phone) ||
+          personal.phone.replace(/[^0-9]/g, '').length < 7 || personal.phone.replace(/[^0-9]/g, '').length > 15)) {
+        return json({ error: 'invalid_personal_profile', message: '연락처를 확인해주세요.' }, 400)
       }
     }
 

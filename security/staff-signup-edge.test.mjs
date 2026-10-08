@@ -77,11 +77,19 @@ test('New signup sends allowlisted personal fields in the same service bootstrap
  const personal={phone:'010-0000-0000',bank_name:'은행',bank_account:'000-123-4567',account_holder:'직원',wage:999999,role:'owner',user_id:'someone'};
  const h=harness();const result=await h.run({...defaults,personal});assert.equal(result.status,201);
  const call=h.calls.find(c=>c.name==='bootstrap_staff_account_with_profile');assert.ok(call);
- assert.deepEqual(Object.keys(call.args.p_personal),['phone','bank_name','bank_account','account_holder']);
+ assert.deepEqual(Object.keys(call.args.p_personal),['phone']);
  assert.equal(call.args.p_user_id,'created-user');assert.equal(JSON.stringify(result.body).includes(personal.bank_account),false);
 });
 test('Invalid personal fields are rejected before creating an Auth identity',async()=>{
- for(const personal of [null,[],{phone:'bad'},{phone:'---------',bank_name:'은행',bank_account:'------',account_holder:'직원'}, {phone:'010-0000-0000',bank_name:'은행',bank_account:'<script>',account_holder:'직원'}]){
+ for(const personal of [null,[],{phone:'bad'},{phone:'---------'},{phone:'1'.repeat(16)}]){
   const h=harness();assert.equal((await h.run({...defaults,personal})).status,400);assert.equal(h.calls.some(c=>c.name==='createUser'),false);
+ }
+});
+
+test('Phone is optional and obsolete bank input never reaches persistence',async()=>{
+ for(const personal of [{},{phone:''},{phone:'',bank_account:'<script>',bank_name:'ignored',account_holder:'ignored'}]){
+  const h=harness();assert.equal((await h.run({...defaults,personal})).status,201);
+  const call=h.calls.find(c=>c.name==='bootstrap_staff_account_with_profile');
+  assert.deepEqual(JSON.parse(JSON.stringify(call.args.p_personal)),{phone:''});
  }
 });

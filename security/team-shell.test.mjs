@@ -88,21 +88,16 @@ test('T5: back stays inside the app (no reload / re-login), role labels come fro
 });
 
 // ---- self-managed personal info (client side rules; the server rules are checked on staging by security/self-profile-management-verify.sql + QA)
-test('personal info: masked or malformed values are rejected before saving; conflicts never default to a value', ()=>{
-  const src=slice('  function tpParseBank(t){','  async function teamProfileLoad(){');
-  const {tpCheck,tpParseBank,tpMask}=new Function(src+';return {tpCheck,tpParseBank,tpMask};')();
-  assert.ok(tpCheck({name:'',phone:'',bank:'',account:'000-***-0003',holder:''}).account);   // a masked string is never a valid account number
-  assert.ok(tpCheck({phone:'12',account:''}).phone);
-  assert.deepEqual(tpCheck({name:'A',phone:'010-1234-5678',bank:'X',account:'123-456-789012',holder:'A'}),{});
-  assert.equal(tpMask('123-456-789012'),'123-***-9012');
-  assert.deepEqual(tpParseBank('가상은행 / 123-456-789012 / 홍길동'),{bank:'가상은행',account:'123-456-789012',holder:'홍길동'});
-  assert.equal(tpParseBank('123456789 국민 홍길동'),null);   // not clearly separable -> never guessed
+test('personal info: optional phone validates and conflicting names require a choice', ()=>{
+  const src=slice('  function tpCheck(f){','  async function teamProfileLoad(){');
+  const tpCheck=new Function(src+';return tpCheck;')();
+  assert.deepEqual(tpCheck({name:'A',phone:''}),{});
+  assert.ok(tpCheck({phone:'12'}).phone);
   const build=slice('  function tpBuildEdit(data){','  function tpStoreChanges(ed){');
-  const tpBuildEdit=new Function(tpSrc()+build+';return tpBuildEdit;')();
-  const ed=tpBuildEdit({profile:null,stores:[{store_name:'A',name:'김',phone:'010-1',bank_text:'X / 11111 / 김'},{store_name:'B',name:'김철수',phone:'010-1',bank_text:'원문만 있음 987654'}]});
-  assert.equal(ed.form.name,'');assert.equal(ed.conflict.name,true);      // stores disagree -> the person must choose
-  assert.equal(ed.form.phone,'010-1');                                   // one consistent store value -> proposed, still confirmed by the person
-  assert.equal(ed.form.account,'11111');assert.equal(ed.raw.length,1);   // unparsable text is kept as raw reference, not split
+  const tpBuildEdit=new Function(build+';return tpBuildEdit;')();
+  const ed=tpBuildEdit({profile:null,stores:[{store_name:'A',name:'김',phone:'010-1',bank_text:'retired'},{store_name:'B',name:'김철수',phone:'010-1'}]});
+  assert.equal(ed.form.name,'');assert.equal(ed.conflict.name,true);assert.equal(ed.form.phone,'010-1');
+  assert.deepEqual(Object.keys(ed.form),['name','phone']);
 });
 test('personal info: saving needs an explicit confirm step and reports failures without success', ()=>{
   const save=slice('  async function teamEditSave(){','  async function teamEditReload(){');
@@ -112,38 +107,14 @@ test('personal info: saving needs an explicit confirm step and reports failures 
 
 // ---- SP-01..SP-06 regression tests (the real functions from index.html with stubbed data)
 const tpSrc=()=>slice('  const TP_FIELDS =','  async function teamProfileLoad(){');
-const tp=()=>new Function(tpSrc()+';return {tpParseBank,tpParseMasked,tpMask,tpMaskText,tpCheck,tpBankComplete,tpBankAny,tpBankComposed};')();
-test('SP-06: a bank text is split only when it is exactly three clean parts with a numeric middle', ()=>{
-  const {tpParseBank}=tp();
-  assert.equal(tpParseBank('QA Bank / 12345 / QA Holder / extra'),null);          // four parts
-  assert.equal(tpParseBank('QA Bank / ----- / QA Holder'),null);                  // no digits
-  assert.equal(tpParseBank('QA Bank / 12 34 / QA Holder'),null);                  // fewer than 5 digits
-  assert.equal(tpParseBank('국민 1234567890 홍길동'),null);                          // no separators
-  assert.equal(tpParseBank(' / 12345 / 홍'),null);                                // empty part
-  assert.deepEqual(tpParseBank('QA Bank / 12345 / QA Holder'),{bank:'QA Bank',account:'12345',holder:'QA Holder'});
-});
-test('SP-04: masking never leaves a short or unparsable number readable (same rule as the server)', ()=>{
-  const {tpMask,tpMaskText,tpParseMasked}=tp();
-  for(const a of ['12345','123456','1234567']) assert.equal(tpMask(a),'*****');
-  assert.equal(tpMask('12-34-56-78'),'***-678');
-  assert.equal(tpMask('123-456-789012'),'123-***-9012');
-  assert.equal(tpMaskText('국민 1234567890 홍길동'),'국민 ********** 홍길동');   // unparsable text: every digit hidden
-  assert.equal(tpMaskText('QA Bank / 12345 / QA Holder / extra'),'QA Bank / ***** / QA Holder / extra'.replace('***** / QA Holder / extra','***** / QA Holder / extra'));
-  assert.deepEqual(tpParseMasked('가상은행 / 000-***-0003 / QA'),{bank:'가상은행',account_masked:'000-***-0003',holder:'QA'});
-});
-test('SP-03 / SP-01 client preview follows the server rules (bank bundle, confirmation only for stored values)', ()=>{
-  const f=tpSrc()+slice('  function tpStoreChanges(ed){','  async function teamEditSave(){')+';return tpStoreChanges;';
-  const changes=new Function(f)();
-  const store=(o)=>({store_name:'A',crew_id:'c1',name:'김',phone:'010-1',bank_text:'구은행 / 11111 / 김',self_managed:false,...o});
-  let r=changes({form:{name:'김',phone:'010-2',bank:'',account:'22222',holder:''},stores:[store({})]})[0];
-  assert.equal(r.held,true);assert.ok(!r.diffs.some(d=>d.field==='bank_account'));                  // partial bundle: nothing composed, store text kept
-  assert.equal(r.needsConfirm,true);                                                              // the stored phone would be replaced
-  r=changes({form:{name:'김',phone:'010-2',bank:'새',account:'22222',holder:'예'},stores:[store({})]})[0];
-  assert.ok(r.diffs.some(d=>d.field==='bank_account'&&d.to==='새 / ***** / 예'));                 // masked in the preview
-  r=changes({form:{name:'김',phone:'010-2',bank:'',account:'',holder:''},stores:[store({self_managed:true})]})[0];
-  assert.equal(r.needsConfirm,false);                                                             // already self-managed
-  r=changes({form:{name:'김',phone:'010-1',bank:'',account:'',holder:''},stores:[store({})]})[0];
-  assert.equal(r.diffs.length,0);assert.equal(r.needsConfirm,false);
+test('SP-01 client previews name and optional phone changes and never bank data', ()=>{
+  const changes=new Function(tpSrc()+slice('  function tpStoreChanges(ed){','  async function teamEditSave(){')+';return tpStoreChanges;')();
+  const row={store_name:'A',crew_id:'c1',name:'Kim',phone:'010-1',bank_text:'retired',self_managed:false};
+  let r=changes({form:{name:'Kim',phone:'010-2',bank:'retired'},stores:[row]})[0];
+  assert.equal(r.needsConfirm,true);assert.deepEqual(r.diffs.map(d=>d.field),['phone']);
+  r=changes({form:{name:'Kim',phone:'010-2'},stores:[{...row,self_managed:true}]})[0];
+  assert.equal(r.needsConfirm,false);
+  r=changes({form:{name:'Kim',phone:'010-1'},stores:[row]})[0];assert.equal(r.diffs.length,0);
 });
 test('SP-02: a late reload answer cannot put another account\'s data on screen (success and failure)', async()=>{
   const src=slice('  async function teamEditReload(){','  function tpInput(');
@@ -203,33 +174,12 @@ test('owner home: selected store scopes home cards, numbers and bars', ()=>{
 });
 
 // ---- re-review findings V2-01..V2-04 and the owner UI follow-ups (real functions from index.html, stubbed data)
-const tpAll=()=>new Function(tpSrc()+slice('  function tpBuildEdit(data){','  async function teamEditSave(){')+';return {tpBuildEdit,tpStoreChanges,tpBankComplete,tpBankAny};')();
-test('V2-02: bank / account / holder are one bundle - a partial own bundle is never completed from a store', ()=>{
-  const {tpBuildEdit}=tpAll();
-  const store={store_name:'A',crew_id:'c1',name:'김',phone:'010-1',bank_text:'QA Legacy Bank / 0000011111 / QA Legacy Holder'};
-  // own profile: account number only (bank and holder empty) -> exactly that, nothing borrowed
-  let ed=tpBuildEdit({profile:{person_name:'김',phone:'010-1',bank_name:null,bank_account:'0000022222',account_holder:null,revision:2,source:'self'},stores:[store]});
-  assert.deepEqual([ed.form.bank,ed.form.account,ed.form.holder],['','0000022222','']);
-  assert.ok(!ed.fromStore.bank&&!ed.conflict.bank);
-  assert.equal(ed.bundles.length,1);                     // the store's bundle is only OFFERED, as a whole
-  // no own bank data + one store bundle -> proposed as a whole, marked as coming from the store
-  ed=tpBuildEdit({profile:null,stores:[store]});
-  assert.deepEqual([ed.form.bank,ed.form.account,ed.form.holder],['QA Legacy Bank','0000011111','QA Legacy Holder']);assert.equal(ed.fromStore.bank,true);
-  // stores disagree -> nothing filled in, the person picks one whole bundle
-  ed=tpBuildEdit({profile:null,stores:[store,{...store,store_name:'B',crew_id:'c2',bank_text:'Other / 22222 / Someone'}]});
-  assert.deepEqual([ed.form.bank,ed.form.account,ed.form.holder],['','','']);assert.equal(ed.conflict.bank,true);assert.equal(ed.bundles.length,2);
-  // choosing a store's bundle copies all three fields at once
-  assert.ok(html.includes('data-tp-bundle')&&/ed\(\)\.form\.bank=c\.bank; ed\(\)\.form\.account=c\.account; ed\(\)\.form\.holder=c\.holder/.test(html));
-});
-test('V2-01 client: a confirmation is required per field that was not taken over yet (same rule as the server)', ()=>{
-  const {tpStoreChanges}=tpAll();
-  const row=(ad)=>({store_name:'A',crew_id:'c1',name:'옛이름',phone:'010-0',bank_text:'옛 / 11111 / 옛',adopted:ad,self_managed:Object.values(ad).some(Boolean)});
-  const ed=(r)=>({form:{name:'새이름',phone:'010-9',bank:'새',account:'22222',holder:'새'},stores:[r]});
-  assert.equal(tpStoreChanges(ed(row({name:false,phone:false,bank_account:false})))[0].needsConfirm,true);
-  // name and phone taken over, bank not: the bank text still needs a confirmation although the record is "managed"
-  const half=tpStoreChanges(ed(row({name:true,phone:true,bank_account:false})))[0];
-  assert.equal(half.needsConfirm,true);assert.equal(half.diffs.find(d=>d.field==='bank_account').needs,true);assert.equal(half.diffs.find(d=>d.field==='phone').needs,false);
-  assert.equal(tpStoreChanges(ed(row({name:true,phone:true,bank_account:true})))[0].needsConfirm,false);   // fully taken over: later edits flow
+test('V2-01 client requires confirmation for each name or phone not yet adopted', ()=>{
+  const changes=new Function(tpSrc()+slice('  function tpStoreChanges(ed){','  async function teamEditSave(){')+';return tpStoreChanges;')();
+  const ed=adopted=>({form:{name:'New',phone:'010-9'},stores:[{crew_id:'c1',name:'Old',phone:'010-0',adopted}]});
+  const half=changes(ed({name:true,phone:false}))[0];
+  assert.equal(half.needsConfirm,true);assert.equal(half.diffs.find(d=>d.field==='name').needs,false);assert.equal(half.diffs.find(d=>d.field==='phone').needs,true);
+  assert.equal(changes(ed({name:true,phone:true}))[0].needsConfirm,false);
 });
 const ovSrc=()=>slice('  function ownerYmdAdd(ymd,n){','  function renderOwnerHome(){');
 test('V2-03: sales, labor and food are judged on their own inputs (a failed expense lookup does not hide a readable labor cost)', ()=>{
