@@ -1,0 +1,13 @@
+node_modules/
+www/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/capacitor.plugins.json
+ios/App/build/
+ios/App/DerivedData/
+*.p12
+*.p8
+*.mobileprovision
+*.ipa
+*.xcarchive
+.DS_Store

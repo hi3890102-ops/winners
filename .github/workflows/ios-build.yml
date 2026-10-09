@@ -1,0 +1,56 @@
+name: iOS simulator build
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - 'index.html'
+      - 'owner-ui.css'
+      - 'report-assets/**'
+      - 'config/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:staging
+      - run: npm run sync:ios
+      - name: Compile unsigned simulator app
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/App/DerivedData \
+            CODE_SIGNING_ALLOWED=NO build | tee xcodebuild.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-build-log
+          path: mobile/xcodebuild.log
+          retention-days: 7

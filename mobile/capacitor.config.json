@@ -1,0 +1,7 @@
+{
+  "appId": "kr.co.manee.app",
+  "appName": "매니",
+  "webDir": "www",
+  "ios": { "contentInset": "automatic" },
+  "plugins": { "CapacitorHttp": { "enabled": true } }
+}
